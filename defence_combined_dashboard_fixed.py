@@ -65,16 +65,32 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
+    """Fetch dividend yield, payout ratio & free cash‑flow; scale correctly.
+
+    * Yahoo returns **dividendYield** as `0.045` *or* `4.5` depending on the ticker.
+      ‑ If value < 1 → treat as a fraction → × 100.
+      ‑ Else → already a percentage → leave untouched.
+
+    * **payoutRatio** is always a fraction (0.3 = 30 %).
+    """
     rows = []
     for t in tickers:
         info = yf.Ticker(yf_symbol(t)).info or {}
-        rows.append({
-            "Ticker": t,
-            "Dividend Yield (%)": _safe(info.get("dividendYield")) * 100,
-            "Dividend Payout Ratio (%)": _safe(info.get("payoutRatio")) * 100,
-            "Free Cash Flow (LC m)": _safe(info.get("freeCashflow")) / 1e6,
-        })
-    return pd.DataFrame(rows).set_index("Ticker")
+        dy_raw = _safe(info.get("dividendYield"))
+        pr_raw = _safe(info.get("payoutRatio"))
+
+        dy_pct = dy_raw * 100 if dy_raw < 1 else dy_raw  # scale only if <1
+        pr_pct = pr_raw * 100  # payoutRatio documented as fraction
+
+        rows.append(
+            {
+                "Ticker": t,
+                "Dividend Yield (%)": dy_pct,
+                "Dividend Payout Ratio (%)": pr_pct,
+                "Free Cash Flow (LC m)": _safe(info.get("freeCashflow")) / 1e6,
+            }
+        )
+    return pd.DataFrame(rows).set_index("Ticker").set_index("Ticker")
 
 
 # ════════════════════════════════════════════════════════════════
