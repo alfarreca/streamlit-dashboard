@@ -65,32 +65,43 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Fetch dividend yield, payout ratio & free cash‑flow; scale correctly.
+    """Fetch dividend yield, payout ratio & FCF.
 
-    * Yahoo returns **dividendYield** as `0.045` *or* `4.5` depending on the ticker.
-      ‑ If value < 1 → treat as a fraction → × 100.
-      ‑ Else → already a percentage → leave untouched.
-
-    * **payoutRatio** is always a fraction (0.3 = 30 %).
+    Handles quirky Yahoo scaling and avoids KeyErrors when data are missing.
     """
-    rows = []
+    records: list[dict] = []
     for t in tickers:
-        info = yf.Ticker(yf_symbol(t)).info or {}
+        try:
+            info = yf.Ticker(yf_symbol(t)).info or {}
+        except Exception:
+            info = {}
+
         dy_raw = _safe(info.get("dividendYield"))
         pr_raw = _safe(info.get("payoutRatio"))
+        fcf_raw = _safe(info.get("freeCashflow"))
 
-        dy_pct = dy_raw * 100 if dy_raw < 1 else dy_raw  # scale only if <1
-        pr_pct = pr_raw * 100  # payoutRatio documented as fraction
+        # Dividend yield: some tickers return fraction (<1), others percentage (>1).
+        if np.isnan(dy_raw):
+            dy_pct = np.nan
+        else:
+            dy_pct = dy_raw * 100 if dy_raw < 1 else dy_raw
 
-        rows.append(
+        # Payout ratio is always a fraction per Yahoo docs
+        pr_pct = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
+
+        records.append(
             {
                 "Ticker": t,
                 "Dividend Yield (%)": dy_pct,
                 "Dividend Payout Ratio (%)": pr_pct,
-                "Free Cash Flow (LC m)": _safe(info.get("freeCashflow")) / 1e6,
+                "Free Cash Flow (LC m)": fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan,
             }
         )
-    return pd.DataFrame(rows).set_index("Ticker").set_index("Ticker")
+
+    df = pd.DataFrame.from_records(records)
+    if "Ticker" in df.columns:
+        df = df.set_index("Ticker").sort_index()
+    return df.set_index("Ticker").set_index("Ticker")
 
 
 # ════════════════════════════════════════════════════════════════
