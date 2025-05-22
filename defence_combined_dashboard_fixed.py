@@ -1,18 +1,55 @@
 # -*- coding: utf-8 -*-
 
-import streamlit as st as st import pandas as pd import numpy as np import yfinance as yf import requests import re from io import StringIO
+"""Defense Sector Multi‑Ticker Dashboard (Streamlit)
+
+Paste any combination of `EXCHANGE:SYMBOL` tickers in the sidebar, click
+**Load Tickers**, and the app recalculates technical + fundamental metrics and
+a weekly‑price chart.
+
+Works both locally (`streamlit run`) and on Streamlit Community Cloud.
+"""
+
+import re
+from io import StringIO
+
+import numpy as np
+import pandas as pd
+import requests
+import streamlit as st
+import yfinance as yf
 
 # ────────────────────────────────────────────────────────────────
 
-# Helper utilities
+# Helpers
 
 # ────────────────────────────────────────────────────────────────
 
-def yf\_symbol(mixed: str) -> str: """Convert an 'EXCHANGE\:SYMBOL' string to the Yahoo Finance code.""" if ":" not in mixed: return mixed  # already a Yahoo‑style ticker exchange, symbol = mixed.split(":", 1) suffix = { "ETR": "DE",  # Frankfurt / Xetra "STO": "ST",  # Stockholm "EPA": "PA",  # Paris "LON": "L",   # London "BIT": "MI",  # Milan "NYSE": "",   # NYSE (no suffix) "NASDAQ": "",  # Nasdaq (no suffix) }.get(exchange.upper(), "") return f"{symbol}{('.' + suffix) if suffix else ''}"
+def yf\_symbol(mixed: str) -> str:
+"""Convert an 'EXCHANGE\:SYMBOL' code → Yahoo Finance symbol."""
+if ":" not in mixed:
+return mixed
+exch, sym = mixed.split(":", 1)
+suffix\_map = {
+"ETR": "DE",  # Xetra / Frankfurt
+"STO": "ST",  # Stockholm
+"EPA": "PA",  # Paris
+"LON": "L",   # London
+"BIT": "MI",  # Milan
+"NYSE": "",   # NYSE
+"NASDAQ": "",  # Nasdaq
+}
+suf = suffix\_map.get(exch.upper(), "")
+return f"{sym}{('.' + suf) if suf else ''}"
 
-def \_safe(value): """Return float(value) or NaN.""" try: return float(value) except (TypeError, ValueError): return np.nan
+def parse\_input(text: str) -> tuple\[str, ...]:
+"""Split user text on commas / whitespace, drop empties."""
+return tuple(tok.strip() for tok in re.split(r"\[ ,]+", text) if tok.strip())
 
-def parse\_ticker\_input(text: str) -> tuple\[str, ...]: """Split user input on commas / whitespace → tuple of non‑empty strings.""" return tuple(tok.strip() for tok in re.split(r"\[ ,]+", text.strip()) if tok.strip())
+def \_safe(val):
+try:
+return float(val)
+except (TypeError, ValueError):
+return np.nan
 
 # ────────────────────────────────────────────────────────────────
 
@@ -20,30 +57,37 @@ def parse\_ticker\_input(text: str) -> tuple\[str, ...]: """Split user input on 
 
 # ────────────────────────────────────────────────────────────────
 
-@st.cache\_data(show\_spinner=False) def fetch\_weekly\_ohlcv(ticker: str) -> pd.DataFrame: """Retrieve 1‑year daily data → resample to weekly Friday Close & Volume. Falls back to Stooq if Yahoo returns nothing. """ ysym = yf\_symbol(ticker) df = ( yf.Ticker(ysym) .history(period="1y", interval="1d") .loc\[:, \["Close", "Volume"]] )
+@st.cache\_data(show\_spinner=False)
+def fetch\_weekly\_ohlcv(ticker: str) -> pd.DataFrame:
+ysym = yf\_symbol(ticker)
+daily = yf.Ticker(ysym).history(period="1y", interval="1d")\[\["Close", "Volume"]]
 
 ```
-if df.empty:  # fallback to Stooq daily CSV (no volume)
-    sym = ysym.split(".")[0].lower()
+if daily.empty:
+    code = ysym.split(".")[0].lower()
     try:
-        txt = requests.get(f"https://stooq.com/q/d/l/?s={sym}&i=d", timeout=5).text
+        txt = requests.get(f"https://stooq.com/q/d/l/?s={code}&i=d", timeout=5).text
         if "Date" in txt:
-            df = pd.read_csv(StringIO(txt), parse_dates=["Date"], index_col="Date").loc[:, ["Close"]]
-            df["Volume"] = np.nan
+            daily = pd.read_csv(StringIO(txt), parse_dates=["Date"], index_col="Date")[["Close"]]
+            daily["Volume"] = np.nan
     except requests.RequestException:
-        pass
-
-if df.empty:
-    return df
+        return pd.DataFrame()
 
 weekly = pd.DataFrame({
-    "Close": df["Close"].resample("W-FRI").last(),
-    "Volume": df["Volume"].resample("W-FRI").sum(min_count=1),
+    "Close": daily["Close"].resample("W-FRI").last(),
+    "Volume": daily["Volume"].resample("W-FRI").sum(min_count=1),
 }).dropna(subset=["Close"])
 return weekly
 ```
 
-@st.cache\_data(show\_spinner=False) def fetch\_fundamentals(tickers: tuple\[str, ...]) -> pd.DataFrame: """Pull dividend yield, payout ratio, and free‑cash‑flow for each ticker.""" rows = \[] for t in tickers: try: info = yf.Ticker(yf\_symbol(t)).info or {} except Exception: info = {}
+@st.cache\_data(show\_spinner=False)
+def fetch\_fundamentals(tickers: tuple\[str, ...]) -> pd.DataFrame:
+rows = \[]
+for t in tickers:
+try:
+info = yf.Ticker(yf\_symbol(t)).info or {}
+except Exception:
+info = {}
 
 ```
     raw_dy = _safe(info.get("dividendYield"))
@@ -62,18 +106,18 @@ return weekly
         "Free Cash Flow (LC m)": fcf_m,
     })
 
-df = pd.DataFrame.from_records(rows).set_index("Ticker")
-# Ensure all requested tickers exist as index rows (NaNs if data missing)
-return df.reindex(tickers)
+return pd.DataFrame(rows).set_index("Ticker").reindex(tickers)
 ```
 
 # ────────────────────────────────────────────────────────────────
 
-# Technical calculations
+# Technical metrics
 
 # ────────────────────────────────────────────────────────────────
 
-def compute\_technicals(df: pd.DataFrame) -> dict\[str, float | str]: if df.empty or len(df) < 20: return {}
+def tech\_metrics(df: pd.DataFrame) -> dict\[str, float | str]:
+if df.empty or len(df) < 20:
+return {}
 
 ```
 latest = df.iloc[-1]
@@ -90,7 +134,7 @@ return {
     "Volume": latest.Volume,
     "Vol MA10": df["Volume"].rolling(10).mean().iloc[-1],
     "Signal": "Buy" if ma10.iloc[-1] > ma20.iloc[-1] else "Sell",
-    "Last Updated": latest.name.strftime("%m/%d/%Y"),
+    "Last Updated": latest.name.strftime("%Y-%m-%d"),
     "Crossover": "Above" if latest.Close > ma20.iloc[-1] else "Below",
     "Divergence": (
         "Overbought" if latest.Close >= ma10.iloc[-1] * 1.1 else (
@@ -107,57 +151,47 @@ return {
 
 # ────────────────────────────────────────────────────────────────
 
-def main(): st.set\_page\_config(page\_title="Defense Sector Dashboard", layout="wide") st.markdown("## \:shield: Defense Sector: Weekly Signal Dashboard")
+def main():
+st.set\_page\_config(page\_title="Defense Sector Dashboard", layout="wide")
+st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
+
+\_default = "ETR\:RHM STO\:SAAB-B EPA\:HO LON\:BA BIT\:LDO"
+with st.sidebar:
+st.header("Tickers")
+user\_text = st.text\_input("Enter tickers", \_default)
+if st.button("Load Tickers"):
+st.session\_state.tickers = parse\_input(user\_text)
+tickers = st.session\_state.get("tickers", parse\_input(\_default))
 
 ```
-DEFAULTS = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
-
-# ——— Sidebar controls ———
-with st.sidebar:
-    st.header("Ticker Configuration")
-    ticker_input = st.text_input(
-        "Enter tickers (comma or space separated)",
-        value=st.session_state.get("_ticker_text", DEFAULTS),
-    )
-    if st.button("Load Tickers", help="Fetch data for the entered tickers"):
-        parsed = parse_ticker_input(ticker_input)
-        if parsed:
-            st.session_state.tickers = parsed
-            st.session_state._ticker_text = ticker_input
-            st.success("Tickers loaded! ↻ Refresh if the table hasn't updated.")
-
-tickers = st.session_state.get("tickers", parse_ticker_input(DEFAULTS))
-
-# ——— Optional table toggle ———
 show_table = st.checkbox("Show All Tickers Table", True)
 
-# ——— Data pulls ———
-fund_df = fetch_fundamentals(tickers)
-tech_df = pd.DataFrame({t: compute_technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
+fund = fetch_fundamentals(tickers)
+tech = pd.DataFrame({t: tech_metrics(fetch_weekly_ohlcv(t)) for t in tickers}).T
 
-combined = pd.concat([tech_df, fund_df], axis=1).round(2)
+combo = pd.concat([tech, fund], axis=1).round(2)
 
 if show_table:
-    st.subheader(":bar_chart: All Tickers – Technical & Fundamental Metrics")
+    st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
     st.dataframe(
-        combined.style.apply(
+        combo.style.apply(
             lambda s: ["background-color:#FFEB3B" if x == s.max() else "" for x in s],
             subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"],
         ),
         use_container_width=True,
     )
 
-# ——— Chart ———
-sel = st.selectbox("Select a Ticker to View Chart", tickers)
-wk = fetch_weekly_ohlcv(sel)
-if wk.empty:
-    st.warning("No price data available for the selected ticker.")
+sel = st.selectbox("Select Ticker to View Chart", tickers)
+df_w = fetch_weekly_ohlcv(sel)
+if df_w.empty:
+    st.warning("No price data available.")
 else:
-    plot_df = wk.copy()
-    plot_df["MA10"] = plot_df["Close"].rolling(10).mean()
-    plot_df["MA20"] = plot_df["Close"].rolling(20).mean()
-    st.subheader(f":chart_with_upwards_trend: Weekly Price Chart: {sel}")
-    st.line_chart(plot_df[["Close", "MA10", "MA20"]])
+    chart = df_w.copy()
+    chart["MA10"] = chart["Close"].rolling(10).mean()
+    chart["MA20"] = chart["Close"].rolling(20).mean()
+    st.subheader(f"📈 Weekly Price Chart: {sel}")
+    st.line_chart(chart[["Close", "MA10", "MA20"]])
 ```
 
-if **name** == "**main**": main()
+if **name** == "**main**":
+main()
