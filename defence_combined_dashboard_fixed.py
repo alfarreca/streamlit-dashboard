@@ -65,11 +65,13 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Fetch dividend yield, payout ratio & FCF.
+    """Robust fundamentals fetch that *never* raises KeyError.
 
-    Handles quirky Yahoo scaling and avoids KeyErrors when data are missing.
+    Returns a DataFrame *indexed by the original `tickers` order* so the rest of
+    the app can join/concat without worry—even if Yahoo yields zero data.
     """
     records: list[dict] = []
+
     for t in tickers:
         try:
             info = yf.Ticker(yf_symbol(t)).info or {}
@@ -77,34 +79,36 @@ def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
             info = {}
 
         dy_raw = _safe(info.get("dividendYield"))
+        dy_pct = dy_raw * 100 if (not np.isnan(dy_raw) and dy_raw < 1) else dy_raw
+
         pr_raw = _safe(info.get("payoutRatio"))
-        fcf_raw = _safe(info.get("freeCashflow"))
-
-        # Dividend yield: some tickers return fraction (<1), others percentage (>1).
-        if np.isnan(dy_raw):
-            dy_pct = np.nan
-        else:
-            dy_pct = dy_raw * 100 if dy_raw < 1 else dy_raw
-
-        # Payout ratio is always a fraction per Yahoo docs
         pr_pct = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
 
-        records.append(
-            {
-                "Ticker": t,
-                "Dividend Yield (%)": dy_pct,
-                "Dividend Payout Ratio (%)": pr_pct,
-                "Free Cash Flow (LC m)": fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan,
-            }
-        )
+        fcf_raw = _safe(info.get("freeCashflow"))
+        fcf_m = fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan
+
+        records.append({
+            "Ticker": t,
+            "Dividend Yield (%)": dy_pct,
+            "Dividend Payout Ratio (%)": pr_pct,
+            "Free Cash Flow (LC m)": fcf_m,
+        })
+
+    # Empty fetch guard ---------------------------------------------------------
+    if not records:
+        return pd.DataFrame(index=tickers)
 
     df = pd.DataFrame.from_records(records)
-    # Guard against column‑missing edge cases
+
+    # Yahoo can return no info for a ticker; ensure column still exists
     if "Ticker" in df.columns:
-        df = df.set_index("Ticker").sort_index()
+        df = df.set_index("Ticker")
     else:
-        # Fallback: fabricate an index so the caller still gets rows
-        df.index = [t for t in tickers]
+        df.index = list(tickers)
+
+    # Re‑index to guarantee *all* requested tickers appear in order
+    df = df.reindex(index=tickers)
+
     return df.set_index("Ticker").set_index("Ticker")
 
 
