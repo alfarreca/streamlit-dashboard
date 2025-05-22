@@ -177,13 +177,25 @@ for c in fund_cols:
 st.subheader("📊 All Tickers — Technical & Fundamental Metrics")
 st.dataframe(sty, use_container_width=True)
 
-# --- chart selector (still relies on technical data) ---
+# --- chart selector (fetch fresh data using mapped ticker) ---
 sel = st.selectbox("Select Ticker to View Chart", list(TICKERS.keys()), index=0)
-if sel in tech:
-    st.subheader(f"📈 Weekly Price Chart: {sel}")
-    st.line_chart(tech[sel][0][["Close", "MA10", "MA20"]].dropna())
-else:
-    st.info("Price data not available for selected ticker.")
+ticker_symbol = TICKERS[sel]  # e.g., "ETR:RHM" → "RHM.DE"
+
+st.subheader(f"📈 Weekly Price Chart: {sel} ({ticker_symbol})")
+
+try:
+    df = yf.Ticker(ticker_symbol).history(period="6mo", interval="1d")
+    df["MA10"] = df["Close"].rolling(10).mean()
+    df["MA20"] = df["Close"].rolling(20).mean()
+
+    if df.empty:
+        st.info("⚠️ Price data not available for selected ticker.")
+    else:
+        st.line_chart(df[["Close", "MA10", "MA20"]].dropna())
+
+except Exception as e:
+    st.error(f"❌ Error loading data for {ticker_symbol}: {e}")
+
 
 
 # --- Simple test block (for debugging) ---
