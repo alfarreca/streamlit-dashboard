@@ -1,4 +1,6 @@
-import streamlit as st import pandas as pd import numpy as np import yfinance as yf import requests import re from io import StringIO
+# -*- coding: utf-8 -*-
+
+import streamlit as st as st import pandas as pd import numpy as np import yfinance as yf import requests import re from io import StringIO
 
 # ────────────────────────────────────────────────────────────────
 
