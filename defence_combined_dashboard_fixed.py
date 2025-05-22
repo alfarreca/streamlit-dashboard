@@ -10,115 +10,107 @@ from io import StringIO
 # ════════════════════════════════════════════════════════════════
 
 def yf_symbol(mixed_ticker: str) -> str:
-    """Turn an 'EXCHANGE:SYMBOL' string into the Yahoo‑Finance‑friendly code."""
+    """Convert 'EXCHANGE:SYMBOL' → Yahoo Finance symbol (e.g. ETR:RHM → RHM.DE)."""
     if ":" not in mixed_ticker:
-        return mixed_ticker  # already Yahoo format
+        return mixed_ticker
     exch, symbol = mixed_ticker.split(":", 1)
-    suffix_map = {
-        "ETR": "DE",  # Frankfurt / Xetra
+    suf = {
+        "ETR": "DE",  # Xetra / Frankfurt
         "STO": "ST",  # Stockholm
         "EPA": "PA",  # Paris
         "LON": "L",   # London
         "BIT": "MI",  # Milan
-    }
-    suffix = suffix_map.get(exch.upper())
-    return f"{symbol}.{suffix}" if suffix else mixed_ticker
+    }.get(exch.upper())
+    return f"{symbol}.{suf}" if suf else mixed_ticker
 
 
-def _safe(val):
-    return np.nan if val is None else val
+def _safe(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return np.nan
 
 
 @st.cache_data(show_spinner=False)
 def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
-    """
-    Returns a **weekly‑Friday** OHLCV dataframe (Close + Volume at minimum).
-    Falls back to Stooq if Yahoo has no data.
-    """
+    """Return weekly‑Friday OHLCV dataframe (Close+Volume at minimum)."""
     ysym = yf_symbol(ticker)
 
-    # 1️⃣ primary — Yahoo Finance ------------------------------------------------
     df = (
         yf.Ticker(ysym)
         .history(period="1y", interval="1d")
         .loc[:, ["Close", "Volume"]]
     )
 
-    # 2️⃣ fallback — Stooq (Close only) ----------------------------------------
     if df.empty:
         csv_sym = ysym.split(".")[0].lower()
         url = f"https://stooq.com/q/d/l/?s={csv_sym}&i=d"
         try:
-            resp = requests.get(url, timeout=5)
-            resp.raise_for_status()
-            if "Date" in resp.text:
-                df = pd.read_csv(
-                    StringIO(resp.text),
-                    parse_dates=["Date"],
-                    index_col="Date",
-                ).loc[:, ["Close"]]
-                df["Volume"] = np.nan  # no volume in Stooq daily CSV
+            txt = requests.get(url, timeout=5).text
+            if "Date" in txt:
+                df = pd.read_csv(StringIO(txt), parse_dates=["Date"], index_col="Date").loc[:, ["Close"]]
+                df["Volume"] = np.nan
         except requests.RequestException:
             df = pd.DataFrame()
 
-    # 3️⃣ consolidate to weekly‑Friday -----------------------------------------
     if df.empty:
         return df
 
-    df = df.sort_index()
-
-    price = df["Close"].resample("W-FRI").last()
-    vol = df["Volume"].resample("W-FRI").sum(min_count=1)
-    dfw = pd.concat({"Close": price, "Volume": vol}, axis=1).dropna(subset=["Close"])
-    return dfw
+    wk = pd.DataFrame({
+        "Close": df["Close"].resample("W-FRI").last(),
+        "Volume": df["Volume"].resample("W-FRI").sum(min_count=1),
+    }).dropna(subset=["Close"])
+    return wk
 
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Pull essential valuation & income metrics from Yahoo Finance."""
     rows = []
     for t in tickers:
         info = yf.Ticker(yf_symbol(t)).info or {}
-        rows.append(
-            {
-                "Ticker": t,
-                "Dividend Yield (%)": _safe(info.get("dividendYield")) * 100,
-                "Dividend Payout Ratio (%)": _safe(info.get("payoutRatio")) * 100,
-                "Free Cash Flow (LC m)": _safe(info.get("freeCashflow")) / 1e6,
-            }
-        )
+        rows.append({
+            "Ticker": t,
+            "Dividend Yield (%)": _safe(info.get("dividendYield")) * 100,
+            "Dividend Payout Ratio (%)": _safe(info.get("payoutRatio")) * 100,
+            "Free Cash Flow (LC m)": _safe(info.get("freeCashflow")) / 1e6,
+        })
     return pd.DataFrame(rows).set_index("Ticker")
 
 
 # ════════════════════════════════════════════════════════════════
-# Computations
+# Technical metrics per‑ticker
 # ════════════════════════════════════════════════════════════════
 
-def compute_technical_metrics(dfw: pd.DataFrame) -> dict[str, float | str]:
-    """Return a dict with the metrics shown in the summary table."""
-    latest = dfw.iloc[-1]
+def tech_metrics(df: pd.DataFrame) -> dict:
+    """Return metrics including previous values for table display."""
+    latest = df.iloc[-1]
+    prev = df.iloc[-2] if len(df) > 1 else latest
 
-    ma10 = dfw["Close"].rolling(10).mean().iloc[-1]
-    ma20 = dfw["Close"].rolling(20).mean().iloc[-1]
-    vol_ma10 = dfw["Volume"].rolling(10).mean().iloc[-1]
+    ma10 = df["Close"].rolling(10).mean()
+    ma20 = df["Close"].rolling(20).mean()
 
-    crossover = "Above" if latest.Close > ma20 else "Below"
+    prev_ma10 = ma10.iloc[-2] if len(df) > 1 else np.nan
+
+    signal = "Buy" if ma10.iloc[-1] > ma20.iloc[-1] else "Sell"
+    crossover = "Above" if latest.Close > ma20.iloc[-1] else "Below"
     divergence = (
-        "Overbought" if latest.Close >= ma10 * 1.1 else ("Oversold" if latest.Close <= ma10 * 0.9 else "OK")
+        "Overbought" if latest.Close >= ma10.iloc[-1] * 1.1 else (
+            "Oversold" if latest.Close <= ma10.iloc[-1] * 0.9 else "OK")
     )
-    signal = "Buy" if ma10 > ma20 else "Sell"
 
     return {
         "Price": latest.Close,
-        "MA10": ma10,
-        "MA20": ma20,
-        "% vs MA10": (latest.Close - ma10) / ma10 * 100,
+        "MA10": ma10.iloc[-1],
+        "MA20": ma20.iloc[-1],
+        "% vs MA10": (latest.Close - ma10.iloc[-1]) / ma10.iloc[-1] * 100,
         "Volume": latest.Volume,
-        "Vol MA10": vol_ma10,
+        "Vol MA10": df["Volume"].rolling(10).mean().iloc[-1],
         "Signal": signal,
         "Last Updated": latest.name.strftime("%m/%d/%Y"),
         "Crossover": crossover,
         "Divergence": divergence,
+        "Prev Price": prev.Close,
+        "Prev MA10": prev_ma10,
     }
 
 
@@ -126,61 +118,46 @@ def compute_technical_metrics(dfw: pd.DataFrame) -> dict[str, float | str]:
 # Streamlit UI
 # ════════════════════════════════════════════════════════════════
 
-def main() -> None:
+def main():
     st.set_page_config(page_title="Defense Sector: Weekly Signal Dashboard", layout="wide")
-
-    st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
+    st.markdown("## :shield: Defense Sector: Weekly Signal Dashboard")
 
     tickers = (
         "ETR:RHM",   # Rheinmetall
-        "STO:SAAB-B", # Saab AB B‑shares
+        "STO:SAAB-B", # Saab
         "EPA:HO",    # Thales
         "LON:BA",    # BAE Systems
         "BIT:LDO",   # Leonardo
     )
 
-    # ─── Controls ────────────────────────────────────────────────
-    show_table = st.checkbox("Show All Tickers Table", value=True)
-    selected = st.selectbox("Select a Ticker to View Chart", tickers, index=0)
+    show_table = st.checkbox("Show All Tickers Table", True)
+    sel = st.selectbox("Select a Ticker to View Chart", tickers)
 
-    # ─── Core data pulls (cached) ────────────────────────────────
-    fund_df = fetch_fundamentals(tickers)
+    fund = fetch_fundamentals(tickers)
 
-    tech_rows = {}
-    for t in tickers:
-        dfw = fetch_weekly_ohlcv(t)
-        tech_rows[t] = compute_technical_metrics(dfw) if not dfw.empty else {}
+    tech = {t: tech_metrics(fetch_weekly_ohlcv(t)) for t in tickers}
+    tech_df = pd.DataFrame.from_dict(tech, orient="index")
 
-    tech_df = pd.DataFrame.from_dict(tech_rows, orient="index")
-
-    full_df = pd.concat([tech_df, fund_df], axis=1).round(2)
-    full_df = full_df.reindex(columns=[
-        "Price", "MA10", "MA20", "% vs MA10", "Volume", "Vol MA10", "Signal", "Last Updated",
-        "Crossover", "Divergence", "Prev Price", "Prev MA10",  # placeholders to match screenshot
-        "Dividend Yield (%)", "Dividend Payout Ratio (%)", "Free Cash Flow (LC m)",
-    ])
-
-    # highlight big dividend/yield columns
-    def _highlight(series: pd.Series):
-        return ["background-color: #FFEB3B" if not pd.isna(x) and x == series.max() else "" for x in series]
+    table = pd.concat([tech_df, fund], axis=1).round(2)
 
     if show_table:
-        st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
+        st.subheader(":bar_chart: All Tickers – Technical & Fundamental Metrics")
         st.dataframe(
-            full_df.style.apply(_highlight, subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"]),
+            table.style.apply(lambda s: ["background-color:#FFEB3B" if x == s.max() else "" for x in s],
+                               subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"]),
             use_container_width=True,
         )
 
-    # ─── Chart ───────────────────────────────────────────────────
-    df_sel = fetch_weekly_ohlcv(selected)
-    if df_sel.empty:
-        st.warning("No price data available for the selected ticker.")
+    # ─── chart ───
+    df_chart = fetch_weekly_ohlcv(sel)
+    if df_chart.empty:
+        st.warning("Price data not available for the selected ticker.")
     else:
-        dfp = df_sel.copy()
-        dfp["MA10"] = dfp["Close"].rolling(10).mean()
-        dfp["MA20"] = dfp["Close"].rolling(20).mean()
-        st.subheader(f"📈 Weekly Price Chart: {selected}")
-        st.line_chart(dfp[["Close", "MA10", "MA20"]])
+        plot = df_chart.copy()
+        plot["MA10"] = plot["Close"].rolling(10).mean()
+        plot["MA20"] = plot["Close"].rolling(20).mean()
+        st.subheader(f":chart_with_upwards_trend: Weekly Price Chart: {sel}")
+        st.line_chart(plot[["Close", "MA10", "MA20"]])
 
 
 if __name__ == "__main__":
