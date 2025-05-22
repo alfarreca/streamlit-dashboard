@@ -184,3 +184,18 @@ if sel in tech:
     st.line_chart(tech[sel][0][["Close", "MA10", "MA20"]].dropna())
 else:
     st.info("Price data not available for selected ticker.")
+
+
+# --- Simple test block (for debugging) ---
+import yfinance as yf
+
+try:
+    rhm = yf.Ticker("RHM.DE").history(period="1mo")
+    st.subheader("🔍 Test: RHM.DE price fetch")
+    if rhm.empty:
+        st.error("⚠️ RHM.DE returned no data.")
+    else:
+        st.success(f"✅ Fetched {len(rhm)} rows.")
+        st.line_chart(rhm["Close"])
+except Exception as e:
+    st.error(f"Error fetching RHM.DE: {e}")
