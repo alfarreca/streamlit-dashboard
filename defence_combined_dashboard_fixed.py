@@ -99,8 +99,12 @@ def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
         )
 
     df = pd.DataFrame.from_records(records)
+    # Guard against column‑missing edge cases
     if "Ticker" in df.columns:
         df = df.set_index("Ticker").sort_index()
+    else:
+        # Fallback: fabricate an index so the caller still gets rows
+        df.index = [t for t in tickers]
     return df.set_index("Ticker").set_index("Ticker")
 
 
