@@ -57,8 +57,34 @@ def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
     for raw in tickers:
         t = yf_ticker(raw)
         info = yf.Ticker(t).info or {}
+        hist = yf.Ticker(t).history(period="6mo", interval="1wk")
+
+        price = hist["Close"].iloc[-1] if not hist.empty else np.nan
+        ma10 = hist["Close"].rolling(10).mean().iloc[-1] if len(hist) >= 10 else np.nan
+        ma20 = hist["Close"].rolling(20).mean().iloc[-1] if len(hist) >= 20 else np.nan
+        vol = hist["Volume"].iloc[-1] if not hist.empty else np.nan
+        vol_ma10 = hist["Volume"].rolling(10).mean().iloc[-1] if len(hist) >= 10 else np.nan
+
+        pct_vs_ma10 = ((price - ma10) / ma10 * 100) if ma10 and not np.isnan(ma10) else np.nan
+        signal = "Buy" if ma10 > ma20 else "Sell" if not np.isnan(ma10) and not np.isnan(ma20) else "n/a"
+        crossover = "Above" if price > ma10 else "Below" if not np.isnan(ma10) else "n/a"
+        divergence = "Overbought" if pct_vs_ma10 > 10 else "Oversold" if pct_vs_ma10 < -10 else "OK"
+        prev_price = hist["Close"].iloc[-2] if len(hist) >= 2 else np.nan
+        last_updated = hist.index[-1].strftime("%Y-%m-%d") if not hist.empty else ""
+
         rows.append({
             "Ticker": raw,
+            "Price": price,
+            "MA10": ma10,
+            "MA20": ma20,
+            "% vs MA10": pct_vs_ma10,
+            "Volume": vol,
+            "Vol MA10": vol_ma10,
+            "Signal": signal,
+            "Last Updated": last_updated,
+            "Crossover": crossover,
+            "Divergence": divergence,
+            "Prev Price": prev_price,
             "Dividend Yield (%)": safe_mul(info.get("dividendYield"), 100),
             "Payout Ratio (%)": safe_mul(info.get("payoutRatio"), 100),
             "Free Cash Flow (m)": safe_div(info.get("freeCashflow"), 1e6),
@@ -66,15 +92,6 @@ def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
             "P/E (TTM)": info.get("trailingPE", np.nan),
         })
     return pd.DataFrame(rows).set_index("Ticker").sort_index()
-
-def compute_signal(df: pd.DataFrame) -> str:
-    if len(df) < 20:
-        return "n/a"
-    ma10 = df["Close"].rolling(10).mean().iloc[-1]
-    ma20 = df["Close"].rolling(20).mean().iloc[-1]
-    if np.isnan(ma10) or np.isnan(ma20):
-        return "n/a"
-    return "Buy" if ma10 > ma20 else "Sell"
 
 # ──────────────────────────── Streamlit ────────────────────────────
 
@@ -90,44 +107,38 @@ def main() -> None:
         st.info("\u2139\ufe0f Please enter ticker symbols above and press Enter to load the dashboard.")
         return
 
-    # Load button to trigger processing
     if st.button("Load Tickers"):
         with st.spinner("Fetching data..."):
-            fundamentals = fetch_fundamentals(tuple(tickers))
-            signals, last_dates = [], []
-            for tick in tickers:
-                wk = fetch_weekly_prices(tick)
-                if wk.empty:
-                    signals.append("n/a")
-                    last_dates.append("")
-                else:
-                    signals.append(compute_signal(wk))
-                    last_dates.append(wk.index[-1].strftime("%Y-%m-%d"))
-
-            fundamentals["MA Signal"] = signals
-            fundamentals["Last Price Date"] = last_dates
+            df = fetch_fundamentals(tuple(tickers))
 
             st.markdown("---")
             st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
             st.dataframe(
-                fundamentals.style.format({
+                df.style.format({
+                    "Price": "{:.2f}",
+                    "MA10": "{:.2f}",
+                    "MA20": "{:.2f}",
+                    "% vs MA10": "{:.2f}%",
+                    "Volume": "{:,.0f}",
+                    "Vol MA10": "{:,.0f}",
                     "Dividend Yield (%)": "{:.2f}",
                     "Payout Ratio (%)": "{:.2f}",
                     "Free Cash Flow (m)": "{:,.0f}",
+                    "P/E (TTM)": "{:.2f}"
                 }),
                 use_container_width=True,
             )
 
             st.markdown("---")
-            selected = st.selectbox("Select a ticker to view the weekly chart:", tickers)
-            chart_df = fetch_weekly_prices(selected)
+            selection = st.selectbox("Select a ticker to view the weekly chart:", tickers)
+            chart_df = fetch_weekly_prices(selection)
 
             if chart_df.empty:
                 st.warning("\u26a0\ufe0f No price data available for this ticker.")
             else:
                 chart_df["MA10"] = chart_df["Close"].rolling(10).mean()
                 chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
-                st.subheader(f"📈 Weekly Close & Moving Averages — {selected}")
+                st.subheader(f"📈 Weekly Close & Moving Averages — {selection}")
                 st.line_chart(chart_df[["Close", "MA10", "MA20"]])
 
 if __name__ == "__main__":
