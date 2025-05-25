@@ -8,16 +8,19 @@ from io import StringIO
 # ──────────────────────────── Helpers ────────────────────────────
 
 def yf_ticker(ticker: str) -> str:
+    """Convert an 'EXCHANGE:SYMBOL' string to the Yahoo Finance symbol."""
     try:
         exch, sym = ticker.split(":")
     except ValueError:
+        # Already Yahoo format
         return ticker
+
     suffix_map = {
-        "ETR": "DE",
-        "STO": "ST",
-        "EPA": "PA",
-        "LON": "L",
-        "BIT": "MI",
+        "ETR": "DE",  # Frankfurt / Xetra
+        "STO": "ST",  # Stockholm
+        "EPA": "PA",  # Paris
+        "LON": "L",   # London
+        "BIT": "MI",  # Milan
     }
     suffix = suffix_map.get(exch.upper())
     if suffix is None:
@@ -25,13 +28,16 @@ def yf_ticker(ticker: str) -> str:
     return f"{sym}.{suffix}"
 
 def safe_mul(val, factor):
+    """Multiply only if *val* is numeric, else return NaN."""
     return float(val) * factor if isinstance(val, (int, float)) else np.nan
 
 def safe_div(val, divisor):
+    """Divide only if *val* is numeric, else return NaN."""
     return float(val) / divisor if isinstance(val, (int, float)) else np.nan
 
 @st.cache_data(show_spinner=False)
 def fetch_weekly_prices(ticker: str) -> pd.DataFrame:
+    """Retrieve a 1‑year weekly‑Friday Close series, with Stooq fallback."""
     yf_sym = yf_ticker(ticker)
     df = yf.Ticker(yf_sym).history(period="1y", interval="1d")[["Close"]]
 
@@ -53,21 +59,25 @@ def fetch_weekly_prices(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
+    """Pulls key metrics using yfinance, wrapped in safe helpers."""
     rows = []
     for raw in tickers:
         t = yf_ticker(raw)
         info = yf.Ticker(t).info or {}
-        rows.append({
-            "Ticker": raw,
-            "Dividend Yield (%)": safe_mul(info.get("dividendYield"), 100),
-            "Payout Ratio (%)": safe_mul(info.get("payoutRatio"), 100),
-            "Free Cash Flow (m)": safe_div(info.get("freeCashflow"), 1e6),
-            "Interest Coverage": info.get("interestCoverage", np.nan),
-            "P/E (TTM)": info.get("trailingPE", np.nan),
-        })
+        rows.append(
+            {
+                "Ticker": raw,
+                "Dividend Yield (%)": safe_mul(info.get("dividendYield"), 100),
+                "Payout Ratio (%)": safe_mul(info.get("payoutRatio"), 100),
+                "Free Cash Flow (m)": safe_div(info.get("freeCashflow"), 1e6),
+                "Interest Coverage": info.get("interestCoverage", np.nan),
+                "P/E (TTM)": info.get("trailingPE", np.nan),
+            }
+        )
     return pd.DataFrame(rows).set_index("Ticker").sort_index()
 
 def compute_signal(df: pd.DataFrame) -> str:
+    """Return 'Buy' if 10‑week MA > 20‑week MA, else 'Sell' (or 'n/a')."""
     if len(df) < 20:
         return "n/a"
     ma10 = df["Close"].rolling(10).mean().iloc[-1]
@@ -80,32 +90,19 @@ def compute_signal(df: pd.DataFrame) -> str:
 
 def main() -> None:
     st.set_page_config(page_title="Defense Sector Dashboard", layout="wide")
-    st.title("\U0001F6E1\ufe0f Defense Sector: Combined Metrics & Price Dashboard")
+    st.title("🛡️ Defense Sector: Combined Metrics & Price Dashboard")
 
-    # ─── Ticker Input ─────────────────────────────────────────
-    st.markdown("### Tickers")
-    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO or just RHM SAAB-B HO)", "")
+    tickers = (
+        "ETR:RHM",
+        "STO:SAAB-B",
+        "EPA:HO",
+        "LON:BA",
+        "BIT:LDO",
+    )
 
-    # Mapping known tickers to full form
-    known = {
-        "RHM": "ETR:RHM",
-        "SAAB-B": "STO:SAAB-B",
-        "HO": "EPA:HO",
-        "BA": "LON:BA",
-        "LDO": "BIT:LDO",
-    }
-
-    tickers = ()
-    if tick_input:
-        raw_tickers = [t.strip() for t in tick_input.split()]
-        tickers = tuple(known.get(t, t) for t in raw_tickers)
-
-    if not tickers:
-        st.info("\u2139\ufe0f Please enter one or more ticker symbols above to start building your watchlist.")
-        return
-
-    # ─── Fetch & Compute Data ─────────────────────────────────────
+    # Fundamentals & signals
     fundamentals = fetch_fundamentals(tickers)
+
     signals, last_dates = [], []
     for tick in tickers:
         wk = fetch_weekly_prices(tick)
@@ -119,7 +116,7 @@ def main() -> None:
     fundamentals["MA Signal"] = signals
     fundamentals["Last Price Date"] = last_dates
 
-    st.subheader("\U0001F4CA Fundamentals & Weekly MA Signals")
+    st.subheader("📊 Fundamentals & Weekly MA Signals")
     st.dataframe(
         fundamentals.style.format({
             "Dividend Yield (%)": "{:.2f}",
@@ -129,18 +126,18 @@ def main() -> None:
         use_container_width=True,
     )
 
-    # ─── Weekly Chart ─────────────────────────────────────────────
+    # Per‑ticker chart
     st.markdown("---")
     selection = st.selectbox("Select a ticker to view the weekly chart:", tickers)
     chart_df = fetch_weekly_prices(selection)
 
     if chart_df.empty:
-        st.info("\u2757 Price data not available for the selected ticker.")
+        st.info("❗ Price data not available for the selected ticker.")
     else:
         chart_df = chart_df.copy()
         chart_df["MA10"] = chart_df["Close"].rolling(10).mean()
         chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
-        st.subheader(f"\U0001F4C8 Weekly Close & Moving Averages — {selection}")
+        st.subheader(f"📈 Weekly Close & Moving Averages — {selection}")
         st.line_chart(chart_df[["Close", "MA10", "MA20"]])
 
 if __name__ == "__main__":
