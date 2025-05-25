@@ -80,68 +80,55 @@ def compute_signal(df: pd.DataFrame) -> str:
 
 def main() -> None:
     st.set_page_config(page_title="Defense Sector Dashboard", layout="wide")
-    st.title("\U0001F6E1\ufe0f Defense Sector: Combined Metrics & Price Dashboard")
+    st.title("\U0001F6E1\ufe0f Defense Sector: Weekly Signal Dashboard")
 
-    # ─── Ticker Input ─────────────────────────────────────────
-    st.markdown("### Tickers")
-    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO or just RHM SAAB-B HO)", "")
-
-    # Mapping known tickers to full form
-    known = {
-        "RHM": "ETR:RHM",
-        "SAAB-B": "STO:SAAB-B",
-        "HO": "EPA:HO",
-        "BA": "LON:BA",
-        "LDO": "BIT:LDO",
-    }
-
-    tickers = ()
-    if tick_input:
-        raw_tickers = [t.strip() for t in tick_input.split()]
-        tickers = tuple(known.get(t, t) for t in raw_tickers)
+    st.markdown("#### Enter tickers below (e.g., RHM SAAB-B HO BA LDO or AAPL TSLA MSFT)")
+    user_input = st.text_input("Enter tickers", "")
+    tickers = [t.strip().upper() for t in user_input.split()] if user_input else []
 
     if not tickers:
-        st.info("\u2139\ufe0f Please enter one or more ticker symbols above to start building your watchlist.")
+        st.info("\u2139\ufe0f Please enter ticker symbols above and press Enter to load the dashboard.")
         return
 
-    # ─── Fetch & Compute Data ─────────────────────────────────────
-    fundamentals = fetch_fundamentals(tickers)
-    signals, last_dates = [], []
-    for tick in tickers:
-        wk = fetch_weekly_prices(tick)
-        if wk.empty:
-            signals.append("n/a")
-            last_dates.append("")
-        else:
-            signals.append(compute_signal(wk))
-            last_dates.append(wk.index[-1].strftime("%Y-%m-%d"))
+    # Load button to trigger processing
+    if st.button("Load Tickers"):
+        with st.spinner("Fetching data..."):
+            fundamentals = fetch_fundamentals(tuple(tickers))
+            signals, last_dates = [], []
+            for tick in tickers:
+                wk = fetch_weekly_prices(tick)
+                if wk.empty:
+                    signals.append("n/a")
+                    last_dates.append("")
+                else:
+                    signals.append(compute_signal(wk))
+                    last_dates.append(wk.index[-1].strftime("%Y-%m-%d"))
 
-    fundamentals["MA Signal"] = signals
-    fundamentals["Last Price Date"] = last_dates
+            fundamentals["MA Signal"] = signals
+            fundamentals["Last Price Date"] = last_dates
 
-    st.subheader("\U0001F4CA Fundamentals & Weekly MA Signals")
-    st.dataframe(
-        fundamentals.style.format({
-            "Dividend Yield (%)": "{:.2f}",
-            "Payout Ratio (%)": "{:.2f}",
-            "Free Cash Flow (m)": "{:,.0f}",
-        }),
-        use_container_width=True,
-    )
+            st.markdown("---")
+            st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
+            st.dataframe(
+                fundamentals.style.format({
+                    "Dividend Yield (%)": "{:.2f}",
+                    "Payout Ratio (%)": "{:.2f}",
+                    "Free Cash Flow (m)": "{:,.0f}",
+                }),
+                use_container_width=True,
+            )
 
-    # ─── Weekly Chart ─────────────────────────────────────────────
-    st.markdown("---")
-    selection = st.selectbox("Select a ticker to view the weekly chart:", tickers)
-    chart_df = fetch_weekly_prices(selection)
+            st.markdown("---")
+            selected = st.selectbox("Select a ticker to view the weekly chart:", tickers)
+            chart_df = fetch_weekly_prices(selected)
 
-    if chart_df.empty:
-        st.info("\u2757 Price data not available for the selected ticker.")
-    else:
-        chart_df = chart_df.copy()
-        chart_df["MA10"] = chart_df["Close"].rolling(10).mean()
-        chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
-        st.subheader(f"\U0001F4C8 Weekly Close & Moving Averages — {selection}")
-        st.line_chart(chart_df[["Close", "MA10", "MA20"]])
+            if chart_df.empty:
+                st.warning("\u26a0\ufe0f No price data available for this ticker.")
+            else:
+                chart_df["MA10"] = chart_df["Close"].rolling(10).mean()
+                chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
+                st.subheader(f"📈 Weekly Close & Moving Averages — {selected}")
+                st.line_chart(chart_df[["Close", "MA10", "MA20"]])
 
 if __name__ == "__main__":
     main()
