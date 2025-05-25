@@ -190,3 +190,19 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# ---- sidebar navigation ----
+with st.sidebar:
+    page = st.radio("Navigate", ("Overview", "Screener", "Chart"))
+    st.markdown("---")
+    tick_text = st.text_area("Tickers", "ETR:RHM ...")
+    if st.button("Load Tickers"):
+        st.session_state.tickers = split_tickers(tick_text)
+
+# ---- main switchboard ----
+if page == "Overview":
+    show_overview()
+elif page == "Screener":
+    show_screener_table()
+else:  # Chart
+    show_chart_view()
