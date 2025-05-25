@@ -82,12 +82,23 @@ def main() -> None:
     st.set_page_config(page_title="Defense Sector Dashboard", layout="wide")
     st.title("\U0001F6E1\ufe0f Defense Sector: Combined Metrics & Price Dashboard")
 
-    # ─── Top Ticker Input ─────────────────────────────────────────
+    # ─── Ticker Input ─────────────────────────────────────────
     st.markdown("### Tickers")
-    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO)",
-                               "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO")
+    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO or just RHM SAAB-B HO)",
+                               "RHM SAAB-B HO BA LDO")
+
+    # Mapping known tickers to full form
+    known = {
+        "RHM": "ETR:RHM",
+        "SAAB-B": "STO:SAAB-B",
+        "HO": "EPA:HO",
+        "BA": "LON:BA",
+        "LDO": "BIT:LDO",
+    }
+
     if st.button("\U0001F501 Load Tickers"):
-        tickers = tuple(t.strip() for t in tick_input.split())
+        raw_tickers = [t.strip() for t in tick_input.split()]
+        tickers = tuple(known.get(t, t) for t in raw_tickers)
     else:
         tickers = ("ETR:RHM", "STO:SAAB-B", "EPA:HO", "LON:BA", "BIT:LDO")
 
