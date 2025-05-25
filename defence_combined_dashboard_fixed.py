@@ -111,6 +111,10 @@ def main() -> None:
         with st.spinner("Fetching data..."):
             df = fetch_fundamentals(tuple(tickers))
 
+            if df.empty:
+                st.warning("\u26a0\ufe0f No valid data returned for entered tickers.")
+                return
+
             st.markdown("---")
             st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
             st.dataframe(
@@ -130,11 +134,16 @@ def main() -> None:
             )
 
             st.markdown("---")
-            selection = st.selectbox("Select a ticker to view the weekly chart:", tickers)
+            valid_tickers = [t for t in tickers if not fetch_weekly_prices(t).empty]
+            if not valid_tickers:
+                st.warning("\u26a0\ufe0f No chart data available for any of the tickers.")
+                return
+
+            selection = st.selectbox("Select a ticker to view the weekly chart:", valid_tickers)
             chart_df = fetch_weekly_prices(selection)
 
-            if chart_df.empty:
-                st.warning("\u26a0\ufe0f No price data available for this ticker.")
+            if chart_df.empty or chart_df.shape[0] < 5:
+                st.warning("\u26a0\ufe0f Not enough data to render a chart for this ticker.")
             else:
                 chart_df["MA10"] = chart_df["Close"].rolling(10).mean()
                 chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
