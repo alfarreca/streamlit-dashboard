@@ -35,20 +35,11 @@ def fetch_weekly_prices(ticker: str) -> pd.DataFrame:
     yf_sym = yf_ticker(ticker)
     df = yf.Ticker(yf_sym).history(period="1y", interval="1d")[["Close"]]
 
-    if df.empty:
-        sym = yf_sym.split(".")[0].lower()
-        url = f"https://stooq.com/q/d/l/?s={sym}&i=w"
-        try:
-            resp = requests.get(url, timeout=5)
-            resp.raise_for_status()
-            if "Date" in resp.text:
-                df = pd.read_csv(StringIO(resp.text), parse_dates=["Date"], index_col="Date")[["Close"]]
-        except requests.RequestException:
-            df = pd.DataFrame()
+    if df.empty or df.shape[0] < 5:
+        return pd.DataFrame()
 
     df = df.sort_index()
-    if not df.empty:
-        df = df.resample("W-FRI").last().dropna()
+    df = df.resample("W-FRI").last().dropna()
     return df
 
 @st.cache_data(show_spinner=False)
@@ -135,6 +126,8 @@ def main() -> None:
 
             st.markdown("---")
             valid_tickers = [t for t in tickers if not fetch_weekly_prices(t).empty]
+            valid_tickers = [t for t in valid_tickers if t != "MSFT"]  # Explicitly exclude MSFT
+
             if not valid_tickers:
                 st.warning("\u26a0\ufe0f No chart data available for any of the tickers.")
                 return
