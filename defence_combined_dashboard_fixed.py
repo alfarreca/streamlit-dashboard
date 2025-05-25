@@ -1,106 +1,17 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import yfinance as yf
-import requests
-from io import StringIO
-
-# ──────────────────────────── Helpers ────────────────────────────
-
-def yf_ticker(ticker: str) -> str:
-    """Convert an 'EXCHANGE:SYMBOL' string to the Yahoo Finance symbol."""
-    try:
-        exch, sym = ticker.split(":")
-    except ValueError:
-        # Already Yahoo format
-        return ticker
-
-    suffix_map = {
-        "ETR": "DE",  # Frankfurt / Xetra
-        "STO": "ST",  # Stockholm
-        "EPA": "PA",  # Paris
-        "LON": "L",   # London
-        "BIT": "MI",  # Milan
-    }
-    suffix = suffix_map.get(exch.upper())
-    if suffix is None:
-        return ticker
-    return f"{sym}.{suffix}"
-
-def safe_mul(val, factor):
-    """Multiply only if *val* is numeric, else return NaN."""
-    return float(val) * factor if isinstance(val, (int, float)) else np.nan
-
-def safe_div(val, divisor):
-    """Divide only if *val* is numeric, else return NaN."""
-    return float(val) / divisor if isinstance(val, (int, float)) else np.nan
-
-@st.cache_data(show_spinner=False)
-def fetch_weekly_prices(ticker: str) -> pd.DataFrame:
-    """Retrieve a 1‑year weekly‑Friday Close series, with Stooq fallback."""
-    yf_sym = yf_ticker(ticker)
-    df = yf.Ticker(yf_sym).history(period="1y", interval="1d")[["Close"]]
-
-    if df.empty:
-        sym = yf_sym.split(".")[0].lower()
-        url = f"https://stooq.com/q/d/l/?s={sym}&i=w"
-        try:
-            resp = requests.get(url, timeout=5)
-            resp.raise_for_status()
-            if "Date" in resp.text:
-                df = pd.read_csv(StringIO(resp.text), parse_dates=["Date"], index_col="Date")[["Close"]]
-        except requests.RequestException:
-            df = pd.DataFrame()
-
-    df = df.sort_index()
-    if not df.empty:
-        df = df.resample("W-FRI").last().dropna()
-    return df
-
-@st.cache_data(show_spinner=False)
-def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
-    """Pulls key metrics using yfinance, wrapped in safe helpers."""
-    rows = []
-    for raw in tickers:
-        t = yf_ticker(raw)
-        info = yf.Ticker(t).info or {}
-        rows.append(
-            {
-                "Ticker": raw,
-                "Dividend Yield (%)": safe_mul(info.get("dividendYield"), 100),
-                "Payout Ratio (%)": safe_mul(info.get("payoutRatio"), 100),
-                "Free Cash Flow (m)": safe_div(info.get("freeCashflow"), 1e6),
-                "Interest Coverage": info.get("interestCoverage", np.nan),
-                "P/E (TTM)": info.get("trailingPE", np.nan),
-            }
-        )
-    return pd.DataFrame(rows).set_index("Ticker").sort_index()
-
-def compute_signal(df: pd.DataFrame) -> str:
-    """Return 'Buy' if 10‑week MA > 20‑week MA, else 'Sell' (or 'n/a')."""
-    if len(df) < 20:
-        return "n/a"
-    ma10 = df["Close"].rolling(10).mean().iloc[-1]
-    ma20 = df["Close"].rolling(20).mean().iloc[-1]
-    if np.isnan(ma10) or np.isnan(ma20):
-        return "n/a"
-    return "Buy" if ma10 > ma20 else "Sell"
-
-# ──────────────────────────── Streamlit ────────────────────────────
-
 def main() -> None:
     st.set_page_config(page_title="Defense Sector Dashboard", layout="wide")
     st.title("🛡️ Defense Sector: Combined Metrics & Price Dashboard")
 
-    tickers = (
-        "ETR:RHM",
-        "STO:SAAB-B",
-        "EPA:HO",
-        "LON:BA",
-        "BIT:LDO",
-    )
+    # ─── Move Ticker Input to Top ───────────────────────────────────
+    st.markdown("### Tickers")
+    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO)", 
+                               "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO")
+    if st.button("🔄 Load Tickers"):
+        tickers = tuple(t.strip() for t in tick_input.split())
+    else:
+        tickers = ("ETR:RHM", "STO:SAAB-B", "EPA:HO", "LON:BA", "BIT:LDO")
 
-    # Fundamentals & signals
+    # ─── Fetch Fundamentals & Signals ───────────────────────────────
     fundamentals = fetch_fundamentals(tickers)
 
     signals, last_dates = [], []
@@ -126,7 +37,7 @@ def main() -> None:
         use_container_width=True,
     )
 
-    # Per‑ticker chart
+    # ─── Weekly Chart ───────────────────────────────────────────────
     st.markdown("---")
     selection = st.selectbox("Select a ticker to view the weekly chart:", tickers)
     chart_df = fetch_weekly_prices(selection)
@@ -139,6 +50,3 @@ def main() -> None:
         chart_df["MA20"] = chart_df["Close"].rolling(20).mean()
         st.subheader(f"📈 Weekly Close & Moving Averages — {selection}")
         st.line_chart(chart_df[["Close", "MA10", "MA20"]])
-
-if __name__ == "__main__":
-    main()
