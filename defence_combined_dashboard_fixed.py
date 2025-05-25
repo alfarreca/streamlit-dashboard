@@ -84,8 +84,7 @@ def main() -> None:
 
     # ─── Ticker Input ─────────────────────────────────────────
     st.markdown("### Tickers")
-    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO or just RHM SAAB-B HO)",
-                               "RHM SAAB-B HO BA LDO")
+    tick_input = st.text_input("Enter tickers (e.g., ETR:RHM STO:SAAB-B EPA:HO or just RHM SAAB-B HO)", "")
 
     # Mapping known tickers to full form
     known = {
@@ -96,11 +95,14 @@ def main() -> None:
         "LDO": "BIT:LDO",
     }
 
-    if st.button("\U0001F501 Load Tickers"):
+    tickers = ()
+    if tick_input:
         raw_tickers = [t.strip() for t in tick_input.split()]
         tickers = tuple(known.get(t, t) for t in raw_tickers)
-    else:
-        tickers = ("ETR:RHM", "STO:SAAB-B", "EPA:HO", "LON:BA", "BIT:LDO")
+
+    if not tickers:
+        st.info("\u2139\ufe0f Please enter one or more ticker symbols above to start building your watchlist.")
+        return
 
     # ─── Fetch & Compute Data ─────────────────────────────────────
     fundamentals = fetch_fundamentals(tickers)
