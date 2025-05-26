@@ -8,7 +8,7 @@ Compatible with Streamlit 1.x and Python 3.8+.
 """
 
 import re
-from io import StringIO
+from io import StringIO, BytesIO
 
 import numpy as np
 import pandas as pd
@@ -140,6 +140,14 @@ if page == "Overview":
                 subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"],
             ),
             use_container_width=True,
+        )
+
+        csv = combined.to_csv().encode("utf-8")
+        st.download_button(
+            label="⬇️ Download Metrics CSV",
+            data=csv,
+            file_name="defense_metrics.csv",
+            mime="text/csv"
         )
 
 elif page == "Chart":
