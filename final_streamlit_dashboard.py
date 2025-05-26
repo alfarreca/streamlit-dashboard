@@ -7,7 +7,8 @@ import plotly.graph_objects as go
 # --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
 @st.cache_data(show_spinner=False)
 def load_watchlist():
-    url = "https://docs.google.com/spreadsheets/d/e/https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv"  # Replace with your real sheet link
+    url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv"
+
     df = pd.read_csv(url)
     df = df.dropna(subset=["Symbol", "Exchange"])
     return df
