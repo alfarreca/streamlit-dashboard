@@ -1,0 +1,61 @@
+
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import plotly.graph_objects as go
+
+# --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
+@st.cache_data(show_spinner=False)
+def load_watchlist():
+    url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv"
+    df = pd.read_csv(url)
+    df = df.dropna(subset=["Symbol", "Exchange"])
+    return df
+
+watchlist = load_watchlist()
+clean_symbols = watchlist["Symbol"].tolist()
+exchange_map = dict(zip(watchlist["Symbol"], watchlist["Exchange"]))
+
+def exchange_suffix(ex: str) -> str:
+    suffix_map = {
+        "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
+        "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK"
+    }
+    return suffix_map.get(ex.upper(), "")
+
+def map_to_exchange(symbol: str) -> str:
+    exch = exchange_map.get(symbol.upper())
+    if exch in ["NYSE", "NASDAQ"]:
+        return symbol  # US tickers need no suffix
+    suffix = exchange_suffix(exch)
+    return f"{symbol}.{suffix}" if suffix else symbol
+
+# --- STREAMLIT PAGE CONFIG ---
+st.set_page_config(layout="wide")
+st.title("📊 Global Defense & AI Stock Dashboard")
+
+# --- UI NAVIGATION ---
+tab1, tab2, tab3 = st.tabs(["📈 Charts", "📋 Metrics Table", "🧠 AI Insight"])
+
+# --- TAB 1: CHARTING ---
+with tab1:
+    selected = st.selectbox("Select a symbol", clean_symbols)
+    yf_symbol = map_to_exchange(selected)
+    data = yf.Ticker(yf_symbol).history(period="6mo")
+    if not data.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=data.index, y=data["Close"], mode="lines", name="Close"))
+        fig.update_layout(title=f"{selected} - 6mo Chart", xaxis_title="Date", yaxis_title="Price")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No data found for this ticker.")
+
+# --- TAB 2: METRICS TABLE ---
+with tab2:
+    st.subheader("📋 Full Metrics Table")
+    st.dataframe(watchlist)
+
+# --- TAB 3: AI PLACEHOLDER ---
+with tab3:
+    st.markdown("🧠 **AI-Powered Alerts and Summaries** coming soon.")
+    st.info("This tab will soon generate AI insights based on trends, fundamentals, and geopolitical news.")
