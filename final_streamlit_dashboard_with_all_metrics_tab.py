@@ -1,94 +1,106 @@
+from pathlib import Path
+
+# Path where the corrected final script will be saved
+final_path = Path("/mnt/data/final_streamlit_dashboard_with_all_metrics.py")
+final_path.write_text("""
+import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
-import textwrap
+import yfinance as yf
+import plotly.graph_objects as go
+from datetime import datetime
 
-# Construct the full Streamlit script
-script = textwrap.dedent("""
-    import streamlit as st
-    import pandas as pd
-    import yfinance as yf
-    from datetime import datetime
+st.set_page_config(layout="wide")
+st.title("📊 Global Defense & AI Stock Dashboard")
 
-    # --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
-    @st.cache_data(show_spinner=False)
-    def load_watchlist():
-        url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv"
-        df = pd.read_csv(url)
-        df = df.dropna(subset=["Symbol", "Exchange"])
-        return df
+# --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
+@st.cache_data(show_spinner=False)
+def load_watchlist():
+    url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv"
+    df = pd.read_csv(url)
+    df = df.dropna(subset=["Symbol", "Exchange"])
+    return df
 
-    # --- METRICS CALCULATION ---
-    def fetch_metrics(tickers):
-        results = []
-        for symbol in tickers:
-            try:
-                exchange = exchange_map.get(symbol, "")
-                yf_symbol = f"{symbol}.{exchange_suffix(exchange)}" if exchange_suffix(exchange) else symbol
-                data = yf.Ticker(yf_symbol).history(period="6mo", interval="1d")
+watchlist = load_watchlist()
+symbol_list = watchlist["Symbol"].tolist()
+exchange_map = dict(zip(watchlist["Symbol"], watchlist["Exchange"]))
 
-                if len(data) < 20:
-                    continue
+def exchange_suffix(ex: str) -> str:
+    suffix_map = {
+        "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
+        "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK"
+    }
+    return suffix_map.get(ex.upper(), "")
 
-                ma10 = data["Close"].rolling(10).mean().iloc[-1]
-                ma20 = data["Close"].rolling(20).mean().iloc[-1]
-                last_price = data["Close"].iloc[-1]
-                volume = data["Volume"].iloc[-1]
-                vol_ma10 = data["Volume"].rolling(10).mean().iloc[-1]
-                signal = "Buy" if last_price > ma10 else "Sell"
-                crossover = "Above" if last_price > ma20 else "Below"
-                divergence = "Overbought" if last_price > ma20 * 1.1 else "OK"
-                pct_vs_ma10 = 100 * (last_price - ma10) / ma10
-                last_updated = data.index[-1].strftime("%Y-%m-%d")
+def format_yf_symbol(symbol: str) -> str:
+    exch = exchange_map.get(symbol.upper())
+    if exch in ["NYSE", "NASDAQ"]:
+        return symbol
+    suffix = exchange_suffix(exch)
+    return f"{symbol}.{suffix}" if suffix else symbol
 
-                results.append({
-                    "Ticker": symbol,
-                    "Price": round(last_price, 2),
-                    "MA10": round(ma10, 2),
-                    "MA20": round(ma20, 2),
-                    "% vs MA10": round(pct_vs_ma10, 2),
-                    "Volume": int(volume),
-                    "Vol MA10": int(vol_ma10),
-                    "Signal": signal,
-                    "Last Updated": last_updated,
-                    "Crossover": crossover,
-                    "Divergence": divergence
-                })
-            except Exception as e:
-                st.warning(f"Failed to load: {symbol} ({e})")
-        return pd.DataFrame(results)
+def fetch_metrics(symbols: list) -> pd.DataFrame:
+    rows = []
+    for symbol in symbols:
+        try:
+            yf_symbol = format_yf_symbol(symbol)
+            df = yf.Ticker(yf_symbol).history(period="6mo")
+            if df.empty:
+                continue
+            ma10 = df["Close"].rolling(10).mean().iloc[-1]
+            ma20 = df["Close"].rolling(20).mean().iloc[-1]
+            close = df["Close"].iloc[-1]
+            vol = df["Volume"].iloc[-1]
+            vol_mean = df["Volume"].rolling(10).mean().iloc[-1]
+            prev = df["Close"].iloc[-2]
 
-    def exchange_suffix(ex: str) -> str:
-        suffix_map = {
-            "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
-            "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK"
-        }
-        return suffix_map.get(ex.upper(), "")
+            row = {
+                "Symbol": symbol,
+                "Price": close,
+                "MA10": ma10,
+                "MA20": ma20,
+                "% vs MA10": (close - ma10) / ma10 * 100,
+                "Volume": vol,
+                "Vol MA10": vol_mean,
+                "Signal": "Buy" if close > ma10 else "Sell",
+                "Last Updated": datetime.today().strftime("%Y-%m-%d"),
+                "Crossover": "Above" if close > ma20 else "Below",
+                "Divergence": "Overbought" if close > ma10 * 1.1 else "OK",
+                "Prev Price": prev
+            }
+            rows.append(row)
+        except Exception as e:
+            continue
+    return pd.DataFrame(rows)
 
-    # --- MAIN APP ---
-    st.set_page_config(layout="wide")
-    st.title("📊 Global Defense & AI Stock Dashboard")
+tab1, tab2, tab3 = st.tabs(["📈 Charts", "📋 All Metrics", "🧠 AI Insight"])
 
-    watchlist = load_watchlist()
-    symbols = watchlist["Symbol"].tolist()
-    exchange_map = dict(zip(watchlist["Symbol"], watchlist["Exchange"]))
+# --- TAB 1: Charts ---
+with tab1:
+    selected = st.selectbox("Select a symbol", symbol_list)
+    yf_symbol = format_yf_symbol(selected)
+    data = yf.Ticker(yf_symbol).history(period="6mo")
+    if not data.empty:
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=data.index, y=data["Close"], mode="lines", name="Close"))
+        fig.update_layout(title=f"{selected} - 6mo Chart", xaxis_title="Date", yaxis_title="Price")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No data found for this ticker.")
 
-    # Ticker input
-    default = "TSLA"
-    user_input = st.text_input("Enter tickers (space or comma separated):", value=default)
-    user_tickers = list(filter(None, [s.strip().upper() for s in user_input.replace(",", " ").split()]))
+# --- TAB 2: All Metrics ---
+with tab2:
+    st.subheader("All Metrics")
+    input_tickers = st.text_input("Enter tickers (space or comma separated)", value="TSLA MSFT NVDA")
+    tickers = [t.strip().upper() for t in input_tickers.replace(",", " ").split()]
+    valid_tickers = [t for t in tickers if t in symbol_list]
+    if valid_tickers:
+        df_metrics = fetch_metrics(valid_tickers)
+        st.dataframe(df_metrics)
+    else:
+        st.warning("No valid tickers entered or not found in watchlist.")
 
-    if st.button("Load Tickers"):
-        if user_tickers:
-            df = fetch_metrics(user_tickers)
-            st.markdown("### 📊 All Metrics")
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.warning("Please enter at least one ticker.")
+# --- TAB 3: Placeholder ---
+with tab3:
+    st.markdown("✅ AI-generated insights will appear here soon.")
 """)
-
-# Save script to file
-output_path = "/mnt/data/streamlit_all_metrics_dashboard.py"
-with open(output_path, "w") as f:
-    f.write(script)
-
-output_path
+final_path
