@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Streamlit Defense‐Sector Dashboard
+"""Streamlit Defense‑Sector Dashboard
 
 Paste a list of tickers (e.g. "ETR:RHM LON:BA") in the sidebar and click
 **Load Tickers** to refresh the table and chart.
@@ -16,9 +16,9 @@ import requests
 import streamlit as st
 import yfinance as yf
 
-# ──────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 # Helper functions
-# ──────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 
 def yf_symbol(code: str) -> str:
     if ":" not in code:
@@ -106,34 +106,34 @@ def technicals(df: pd.DataFrame) -> dict:
         "Prev MA10": ma10.iloc[-2],
     }
 
-# ──────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 # Streamlit UI
-# ──────────────────────────────────────────
+# ────────────────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="Defense Dashboard", layout="wide")
-st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
 
-# Sidebar navigation only
 with st.sidebar:
+    st.image("https://cdn-icons-png.flaticon.com/512/1786/1786951.png", width=48)
+    st.title("🛡️ Defense Stocks")
     page = st.radio("Navigate", ("Overview", "Screener", "Chart"))
     st.markdown("---")
+    st.caption("Made with ❤️ using Streamlit")
 
-# Ticker input only for 'Overview' page
 if page == "Overview":
-    st.header("Ticker Screener")
+    st.header("📋 Overview")
     default_text = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
-    user_text = st.text_input("Enter tickers", default_text)
+    user_text = st.text_input("Enter tickers (space or comma separated)", default_text)
     if st.button("Load Tickers"):
         st.session_state["tickers"] = split_tickers(user_text)
 
     tickers = st.session_state.get("tickers", split_tickers(default_text))
-    show_tbl = st.checkbox("Show All Tickers Table", True)
+    show_tbl = st.checkbox("Show full metrics table", True)
     fund_df = fetch_fundamentals(tickers)
     tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
     combined = pd.concat([tech_df, fund_df], axis=1).round(2)
 
     if show_tbl:
-        st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
+        st.subheader("📊 All Metrics")
         st.dataframe(
             combined.style.apply(
                 lambda s: ["background:#FFEB3B" if x == s.max() else "" for x in s],
@@ -143,11 +143,12 @@ if page == "Overview":
         )
 
 elif page == "Chart":
+    st.header("📈 Chart")
     tickers = st.session_state.get("tickers", [])
     if not tickers:
-        st.warning("Please load tickers in the Overview page first.")
+        st.warning("Please load tickers from the Overview page.")
     else:
-        sel = st.selectbox("Select Ticker to View Chart", tickers)
+        sel = st.selectbox("Select Ticker to Chart", tickers)
         wk = fetch_weekly_ohlcv(sel)
         if wk.empty:
             st.warning("No price data available for that ticker.")
@@ -155,8 +156,8 @@ elif page == "Chart":
             plot = wk.copy()
             plot["MA10"] = plot["Close"].rolling(10).mean()
             plot["MA20"] = plot["Close"].rolling(20).mean()
-            st.subheader(f"📈 Weekly Price Chart: {sel}")
             st.line_chart(plot[["Close", "MA10", "MA20"]])
 
 elif page == "Screener":
+    st.header("🔎 Screener")
     st.info("Screener functionality placeholder. Coming soon!")
