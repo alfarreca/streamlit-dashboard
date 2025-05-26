@@ -1,66 +1,54 @@
 # -*- coding: utf-8 -*-
-"""Defense-Sector Dashboard – Professional Edition (implicit ticker mode)
+"""Streamlit Defense‐Sector Dashboard
 
-Users can now enter **just the ticker symbol** (e.g. `RHM`, `SAAB-B`, `HO`),
-and the app maps it to the correct Yahoo Finance code.  Exchange prefixes are
-still accepted (`ETR:RHM` etc.).
+Paste a list of tickers (e.g. "ETR:RHM LON:BA") in the sidebar and click
+**Load Tickers** to refresh the table and chart.
+
+Compatible with Streamlit 1.x and Python 3.8+.
 """
-from __future__ import annotations
+
 import re
-from datetime import datetime, timezone
 from io import StringIO
+
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
 
-# ══════════ Constants ══════════
-DEFAULT_TICKERS_TEXT = "RHM SAAB-B HO BA LDO"
-IMPLICIT_SUFFIX = {
-    "RHM": "DE",      # Rheinmetall – Frankfurt/Xetra
-    "SAAB-B": "ST",   # Saab AB B – Stockholm
-    "HO": "PA",       # Thales – Paris
-    "BA": "L",        # BAE Systems – London
-    "LDO": "MI",       # Leonardo – Milan
-}
-EXCHANGE_SUFFIX = {
-    "ETR": "DE", "STO": "ST", "EPA": "PA", "LON": "L", "BIT": "MI", "NYSE": "", "NASDAQ": "",
-}
-
-# ══════════ Helpers ══════════
+# ──────────────────────────────────────────
+# Helper functions
+# ──────────────────────────────────────────
 
 def yf_symbol(code: str) -> str:
-    """Turn user input into a Yahoo Finance symbol."""
-    code = code.strip()
-    if ":" in code:  # explicit exchange
-        exch, sym = code.split(":", 1)
-        suf = EXCHANGE_SUFFIX.get(exch.upper(), "")
-        return f"{sym}{('.' + suf) if suf else ''}"
-    # implicit mapping
-    suf = IMPLICIT_SUFFIX.get(code.upper())
-    return f"{code}{('.' + suf) if suf else ''}" if suf is not None else code
+    if ":" not in code:
+        return code
+    exch, sym = code.split(":", 1)
+    suffix = {
+        "ETR": "DE", "STO": "ST", "EPA": "PA", "LON": "L", "BIT": "MI",
+        "NYSE": "", "NASDAQ": ""
+    }.get(exch.upper(), "")
+    return f"{sym}{('.' + suffix) if suffix else ''}"
 
-def parse_tickers(text: str) -> tuple[str, ...]:
-    return tuple(tok for tok in re.split(r"[ ,]+", text) if tok)
+def split_tickers(text: str) -> tuple[str, ...]:
+    return tuple(tok.strip() for tok in re.split(r"[ ,]+", text.strip()) if tok.strip())
 
-def safe_float(x):
+def safe_float(val):
     try:
-        return float(x)
+        return float(val)
     except (TypeError, ValueError):
         return np.nan
 
-# ══════════ Data fetchers (cached) ══════════
 @st.cache_data(show_spinner=False)
 def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
     ysym = yf_symbol(ticker)
     daily = yf.Ticker(ysym).history(period="1y", interval="1d")[["Close", "Volume"]]
     if daily.empty:
-        code = ysym.split(".")[0].lower()
+        sym = ysym.split(".")[0].lower()
         try:
-            txt = requests.get(f"https://stooq.com/q/d/l/?s={code}&i=d", timeout=5).text
-            if "Date" in txt:
-                daily = pd.read_csv(StringIO(txt), parse_dates=["Date"], index_col="Date")[["Close"]]
+            csv = requests.get(f"https://stooq.com/q/d/l/?s={sym}&i=d", timeout=5).text
+            if "Date" in csv:
+                daily = pd.read_csv(StringIO(csv), parse_dates=["Date"], index_col="Date")[["Close"]]
                 daily["Volume"] = np.nan
         except requests.RequestException:
             return pd.DataFrame()
@@ -72,24 +60,32 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
-    rows = []
+    records = []
     for t in tickers:
-        info = yf.Ticker(yf_symbol(t)).info or {}
+        try:
+            info = yf.Ticker(yf_symbol(t)).info or {}
+        except Exception:
+            info = {}
         dy_raw = safe_float(info.get("dividendYield"))
-        dy = dy_raw * 100 if (not np.isnan(dy_raw) and dy_raw < 1) else dy_raw
+        dy_pct = dy_raw * 100 if (not np.isnan(dy_raw) and dy_raw < 1) else dy_raw
         pr_raw = safe_float(info.get("payoutRatio"))
-        pr = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
+        pr_pct = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
         fcf_raw = safe_float(info.get("freeCashflow"))
         fcf_m = fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan
-        rows.append({"Ticker": t, "Dividend Yield (%)": dy, "Dividend Payout Ratio (%)": pr, "Free Cash Flow (LC m)": fcf_m})
-    return pd.DataFrame(rows).set_index("Ticker").reindex(tickers)
+        records.append({
+            "Ticker": t,
+            "Dividend Yield (%)": dy_pct,
+            "Dividend Payout Ratio (%)": pr_pct,
+            "Free Cash Flow (LC m)": fcf_m,
+        })
+    df = pd.DataFrame(records).set_index("Ticker")
+    return df.reindex(tickers)
 
-# ══════════ Technical metrics ══════════
-
-def technicals(df: pd.DataFrame) -> dict[str, float | str]:
+def technicals(df: pd.DataFrame) -> dict:
     if df.empty or len(df) < 20:
         return {}
-    last, prev = df.iloc[-1], df.iloc[-2]
+    last = df.iloc[-1]
+    prev = df.iloc[-2]
     ma10 = df["Close"].rolling(10).mean()
     ma20 = df["Close"].rolling(20).mean()
     return {
@@ -102,56 +98,65 @@ def technicals(df: pd.DataFrame) -> dict[str, float | str]:
         "Signal": "Buy" if ma10.iloc[-1] > ma20.iloc[-1] else "Sell",
         "Last Updated": last.name.strftime("%Y-%m-%d"),
         "Crossover": "Above" if last.Close > ma20.iloc[-1] else "Below",
-        "Divergence": "Overbought" if last.Close >= ma10.iloc[-1] * 1.1 else ("Oversold" if last.Close <= ma10.iloc[-1] * 0.9 else "OK"),
+        "Divergence": (
+            "Overbought" if last.Close >= ma10.iloc[-1] * 1.1 else (
+                "Oversold" if last.Close <= ma10.iloc[-1] * 0.9 else "OK")
+        ),
         "Prev Price": prev.Close,
         "Prev MA10": ma10.iloc[-2],
     }
 
-# ══════════ Page functions ══════════
+# ──────────────────────────────────────────
+# Streamlit UI
+# ──────────────────────────────────────────
 
-def page_overview(tickers):
-    tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
-    fund_df = fetch_fundamentals(tickers)
-    avg_dy = fund_df["Dividend Yield (%)"].mean()
-    buy_ratio = (tech_df["Signal"] == "Buy").mean() * 100
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Average Dividend Yield", f"{avg_dy:.2f}%")
-    col2.metric("% Buy Signals", f"{buy_ratio:.0f}%")
-    col3.metric("Tickers Tracked", len(tickers))
-    st.markdown("### Latest Signals")
-    st.dataframe(tech_df[["Signal", "Last Updated"]])
+st.set_page_config(page_title="Defense Dashboard", layout="wide")
+st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
 
-def page_screener(tickers):
-    tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
-    fund_df = fetch_fundamentals(tickers)
-    df = pd.concat([tech_df, fund_df], axis=1).round(2)
-    st.dataframe(df, use_container_width=True)
-
-def page_chart(tickers):
-    sel = st.selectbox("Select ticker", tickers, key="chart_sel")
-    df = fetch_weekly_ohlcv(sel)
-    if df.empty:
-        st.warning("No price data available.")
-        return
-    dfp = df.copy()
-    dfp["MA10"] = dfp["Close"].rolling(10).mean()
-    dfp["MA20"] = dfp["Close"].rolling(20).mean()
-    st.line_chart(dfp[["Close", "MA10", "MA20"]])
-
-# ══════════ Main ══════════
-
-def main():
-    st.set_page_config(page_title="Defense Dashboard", layout="wide")
-    hdr = st.container()
-    with hdr:
-        c1, c2, c3 = st.columns([1,6,2])
-        c1.markdown("## 🛡️")
-        c2.markdown("## Defense Sector Dashboard")
-        c3.markdown(datetime.now(timezone.utc).strftime("Last refresh: %Y-%m-%d %H:%M UTC"))
+# Sidebar navigation only
+with st.sidebar:
+    page = st.radio("Navigate", ("Overview", "Screener", "Chart"))
     st.markdown("---")
-    with st.sidebar.form(key="sidebar_form"):
-        user_text = st.text_area("Enter tickers", st.session_state.get("tick_text", DEFAULT_TICKERS_TEXT), key="ticker_input", height=60)
-        nav = st.radio("Navigate", ("Overview", "Screener", "Chart"), key="nav_choice")
-        submitted = st.form_submit_button("Load / Refresh")
-    if submitted or "tickers" not in st.session_state:
-        st.session_state.tickers = parse_tickers(user
+
+# Ticker input only for 'Overview' page
+if page == "Overview":
+    st.header("Ticker Screener")
+    default_text = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
+    user_text = st.text_input("Enter tickers", default_text)
+    if st.button("Load Tickers"):
+        st.session_state["tickers"] = split_tickers(user_text)
+
+    tickers = st.session_state.get("tickers", split_tickers(default_text))
+    show_tbl = st.checkbox("Show All Tickers Table", True)
+    fund_df = fetch_fundamentals(tickers)
+    tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
+    combined = pd.concat([tech_df, fund_df], axis=1).round(2)
+
+    if show_tbl:
+        st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
+        st.dataframe(
+            combined.style.apply(
+                lambda s: ["background:#FFEB3B" if x == s.max() else "" for x in s],
+                subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"],
+            ),
+            use_container_width=True,
+        )
+
+elif page == "Chart":
+    tickers = st.session_state.get("tickers", [])
+    if not tickers:
+        st.warning("Please load tickers in the Overview page first.")
+    else:
+        sel = st.selectbox("Select Ticker to View Chart", tickers)
+        wk = fetch_weekly_ohlcv(sel)
+        if wk.empty:
+            st.warning("No price data available for that ticker.")
+        else:
+            plot = wk.copy()
+            plot["MA10"] = plot["Close"].rolling(10).mean()
+            plot["MA20"] = plot["Close"].rolling(20).mean()
+            st.subheader(f"📈 Weekly Price Chart: {sel}")
+            st.line_chart(plot[["Close", "MA10", "MA20"]])
+
+elif page == "Screener":
+    st.info("Screener functionality placeholder. Coming soon!")
