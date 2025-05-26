@@ -8,6 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
+import plotly.graph_objects as go  # ← NEW for Plotly charts
 
 # ─────────────────────────────────────────────
 # Helper Functions
@@ -152,7 +153,7 @@ elif page == "Screener":
     else:
         st.dataframe(combined, use_container_width=True)
 
-# -------------------- Chart Tab --------------------
+# -------------------- Chart Tab (with Plotly) --------------------
 elif page == "Chart":
     st.markdown("## 📈 Chart")
     sel = st.selectbox("Select Ticker to Chart", tickers)
@@ -163,4 +164,18 @@ elif page == "Chart":
         plot = wk.copy()
         plot["MA10"] = plot["Close"].rolling(10).mean()
         plot["MA20"] = plot["Close"].rolling(20).mean()
-        st.line_chart(plot[["Close", "MA10", "MA20"]])
+
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=plot.index, y=plot["Close"], mode='lines', name='Close'))
+        fig.add_trace(go.Scatter(x=plot.index, y=plot["MA10"], mode='lines', name='MA10'))
+        fig.add_trace(go.Scatter(x=plot.index, y=plot["MA20"], mode='lines', name='MA20'))
+
+        fig.update_layout(
+            title=f"{sel} Weekly Price Chart with MAs",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            hovermode="x unified",
+            height=500
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
