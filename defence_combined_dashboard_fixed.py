@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
-import plotly.graph_objects as go  # ← NEW for Plotly charts
+import plotly.graph_objects as go
 
 # ─────────────────────────────────────────────
 # Helper Functions
@@ -23,9 +23,6 @@ def yf_symbol(code: str) -> str:
         "LON": "L", "BIT": "MI", "NYSE": "", "NASDAQ": ""
     }.get(exch.upper(), "")
     return f"{sym}{('.' + suffix) if suffix else ''}"
-
-def split_tickers(text: str) -> tuple[str, ...]:
-    return tuple(tok.strip() for tok in re.split(r"[ ,]+", text.strip()) if tok.strip())
 
 def safe_float(val):
     try:
@@ -109,16 +106,21 @@ page = st.sidebar.radio("Navigate", ("Overview", "Screener", "Chart"))
 st.sidebar.markdown("---")
 st.sidebar.markdown("Made with ❤️ using Streamlit")
 
-default_text = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
-tickers = st.session_state.get("tickers", split_tickers(default_text))
+# Ticker options dropdown
+all_choices = [
+    "ETR:RHM", "STO:SAAB-B", "EPA:HO", "LON:BA", "BIT:LDO",
+    "NYSE:NOC", "NYSE:LMT", "NYSE:GD", "NASDAQ:AVAV", "NASDAQ:RTX"
+]
+default_tickers = ["ETR:RHM", "STO:SAAB-B", "EPA:HO"]
+
+tickers = st.session_state.get("tickers", default_tickers)
 
 # -------------------- Overview Tab --------------------
 if page == "Overview":
     st.markdown("## 🗂️ Overview")
-    user_text = st.text_input("Enter tickers (space or comma separated)", default_text)
-    if st.button("Load Tickers"):
-        st.session_state["tickers"] = split_tickers(user_text)
-        tickers = st.session_state["tickers"]
+    selected = st.multiselect("Select tickers to analyze", options=all_choices, default=tickers)
+    st.session_state["tickers"] = selected
+    tickers = selected
 
     show_tbl = st.checkbox("✅ Show full metrics table", True)
     fund_df = fetch_fundamentals(tickers)
@@ -153,7 +155,7 @@ elif page == "Screener":
     else:
         st.dataframe(combined, use_container_width=True)
 
-# -------------------- Chart Tab (with Plotly) --------------------
+# -------------------- Chart Tab --------------------
 elif page == "Chart":
     st.markdown("## 📈 Chart")
     sel = st.selectbox("Select Ticker to Chart", tickers)
