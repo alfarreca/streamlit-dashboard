@@ -1,7 +1,5 @@
-# Here's the full updated Streamlit script with Google Sheets-based dynamic watchlist,
-# mapped exchange logic, and integrated into a three-tab layout (simplified example).
-
-updated_script = """
+# Injecting the actual Streamlit script with placeholder for Google Sheets URL replaced
+final_script = """
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -10,7 +8,7 @@ import plotly.graph_objects as go
 # --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
 @st.cache_data(show_spinner=False)
 def load_watchlist():
-    url = "https://docs.google.com/spreadsheets/d/e/https://docs.google.com/spreadsheets/d/e/2PACX-1vRe5_juKpIbiTy7fc92QICvpGhawvqKZWDxmrgUTFNtFjNsCPA10e-wt0UJ4eZ-3tlF5Ol55g-U9wke/pub?output=csv/pub?output=csv"
+    url = "https://docs.google.com/spreadsheets/d/e/YOUR_SHEET_ID_HERE/pub?output=csv"  # Replace with your real sheet link
     df = pd.read_csv(url)
     df = df.dropna(subset=["Symbol", "Exchange"])
     return df
@@ -19,16 +17,19 @@ watchlist = load_watchlist()
 clean_symbols = watchlist["Symbol"].tolist()
 exchange_map = dict(zip(watchlist["Symbol"], watchlist["Exchange"]))
 
-def map_to_exchange(symbol: str) -> str:
-    exch = exchange_map.get(symbol.upper())
-    return f"{symbol}" if exch == "NYSE" or exch == "NASDAQ" else f"{symbol}.{exchange_suffix(exch)}"
-
 def exchange_suffix(ex: str) -> str:
     suffix_map = {
         "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
         "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK"
     }
     return suffix_map.get(ex.upper(), "")
+
+def map_to_exchange(symbol: str) -> str:
+    exch = exchange_map.get(symbol.upper())
+    if exch in ["NYSE", "NASDAQ"]:
+        return symbol  # US tickers need no suffix
+    suffix = exchange_suffix(exch)
+    return f"{symbol}.{suffix}" if suffix else symbol
 
 # --- STREAMLIT LAYOUT ---
 st.set_page_config(layout="wide")
@@ -59,9 +60,9 @@ with tab3:
     st.markdown("✅ This tab will include AI-generated summaries and alerts soon.")
 """
 
-# Save it to a file for user download
-output_file = "/mnt/data/streamlit_dashboard_with_sheet.py"
-with open(output_file, "w") as f:
-    f.write(updated_script)
+# Save to file for download
+final_path = "/mnt/data/final_streamlit_dashboard.py"
+with open(final_path, "w") as f:
+    f.write(final_script)
 
-output_file
+final_path
