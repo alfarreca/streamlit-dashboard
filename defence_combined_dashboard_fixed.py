@@ -30,6 +30,14 @@ def safe_float(val):
     except (TypeError, ValueError):
         return np.nan
 
+def map_to_exchange(symbol: str) -> str:
+    mapping = {
+        "RHM": "ETR", "SAAB-B": "STO", "HO": "EPA", "BA": "LON", "LDO": "BIT",
+        "LMT": "NYSE", "NOC": "NYSE", "GD": "NYSE", "AVAV": "NASDAQ", "RTX": "NASDAQ"
+    }
+    exch = mapping.get(symbol.upper())
+    return f"{exch}:{symbol}" if exch else symbol
+
 @st.cache_data(show_spinner=False)
 def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
     ysym = yf_symbol(ticker)
@@ -106,21 +114,17 @@ page = st.sidebar.radio("Navigate", ("Overview", "Screener", "Chart"))
 st.sidebar.markdown("---")
 st.sidebar.markdown("Made with ❤️ using Streamlit")
 
-# Ticker options dropdown
-all_choices = [
-    "ETR:RHM", "STO:SAAB-B", "EPA:HO", "LON:BA", "BIT:LDO",
-    "NYSE:NOC", "NYSE:LMT", "NYSE:GD", "NASDAQ:AVAV", "NASDAQ:RTX"
-]
-default_tickers = ["ETR:RHM", "STO:SAAB-B", "EPA:HO"]
-
-tickers = st.session_state.get("tickers", default_tickers)
+# User input: clean symbols only
+clean_symbols = ["RHM", "SAAB-B", "HO", "BA", "LDO", "LMT", "NOC", "GD", "AVAV", "RTX"]
+default_symbols = ["RHM", "SAAB-B", "HO"]
+user_symbols = st.session_state.get("symbols", default_symbols)
 
 # -------------------- Overview Tab --------------------
 if page == "Overview":
     st.markdown("## 🗂️ Overview")
-    selected = st.multiselect("Select tickers to analyze", options=all_choices, default=tickers)
-    st.session_state["tickers"] = selected
-    tickers = selected
+    selected_symbols = st.multiselect("Select tickers (no prefix needed)", clean_symbols, default=user_symbols)
+    st.session_state["symbols"] = selected_symbols
+    tickers = [map_to_exchange(sym) for sym in selected_symbols]
 
     show_tbl = st.checkbox("✅ Show full metrics table", True)
     fund_df = fetch_fundamentals(tickers)
@@ -142,6 +146,7 @@ if page == "Overview":
 elif page == "Screener":
     st.markdown("## 🔍 Screener")
     signal_filter = st.selectbox("Filter by Signal", options=["All", "Buy", "Sell"])
+    tickers = [map_to_exchange(sym) for sym in st.session_state.get("symbols", default_symbols)]
 
     fund_df = fetch_fundamentals(tickers)
     tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
@@ -158,6 +163,8 @@ elif page == "Screener":
 # -------------------- Chart Tab --------------------
 elif page == "Chart":
     st.markdown("## 📈 Chart")
+    symbols = st.session_state.get("symbols", default_symbols)
+    tickers = [map_to_exchange(sym) for sym in symbols]
     sel = st.selectbox("Select Ticker to Chart", tickers)
     wk = fetch_weekly_ohlcv(sel)
     if wk.empty:
