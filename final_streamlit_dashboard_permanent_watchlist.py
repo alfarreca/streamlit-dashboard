@@ -1,32 +1,33 @@
+from pathlib import Path
+
+# Updated Streamlit script with Google Sheets integration, ticker metrics, and UI
+streamlit_script = """
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import plotly.graph_objects as go
 import json
+import gspread
 from google.oauth2.service_account import Credentials
 
 # --- SETUP GOOGLE SHEETS INTEGRATION ---
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SERVICE_ACCOUNT_INFO = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
 creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
-
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import plotly.graph_objects as go
-import gspread
-from google.oauth2.service_account import Credentials
-
-# --- SETUP GOOGLE SHEETS INTEGRATION ---
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
-creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
 gc = gspread.authorize(creds)
-SPREADSHEET_ID = "1JqJ7ISBFkPoTE0ZzYKqHdPvW0McsPyTbqZKOC0YgLBY"  # Replace with your actual Sheet ID
+SPREADSHEET_ID = "1JqJ7ISBFkPoTE0ZrYkq9rTfD2so4m2csZuQZ5aP4CuM"
 sheet = gc.open_by_key(SPREADSHEET_ID).sheet1
 
+# --- LOAD WATCHLIST FROM GOOGLE SHEETS ---
 @st.cache_data(show_spinner=False)
 def load_watchlist():
     data = sheet.get_all_records()
-    return pd.DataFrame(data)
+    df = pd.DataFrame(data)
+    df = df.dropna(subset=["Symbol", "Exchange"])
+    return df
 
 watchlist = load_watchlist()
+clean_symbols = watchlist["Symbol"].tolist()
 exchange_map = dict(zip(watchlist["Symbol"], watchlist["Exchange"]))
 
 def exchange_suffix(ex: str) -> str:
@@ -39,62 +40,75 @@ def exchange_suffix(ex: str) -> str:
 def map_to_exchange(symbol: str) -> str:
     exch = exchange_map.get(symbol.upper())
     if exch in ["NYSE", "NASDAQ"]:
-        return symbol
+        return symbol  # US tickers need no suffix
     suffix = exchange_suffix(exch)
     return f"{symbol}.{suffix}" if suffix else symbol
 
-# --- STREAMLIT LAYOUT ---
+# --- METRICS CALC ---
+def calculate_metrics(tickers):
+    rows = []
+    for ticker in tickers:
+        yf_symbol = map_to_exchange(ticker)
+        try:
+            data = yf.Ticker(yf_symbol).history(period="6mo")
+            if data.empty:
+                continue
+            price = data["Close"].iloc[-1]
+            ma10 = data["Close"].rolling(10).mean().iloc[-1]
+            ma20 = data["Close"].rolling(20).mean().iloc[-1]
+            pct_above_ma10 = ((price - ma10) / ma10) * 100 if ma10 else None
+            volume = data["Volume"].iloc[-1]
+            vol_ma10 = data["Volume"].rolling(10).mean().iloc[-1]
+            signal = "Buy" if price > ma10 and price > ma20 else "Hold"
+            crossover = "Above" if price > ma10 else "Below"
+            divergence = "Overbought" if pct_above_ma10 and pct_above_ma10 > 10 else "OK"
+            rows.append({
+                "Ticker": ticker, "Price": price, "MA10": ma10, "MA20": ma20,
+                "% vs MA10": pct_above_ma10, "Volume": volume, "Vol MA10": vol_ma10,
+                "Signal": signal, "Crossover": crossover, "Divergence": divergence,
+                "Last Updated": pd.Timestamp.today().date()
+            })
+        except Exception:
+            continue
+    return pd.DataFrame(rows)
+
+# --- STREAMLIT UI ---
 st.set_page_config(layout="wide")
-st.title("📊 Global Defense & AI Stock Dashboard")
+st.title("🧭 Global Defense & AI Watchlist (Permanent Sheet Access)")
 
-tab1, tab2, tab3 = st.tabs(["📈 Charts", "📋 All Metrics", "🧠 AI Insight"])
+tab1, tab2, tab3 = st.tabs(["📈 Chart", "📊 All Metrics", "🧠 AI Insight"])
 
-# --- TAB 1: PLOT STOCK PRICE ---
+# --- TAB 1: SINGLE STOCK PLOT ---
 with tab1:
-    selected = st.selectbox("Select a symbol", watchlist["Symbol"].tolist())
+    selected = st.selectbox("Select symbol", clean_symbols)
     yf_symbol = map_to_exchange(selected)
-    df = yf.Ticker(yf_symbol).history(period="6mo")
-    if not df.empty:
+    data = yf.Ticker(yf_symbol).history(period="6mo")
+    if not data.empty:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.index, y=df["Close"], name="Close"))
-        fig.add_trace(go.Scatter(x=df.index, y=df["Close"].rolling(10).mean(), name="MA10"))
-        fig.add_trace(go.Scatter(x=df.index, y=df["Close"].rolling(20).mean(), name="MA20"))
+        fig.add_trace(go.Scatter(x=data.index, y=data["Close"], name="Close"))
+        fig.add_trace(go.Scatter(x=data.index, y=data["Close"].rolling(10).mean(), name="MA10"))
+        fig.add_trace(go.Scatter(x=data.index, y=data["Close"].rolling(20).mean(), name="MA20"))
         fig.update_layout(title=f"{selected} - Price & MAs", xaxis_title="Date", yaxis_title="Price")
         st.plotly_chart(fig, use_container_width=True)
     else:
-        st.warning("No data found for this ticker.")
+        st.warning("⚠️ No chart data found.")
 
-# --- TAB 2: SHOW METRICS TABLE ---
+# --- TAB 2: METRICS TABLE ---
 with tab2:
-    tickers = st.text_input("Enter tickers (comma or space separated)", "TSLA NVDA RHM")
-    input_list = [t.strip().upper() for t in tickers.replace(",", " ").split()]
-    metrics = []
+    st.markdown("### 📋 All Metrics")
+    ticker_input = st.text_input("Enter tickers (comma or space separated)", value=" ".join(clean_symbols))
+    if ticker_input:
+        tickers = [t.strip().upper() for t in ticker_input.replace(",", " ").split()]
+        df = calculate_metrics(tickers)
+        st.dataframe(df)
 
-    for t in input_list:
-        try:
-            data = yf.Ticker(map_to_exchange(t)).history(period="6mo")
-            if not data.empty:
-                close = data["Close"]
-                row = {
-                    "Symbol": t,
-                    "Price": close[-1],
-                    "MA10": close.rolling(10).mean().iloc[-1],
-                    "MA20": close.rolling(20).mean().iloc[-1],
-                    "% vs MA10": ((close[-1] - close.rolling(10).mean().iloc[-1]) / close.rolling(10).mean().iloc[-1]) * 100,
-                    "Volume": data["Volume"][-1],
-                    "Signal": "Buy" if close[-1] > close.rolling(20).mean().iloc[-1] else "Wait",
-                    "Last Updated": pd.Timestamp.now().strftime("%Y-%m-%d")
-                }
-                metrics.append(row)
-        except Exception as e:
-            st.error(f"{t} - Error fetching data: {e}")
-
-    if metrics:
-        df_metrics = pd.DataFrame(metrics)
-        st.dataframe(df_metrics)
-    else:
-        st.info("No valid ticker data found.")
-
-# --- TAB 3: AI GENERATED PLACEHOLDER ---
+# --- TAB 3: AI ---
 with tab3:
-    st.markdown("✅ **AI-generated insights will appear here soon.**")
+    st.markdown("✅ **AI-generated summaries will appear here soon.**")
+"""
+
+# Save script
+script_path = "/mnt/data/final_streamlit_dashboard_permanent_watchlist.py"
+Path(script_path).write_text(streamlit_script)
+
+script_path
