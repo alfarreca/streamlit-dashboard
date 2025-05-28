@@ -1,3 +1,10 @@
+import json
+from google.oauth2.service_account import Credentials
+
+# --- SETUP GOOGLE SHEETS INTEGRATION ---
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SERVICE_ACCOUNT_INFO = json.loads(st.secrets["GCP_SERVICE_ACCOUNT"])
+creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
 
 import streamlit as st
 import pandas as pd
