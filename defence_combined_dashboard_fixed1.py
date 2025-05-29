@@ -52,6 +52,9 @@ def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
                 daily["Volume"] = np.nan
         except requests.RequestException:
             return pd.DataFrame()
+    daily = daily.reset_index()
+    daily["Date"] = pd.to_datetime(daily["Date"])
+    daily = daily.set_index("Date")
     weekly = pd.DataFrame({
         "Close": daily["Close"].resample("W-FRI").last(),
         "Volume": daily["Volume"].resample("W-FRI").sum(min_count=1),
@@ -69,7 +72,7 @@ def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
         dy_raw = safe_float(info.get("dividendYield"))
         dy_pct = dy_raw * 100 if (not np.isnan(dy_raw) and dy_raw < 1) else dy_raw
         pr_raw = safe_float(info.get("payoutRatio"))
-        pr_pct = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
+        pr_pct = round(pr_raw * 100, 1) if (not np.isnan(pr_raw) and pr_raw > 0) else None
         fcf_raw = safe_float(info.get("freeCashflow"))
         fcf_m = fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan
         records.append({
@@ -135,10 +138,9 @@ if page == "Overview":
     if show_tbl:
         st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
         st.dataframe(
-            combined.style.apply(
-                lambda s: ["background:#FFEB3B" if x == s.max() else "" for x in s],
-                subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"],
-            ),
+            combined.style.format({
+                "Dividend Payout Ratio (%)": lambda x: f"{x:.1f}%" if pd.notnull(x) else "—"
+            }),
             use_container_width=True,
         )
 
