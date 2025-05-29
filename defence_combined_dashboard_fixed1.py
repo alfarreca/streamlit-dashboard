@@ -17,7 +17,7 @@ SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
 creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
 gc = gspread.authorize(creds)
 
-sheet = gc.open_by_key("1fWJOZ58AyPtv2Z5q3r9waJWG3Bsbma-DDymTHhTmpwk").sheet1
+sheet = gc.open_by_key("1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg").sheet1
 sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"])
 
 # Helper functions
@@ -74,12 +74,21 @@ for _, row in sheet_df.iterrows():
         "Last Updated": pd.Timestamp.today().date(),
         "Crossover": "Above" if last.Close > last.MA20 else "Below",
         "Divergence": "Overbought" if last.Close > last.MA20 else "OK",
-        "Prev Price": weekly.Close.iloc[-2],
-        "Prev MA10": weekly.MA10.iloc[-2]
+        "Prev MA10": weekly.MA10.iloc[-2] if len(weekly) > 1 else np.nan
     }
 
 tech_df = pd.DataFrame(records).T
-combined_df = pd.concat([tech_df, fund_df], axis=1).round(2)
+
+# Only keep fundamental columns not present in tech_df to avoid duplicates
+fund_cols = [col for col in fund_df.columns if col not in tech_df.columns]
+fund_df_trimmed = fund_df[fund_cols]
+
+# Reset index for merge
+tech_df = tech_df.reset_index().rename(columns={'index': 'Symbol'})
+combined_df = tech_df.merge(fund_df_trimmed.reset_index(), how='left', left_on='Symbol', right_on='Symbol')
+
+# Set Symbol as index for display
+combined_df = combined_df.set_index('Symbol')
 
 st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
 st.dataframe(combined_df, use_container_width=True)
