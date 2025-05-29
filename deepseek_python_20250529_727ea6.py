@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import plotly.graph_objects as go
 from google.oauth2.service_account import Credentials
 import gspread
 from datetime import datetime
@@ -30,39 +31,67 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
     suffix = exchange_suffix(exchange)
     return f"{symbol}.{suffix}" if suffix else symbol
 
-def calculate_crossover(close_series):
-    ma10 = close_series.rolling(window=10).mean()
-    ma20 = close_series.rolling(window=20).mean()
+def create_price_chart(symbol, history_data):
+    fig = go.Figure()
     
-    # Current relationship
-    current_relation = "MA10 > MA20" if ma10.iloc[-1] > ma20.iloc[-1] else "MA10 ≤ MA20"
+    # Add price line
+    fig.add_trace(go.Scatter(
+        x=history_data.index,
+        y=history_data['Close'],
+        name='Price',
+        line=dict(color='#1f77b4')
+    ))
     
-    # Crossover detection
-    crossover_status = "No Crossover"
+    # Add moving averages
+    fig.add_trace(go.Scatter(
+        x=history_data.index,
+        y=history_data['Close'].rolling(window=10).mean(),
+        name='MA10',
+        line=dict(color='orange', width=1)
+    ))
     
-    # Golden Cross (MA10 crosses above MA20)
-    if (ma10.iloc[-2] <= ma20.iloc[-2]) and (ma10.iloc[-1] > ma20.iloc[-1]):
-        crossover_status = "🟢 Golden Cross (Bullish)"
+    fig.add_trace(go.Scatter(
+        x=history_data.index,
+        y=history_data['Close'].rolling(window=20).mean(),
+        name='MA20',
+        line=dict(color='red', width=1)
+    ))
     
-    # Death Cross (MA10 crosses below MA20)
-    elif (ma10.iloc[-2] >= ma20.iloc[-2]) and (ma10.iloc[-1] < ma20.iloc[-1]):
-        crossover_status = "🔴 Death Cross (Bearish)"
+    # Add volume as bar chart
+    fig.add_trace(go.Bar(
+        x=history_data.index,
+        y=history_data['Volume'],
+        name='Volume',
+        marker_color='rgba(100, 100, 100, 0.3)',
+        yaxis='y2'
+    ))
     
-    # Recent crossover within last 5 days
-    elif any((ma10.iloc[-i-1] <= ma20.iloc[-i-1]) and (ma10.iloc[-1] > ma20.iloc[-1]) for i in range(1, 6)):
-        crossover_status = "🟡 Recent Golden Cross"
-    elif any((ma10.iloc[-i-1] >= ma20.iloc[-i-1]) and (ma10.iloc[-1] < ma20.iloc[-1]) for i in range(1, 6)):
-        crossover_status = "🟠 Recent Death Cross"
+    # Update layout
+    fig.update_layout(
+        title=f'{symbol} Price Chart',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        yaxis2=dict(
+            title='Volume',
+            overlaying='y',
+            side='right',
+            showgrid=False
+        ),
+        hovermode='x unified',
+        height=400,
+        margin=dict(l=50, r=50, b=50, t=50, pad=4),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
     
-    return f"{current_relation} | {crossover_status}"
+    return fig
 
 @st.cache_data(ttl=3600)
 def get_ticker_data(_ticker, exchange, yf_symbol):
     try:
         ticker_obj = yf.Ticker(yf_symbol)
         hist = ticker_obj.history(period="6mo")
-        if hist.empty:
-            return None
+        if hist.empty or len(hist) < 20:
+            return None, None
 
         close = hist["Close"]
         volume = hist["Volume"]
@@ -75,14 +104,16 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         volume_ma10 = volume.rolling(window=10).mean().iloc[-1]
 
         divergence = round((last_price - ma10) / ma10 * 100, 2)
-        signal = "🟢 Buy" if (last_price > ma10) and (ma10 > ma20) else "🔴 Sell" if (last_price < ma10) and (ma10 < ma20) else "🟡 Neutral"
-        crossover = calculate_crossover(close)
+        signal = "🟢 Buy" if (last_price > ma10 and ma10 > ma20) else "🔴 Sell" if (last_price < ma10 and ma10 < ma20) else "🟡 Neutral"
 
         ticker_info = ticker_obj.info
         dividend_yield = ticker_info.get("dividendYield", 0) * 100
         dividend_payout_ratio = ticker_info.get("payoutRatio", 0) * 100
         free_cash_flow = ticker_info.get("freeCashflow", None)
         pe_ratio = ticker_info.get("trailingPE", None)
+
+        # Create chart
+        chart = create_price_chart(_ticker, hist)
 
         return {
             "Symbol": _ticker,
@@ -94,21 +125,22 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Volume": int(volume.iloc[-1]),
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
-            "Crossover": crossover,
             "P/E Ratio": round(pe_ratio, 2) if pe_ratio else "N/A",
             "Dividend Yield (%)": round(dividend_yield, 2),
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
             "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else "N/A",
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
-            "YF Symbol": yf_symbol
-        }
+            "YF Symbol": yf_symbol,
+            "Chart": chart
+        }, hist
+
     except Exception as e:
         st.error(f"Error processing {_ticker}: {str(e)}")
-        return None
+        return None, None
 
 # Streamlit UI Configuration
 st.set_page_config(layout="wide")
-st.title("📊 Stock Watchlist Dashboard")
+st.title("📊 Stock Watchlist Dashboard with Charts")
 
 # Load data
 df = get_google_sheet_data()
@@ -127,12 +159,6 @@ with col2:
         options=["🟢 Buy", "🔴 Sell", "🟡 Neutral"],
         default=["🟢 Buy", "🔴 Sell", "🟡 Neutral"]
     )
-with col3:
-    crossover_filter = st.multiselect(
-        "Filter by Crossover",
-        options=["Golden Cross", "Death Cross", "Recent Golden Cross", "Recent Death Cross"],
-        default=["Golden Cross", "Death Cross"]
-    )
 
 # Process data
 results = []
@@ -148,7 +174,7 @@ for i, (_, row) in enumerate(df.iterrows()):
     progress_bar.progress((i + 1) / len(df))
     status_text.text(f"Processing {i+1}/{len(df)}: {symbol} ({exchange})")
     
-    ticker_data = get_ticker_data(symbol, exchange, yf_symbol)
+    ticker_data, history_data = get_ticker_data(symbol, exchange, yf_symbol)
     if ticker_data:
         results.append(ticker_data)
 
@@ -160,8 +186,7 @@ if results:
     
     # Apply filters
     results_df = results_df[
-        results_df["Signal"].isin(signal_filter) &
-        results_df["Crossover"].str.contains("|".join(crossover_filter), case=False)
+        results_df["Signal"].isin(signal_filter)
     ]
     
     # Sort options
@@ -185,9 +210,9 @@ if results:
     
     # Display results
     st.dataframe(
-        results_df.drop(columns=["YF Symbol"]),
+        results_df.drop(columns=["Chart", "YF Symbol"]),
         use_container_width=True,
-        height=700,
+        height=400,
         column_config={
             "Price": st.column_config.NumberColumn(format="$%.2f"),
             "Dividend Yield (%)": st.column_config.NumberColumn(format="%.2f%%"),
@@ -195,10 +220,21 @@ if results:
         }
     )
     
+    # Display charts for selected stocks
+    selected_symbols = st.multiselect(
+        "Select stocks to view charts:",
+        options=results_df["Symbol"].unique()
+    )
+    
+    for symbol in selected_symbols:
+        ticker_data = next((item for item in results if item["Symbol"] == symbol), None)
+        if ticker_data and "Chart" in ticker_data:
+            st.plotly_chart(ticker_data["Chart"], use_container_width=True)
+    
     # Download button
     st.download_button(
         label="Download Data as CSV",
-        data=results_df.to_csv(index=False),
+        data=results_df.drop(columns=["Chart"]).to_csv(index=False),
         file_name="stock_metrics.csv",
         mime="text/csv"
     )
