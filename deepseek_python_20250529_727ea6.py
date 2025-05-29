@@ -159,15 +159,16 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Price": round(last_price, 2),
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
-            "% vs MA10": f"{divergence}%",
+            "Divergence": divergence,  # Numeric version for sorting
+            "% vs MA10": f"{divergence}%",  # Formatted version for display
             "Volume": int(volume.iloc[-1]),
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
             "Crossover": crossover,
-            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else "N/A",
+            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else None,
             "Dividend Yield (%)": round(dividend_yield, 2),
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
-            "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else "N/A",
+            "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else None,
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF Symbol": yf_symbol,
             "Chart": chart
@@ -237,26 +238,30 @@ if results:
     
     # Sort options
     sort_options = {
-        "Divergence (High to Low)": ("% vs MA10", False),
-        "Price (High to Low)": ("Price", False),
-        "P/E Ratio (Low to High)": ("P/E Ratio", True),
-        "Dividend Yield (High to Low)": ("Dividend Yield (%)", False)
+        "Divergence (High to Low)": "Divergence",
+        "Price (High to Low)": "Price",
+        "P/E Ratio (Low to High)": "P/E Ratio",
+        "Dividend Yield (High to Low)": "Dividend Yield (%)"
     }
     
     sort_col, _, _ = st.columns(3)
     with sort_col:
         sort_option = st.selectbox("Sort by", options=list(sort_options.keys()))
     
-    sort_column, ascending = sort_options[sort_option]
+    sort_column = sort_options[sort_option]
+    ascending = "Low to High" in sort_option
+    
+    # Sort without using the key parameter for numeric columns
     results_df = results_df.sort_values(
         by=sort_column, 
         ascending=ascending,
-        key=lambda x: pd.to_numeric(x.str.replace('%', ''), errors='coerce')
+        na_position='last'
     )
     
     # Display results
+    display_columns = [col for col in results_df.columns if col not in ["Chart", "YF Symbol", "Divergence"]]
     st.dataframe(
-        results_df.drop(columns=["Chart", "YF Symbol"]),
+        results_df[display_columns],
         use_container_width=True,
         height=400,
         column_config={
