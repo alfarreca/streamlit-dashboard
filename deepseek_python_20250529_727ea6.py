@@ -58,7 +58,7 @@ def calculate_crossover(close_series):
     return f"{current_relation} | {crossover_status}"
 
 @st.cache_data(ttl=3600)
-def get_ticker_data(_ticker, yf_symbol):
+def get_ticker_data(_ticker, exchange, yf_symbol):
     try:
         ticker_obj = yf.Ticker(yf_symbol)
         hist = ticker_obj.history(period="6mo")
@@ -87,7 +87,7 @@ def get_ticker_data(_ticker, yf_symbol):
 
         return {
             "Symbol": _ticker,
-            "Exchange": row["Exchange"],
+            "Exchange": exchange,
             "Price": round(last_price, 2),
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
@@ -149,7 +149,7 @@ for i, (_, row) in enumerate(df.iterrows()):
     progress_bar.progress((i + 1) / len(df))
     status_text.text(f"Processing {i+1}/{len(df)}: {symbol} ({exchange})")
     
-    ticker_data = get_ticker_data(symbol, yf_symbol)
+    ticker_data = get_ticker_data(symbol, exchange, yf_symbol)
     if ticker_data:
         results.append(ticker_data)
 
@@ -182,6 +182,7 @@ if results:
         by=sort_column, 
         ascending=ascending,
         key=lambda x: pd.to_numeric(x.str.replace('%', ''), errors='coerce')
+    )
     
     # Display results
     st.dataframe(
