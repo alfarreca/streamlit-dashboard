@@ -1,162 +1,110 @@
 # -*- coding: utf-8 -*-
 """Streamlit Defense‐Sector Dashboard
 
-Paste a list of tickers (e.g. "ETR:RHM LON:BA") in the sidebar and click
-**Load Tickers** to refresh the table and chart.
-
 Compatible with Streamlit 1.x and Python 3.8+.
 """
 
 import re
-from io import StringIO
-
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 import yfinance as yf
+from io import StringIO
+from google.oauth2.service_account import Credentials
+import gspread
+
+# ──────────────────────────────────────────
+# Google Sheets Authentication
+# ──────────────────────────────────────────
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
+creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
+gc = gspread.authorize(creds)
+
+# Open the Google Sheet
+sheet = gc.open_by_key("1JqJ7lSBFkPoTE0ZrYk9qrTfD2so4m2csZuQZ5aPCu4M").sheet1
+sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"]).drop_duplicates("Symbol")
 
 # ──────────────────────────────────────────
 # Helper functions
 # ──────────────────────────────────────────
 
-def yf_symbol(code: str) -> str:
-    if ":" not in code:
-        return code
-    exch, sym = code.split(":", 1)
-    suffix = {
-        "ETR": "DE", "STO": "ST", "EPA": "PA", "LON": "L", "BIT": "MI",
-        "NYSE": "", "NASDAQ": ""
-    }.get(exch.upper(), "")
-    return f"{sym}{('.' + suffix) if suffix else ''}"
-
-def split_tickers(text: str) -> tuple[str, ...]:
-    return tuple(tok.strip() for tok in re.split(r"[ ,]+", text.strip()) if tok.strip())
-
-def safe_float(val):
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return np.nan
+def yf_symbol(symbol: str, exchange: str) -> str:
+    suffix_map = {"ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
+                  "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK", "NYSE": "", "NASDAQ": ""}
+    suffix = suffix_map.get(exchange.upper(), "")
+    return f"{symbol}{('.' + suffix) if suffix else ''}"
 
 @st.cache_data(show_spinner=False)
-def fetch_weekly_ohlcv(ticker: str) -> pd.DataFrame:
-    ysym = yf_symbol(ticker)
+def fetch_weekly_ohlcv(symbol: str, exchange: str) -> pd.DataFrame:
+    ysym = yf_symbol(symbol, exchange)
     daily = yf.Ticker(ysym).history(period="1y", interval="1d")[["Close", "Volume"]]
-    if daily.empty:
-        sym = ysym.split(".")[0].lower()
-        try:
-            csv = requests.get(f"https://stooq.com/q/d/l/?s={sym}&i=d", timeout=5).text
-            if "Date" in csv:
-                daily = pd.read_csv(StringIO(csv), parse_dates=["Date"], index_col="Date")[["Close"]]
-                daily["Volume"] = np.nan
-        except requests.RequestException:
-            return pd.DataFrame()
     weekly = pd.DataFrame({
         "Close": daily["Close"].resample("W-FRI").last(),
-        "Volume": daily["Volume"].resample("W-FRI").sum(min_count=1),
+        "Volume": daily["Volume"].resample("W-FRI").sum(min_count=1)
     }).dropna(subset=["Close"])
     return weekly
 
 @st.cache_data(show_spinner=False)
-def fetch_fundamentals(tickers: tuple[str, ...]) -> pd.DataFrame:
+def fetch_fundamentals(df: pd.DataFrame) -> pd.DataFrame:
     records = []
-    for t in tickers:
-        try:
-            info = yf.Ticker(yf_symbol(t)).info or {}
-        except Exception:
-            info = {}
-        dy_raw = safe_float(info.get("dividendYield"))
-        dy_pct = dy_raw * 100 if (not np.isnan(dy_raw) and dy_raw < 1) else dy_raw
-        pr_raw = safe_float(info.get("payoutRatio"))
-        pr_pct = pr_raw * 100 if not np.isnan(pr_raw) else np.nan
-        fcf_raw = safe_float(info.get("freeCashflow"))
-        fcf_m = fcf_raw / 1e6 if not np.isnan(fcf_raw) else np.nan
+    for _, row in df.iterrows():
+        symbol, exchange = row["Symbol"], row["Exchange"]
+        info = yf.Ticker(yf_symbol(symbol, exchange)).info or {}
+        dy_raw = info.get("dividendYield", np.nan)
+        dy_pct = dy_raw * 100 if dy_raw and dy_raw < 1 else dy_raw
         records.append({
-            "Ticker": t,
+            "Symbol": symbol,
             "Dividend Yield (%)": dy_pct,
-            "Dividend Payout Ratio (%)": pr_pct,
-            "Free Cash Flow (LC m)": fcf_m,
+            "Payout Ratio (%)": info.get("payoutRatio", np.nan) * 100,
+            "Free Cash Flow (m)": info.get("freeCashflow", np.nan) / 1e6
         })
-    df = pd.DataFrame(records).set_index("Ticker")
-    return df.reindex(tickers)
-
-def technicals(df: pd.DataFrame) -> dict:
-    if df.empty or len(df) < 20:
-        return {}
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
-    ma10 = df["Close"].rolling(10).mean()
-    ma20 = df["Close"].rolling(20).mean()
-    return {
-        "Price": last.Close,
-        "MA10": ma10.iloc[-1],
-        "MA20": ma20.iloc[-1],
-        "% vs MA10": (last.Close - ma10.iloc[-1]) / ma10.iloc[-1] * 100,
-        "Volume": last.Volume,
-        "Vol MA10": df["Volume"].rolling(10).mean().iloc[-1],
-        "Signal": "Buy" if ma10.iloc[-1] > ma20.iloc[-1] else "Sell",
-        "Last Updated": last.name.strftime("%Y-%m-%d"),
-        "Crossover": "Above" if last.Close > ma20.iloc[-1] else "Below",
-        "Divergence": (
-            "Overbought" if last.Close >= ma10.iloc[-1] * 1.1 else (
-                "Oversold" if last.Close <= ma10.iloc[-1] * 0.9 else "OK")
-        ),
-        "Prev Price": prev.Close,
-        "Prev MA10": ma10.iloc[-2],
-    }
+    return pd.DataFrame(records).set_index("Symbol")
 
 # ──────────────────────────────────────────
 # Streamlit UI
 # ──────────────────────────────────────────
-
 st.set_page_config(page_title="Defense Dashboard", layout="wide")
 st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
 
-# Sidebar navigation only
+# Sidebar navigation
 with st.sidebar:
-    page = st.radio("Navigate", ("Overview", "Screener", "Chart"))
-    st.markdown("---")
+    page = st.radio("Navigate", ("Overview", "Chart"))
 
-# Ticker input only for 'Overview' page
+# Overview Page
 if page == "Overview":
-    st.header("Ticker Screener")
-    default_text = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
-    user_text = st.text_input("Enter tickers", default_text)
-    if st.button("Load Tickers"):
-        st.session_state["tickers"] = split_tickers(user_text)
-
-    tickers = st.session_state.get("tickers", split_tickers(default_text))
-    show_tbl = st.checkbox("Show All Tickers Table", True)
-    fund_df = fetch_fundamentals(tickers)
-    tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
+    st.subheader("📊 Tickers from Google Sheets")
+    fund_df = fetch_fundamentals(sheet_df)
+    tech_records = {}
+    for _, row in sheet_df.iterrows():
+        weekly = fetch_weekly_ohlcv(row["Symbol"], row["Exchange"])
+        if not weekly.empty:
+            last = weekly.iloc[-1]
+            ma10 = weekly["Close"].rolling(10).mean().iloc[-1]
+            ma20 = weekly["Close"].rolling(20).mean().iloc[-1]
+            tech_records[row["Symbol"]] = {
+                "Price": last.Close,
+                "MA10": ma10,
+                "MA20": ma20,
+                "% vs MA10": (last.Close - ma10) / ma10 * 100,
+                "Volume": last.Volume,
+                "Signal": "Buy" if ma10 > ma20 else "Sell",
+                "Crossover": "Above" if last.Close > ma20 else "Below",
+            }
+    tech_df = pd.DataFrame(tech_records).T
     combined = pd.concat([tech_df, fund_df], axis=1).round(2)
+    st.dataframe(combined, use_container_width=True)
 
-    if show_tbl:
-        st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
-        st.dataframe(
-            combined.style.apply(
-                lambda s: ["background:#FFEB3B" if x == s.max() else "" for x in s],
-                subset=["Dividend Yield (%)", "Dividend Payout Ratio (%)"],
-            ),
-            use_container_width=True,
-        )
-
+# Chart Page
 elif page == "Chart":
-    tickers = st.session_state.get("tickers", [])
-    if not tickers:
-        st.warning("Please load tickers in the Overview page first.")
+    symbol = st.selectbox("Select Ticker", sheet_df["Symbol"])
+    exchange = sheet_df.loc[sheet_df["Symbol"] == symbol, "Exchange"].values[0]
+    weekly = fetch_weekly_ohlcv(symbol, exchange)
+    if weekly.empty:
+        st.warning("No price data available.")
     else:
-        sel = st.selectbox("Select Ticker to View Chart", tickers)
-        wk = fetch_weekly_ohlcv(sel)
-        if wk.empty:
-            st.warning("No price data available for that ticker.")
-        else:
-            plot = wk.copy()
-            plot["MA10"] = plot["Close"].rolling(10).mean()
-            plot["MA20"] = plot["Close"].rolling(20).mean()
-            st.subheader(f"📈 Weekly Price Chart: {sel}")
-            st.line_chart(plot[["Close", "MA10", "MA20"]])
-
-elif page == "Screener":
-    st.info("Screener functionality placeholder. Coming soon!")
+        weekly["MA10"] = weekly["Close"].rolling(10).mean()
+        weekly["MA20"] = weekly["Close"].rolling(20).mean()
+        st.subheader(f"📈 Weekly Chart: {symbol}")
+        st.line_chart(weekly[["Close", "MA10", "MA20"]])
