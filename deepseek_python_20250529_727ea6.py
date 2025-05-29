@@ -86,8 +86,8 @@ def get_ticker_data(_ticker, yf_symbol):
         pe_ratio = ticker_info.get("trailingPE", None)
 
         return {
-            "Symbol": symbol,
-            "Exchange": exchange,
+            "Symbol": _ticker,
+            "Exchange": row["Exchange"],
             "Price": round(last_price, 2),
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
@@ -182,8 +182,25 @@ if results:
         by=sort_column, 
         ascending=ascending,
         key=lambda x: pd.to_numeric(x.str.replace('%', ''), errors='coerce')
-    )
     
     # Display results
     st.dataframe(
-        results
+        results_df.drop(columns=["YF Symbol"]),
+        use_container_width=True,
+        height=700,
+        column_config={
+            "Price": st.column_config.NumberColumn(format="$%.2f"),
+            "Dividend Yield (%)": st.column_config.NumberColumn(format="%.2f%%"),
+            "P/E Ratio": st.column_config.NumberColumn(format="%.2f")
+        }
+    )
+    
+    # Download button
+    st.download_button(
+        label="Download Data as CSV",
+        data=results_df.to_csv(index=False),
+        file_name="stock_metrics.csv",
+        mime="text/csv"
+    )
+else:
+    st.warning("No data available for the selected filters.")
