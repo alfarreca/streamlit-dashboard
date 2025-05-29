@@ -11,9 +11,7 @@ import yfinance as yf
 from google.oauth2.service_account import Credentials
 import gspread
 
-# ──────────────────────────────────────────
 # Google Sheets Authentication
-# ──────────────────────────────────────────
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
 creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
@@ -22,9 +20,7 @@ gc = gspread.authorize(creds)
 sheet = gc.open_by_key("1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg").sheet1
 sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"])
 
-# ──────────────────────────────────────────
 # Helper functions
-# ──────────────────────────────────────────
 def yf_symbol(symbol: str, exchange: str) -> str:
     suffix_map = {"ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
                   "NYSE": "", "NASDAQ": ""}
@@ -50,14 +46,13 @@ def fetch_fundamentals(df: pd.DataFrame) -> pd.DataFrame:
         records.append({
             "Symbol": row["Symbol"],
             "Dividend Yield (%)": dy_pct,
-            "Dividend Payout (%)": info.get("payoutRatio", np.nan) * 100,
+            "Dividend Payout Ratio (%)": info.get("payoutRatio", np.nan) * 100,
+            "Free Cash Flow (LC m)": info.get("freeCashflow", np.nan) / 1e6,
             "Prev Price": info.get("previousClose", np.nan)
         })
     return pd.DataFrame(records).set_index("Symbol")
 
-# ──────────────────────────────────────────
 # Streamlit UI
-# ──────────────────────────────────────────
 st.set_page_config(page_title="Defense Dashboard", layout="wide")
 st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
 
@@ -79,6 +74,7 @@ for _, row in sheet_df.iterrows():
         "Last Updated": pd.Timestamp.today().date(),
         "Crossover": "Above" if last.Close > last.MA20 else "Below",
         "Divergence": "Overbought" if last.Close > last.MA20 else "OK",
+        "Prev Price": weekly.Close.iloc[-2],
         "Prev MA10": weekly.MA10.iloc[-2]
     }
 
