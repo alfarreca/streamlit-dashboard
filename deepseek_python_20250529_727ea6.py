@@ -145,7 +145,14 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         crossover = calculate_crossover(close)
 
         ticker_info = ticker_obj.info
-        dividend_yield = ticker_info.get("dividendYield", 0) * 100
+        
+        # FIXED DIVIDEND YIELD HANDLING
+        dividend_yield = ticker_info.get("dividendYield")
+        if dividend_yield is None:
+            dividend_yield = 0  # Default to 0 if no data
+        else:
+            dividend_yield *= 100  # Convert to percentage
+
         dividend_payout_ratio = ticker_info.get("payoutRatio", 0) * 100
         free_cash_flow = ticker_info.get("freeCashflow", None)
         pe_ratio = ticker_info.get("trailingPE", None)
@@ -159,8 +166,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Price": round(last_price, 2),
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
-            "Divergence": divergence,  # Numeric version for sorting
-            "% vs MA10": f"{divergence}%",  # Formatted version for display
+            "Divergence": divergence,
+            "% vs MA10": f"{divergence}%",
             "Volume": int(volume.iloc[-1]),
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
@@ -267,7 +274,8 @@ if results:
         column_config={
             "Price": st.column_config.NumberColumn(format="$%.2f"),
             "Dividend Yield (%)": st.column_config.NumberColumn(format="%.2f%%"),
-            "P/E Ratio": st.column_config.NumberColumn(format="%.2f")
+            "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),
+            "Free Cash Flow (LC m)": st.column_config.NumberColumn(format="$%.2f")
         }
     )
     
