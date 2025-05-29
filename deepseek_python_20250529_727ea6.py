@@ -30,7 +30,6 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
     suffix = exchange_suffix(exchange)
     return f"{symbol}.{suffix}" if suffix else symbol
 
-# Improved Crossover Calculation
 def calculate_crossover(close_series):
     ma10 = close_series.rolling(window=10).mean()
     ma20 = close_series.rolling(window=20).mean()
@@ -50,9 +49,9 @@ def calculate_crossover(close_series):
         crossover_status = "🔴 Death Cross (Bearish)"
     
     # Recent crossover within last 5 days
-    elif any((ma10.shift(i) <= ma20.shift(i)) & (ma10 > ma20) for i in range(1, 6)):
+    elif any((ma10.iloc[-i-1] <= ma20.iloc[-i-1]) and (ma10.iloc[-1] > ma20.iloc[-1]) for i in range(1, 6)):
         crossover_status = "🟡 Recent Golden Cross"
-    elif any((ma10.shift(i) >= ma20.shift(i)) & (ma10 < ma20) for i in range(1, 6)):
+    elif any((ma10.iloc[-i-1] >= ma20.iloc[-i-1]) and (ma10.iloc[-1] < ma20.iloc[-1]) for i in range(1, 6)):
         crossover_status = "🟠 Recent Death Cross"
     
     return f"{current_relation} | {crossover_status}"
@@ -76,7 +75,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         volume_ma10 = volume.rolling(window=10).mean().iloc[-1]
 
         divergence = round((last_price - ma10) / ma10 * 100, 2)
-        signal = "🟢 Buy" if last_price > ma10 > ma20 else "🔴 Sell" if last_price < ma10 < ma20 else "🟡 Neutral"
+        signal = "🟢 Buy" if (last_price > ma10) and (ma10 > ma20) else "🔴 Sell" if (last_price < ma10) and (ma10 < ma20) else "🟡 Neutral"
         crossover = calculate_crossover(close)
 
         ticker_info = ticker_obj.info
