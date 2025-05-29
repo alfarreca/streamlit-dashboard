@@ -146,13 +146,9 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
         ticker_info = ticker_obj.info
         
-        # FIXED DIVIDEND YIELD HANDLING
-        dividend_yield = ticker_info.get("dividendYield")
-        if dividend_yield is None:
-            dividend_yield = 0  # Default to 0 if no data
-        else:
-            dividend_yield *= 100  # Convert to percentage
-
+        # FIXED DIVIDEND YIELD (Divided by 100)
+        dividend_yield = ticker_info.get("dividendYield", 0) / 100  # Key change here
+        
         dividend_payout_ratio = ticker_info.get("payoutRatio", 0) * 100
         free_cash_flow = ticker_info.get("freeCashflow", None)
         pe_ratio = ticker_info.get("trailingPE", None)
@@ -172,8 +168,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
             "Crossover": crossover,
-            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else None,
-            "Dividend Yield (%)": round(dividend_yield, 2),
+            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else None,  # Unchanged
+            "Dividend Yield": round(dividend_yield, 4),  # Now shows as decimal (e.g., 3.42 instead of 342%)
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
             "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else None,
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -187,7 +183,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
 # Streamlit UI Configuration
 st.set_page_config(layout="wide")
-st.title("📊 Stock Watchlist Dashboard with Charts & Crossovers")
+st.title("📊 Stock Watchlist Dashboard")
 
 # Load data
 df = get_google_sheet_data()
@@ -245,20 +241,17 @@ if results:
     
     # Sort options
     sort_options = {
-        "Divergence (High to Low)": "Divergence",
-        "Price (High to Low)": "Price",
-        "P/E Ratio (Low to High)": "P/E Ratio",
-        "Dividend Yield (High to Low)": "Dividend Yield (%)"
+        "Divergence (High to Low)": ("Divergence", False),
+        "Price (High to Low)": ("Price", False),
+        "P/E Ratio (Low to High)": ("P/E Ratio", True),
+        "Dividend Yield (High to Low)": ("Dividend Yield", False)
     }
     
     sort_col, _, _ = st.columns(3)
     with sort_col:
         sort_option = st.selectbox("Sort by", options=list(sort_options.keys()))
     
-    sort_column = sort_options[sort_option]
-    ascending = "Low to High" in sort_option
-    
-    # Sort without using the key parameter for numeric columns
+    sort_column, ascending = sort_options[sort_option]
     results_df = results_df.sort_values(
         by=sort_column, 
         ascending=ascending,
@@ -270,11 +263,12 @@ if results:
     st.dataframe(
         results_df[display_columns],
         use_container_width=True,
-        height=400,
+        height=700,
         column_config={
             "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "Dividend Yield (%)": st.column_config.NumberColumn(format="%.2f%%"),
-            "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),
+            "Dividend Yield": st.column_config.NumberColumn(format="%.4f"),  # Shows as decimal
+            "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),  # Unchanged
+            "Dividend Payout Ratio (%)": st.column_config.NumberColumn(format="%.2f%%"),
             "Free Cash Flow (LC m)": st.column_config.NumberColumn(format="$%.2f")
         }
     )
