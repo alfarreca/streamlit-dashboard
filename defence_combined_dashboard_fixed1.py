@@ -31,6 +31,9 @@ def yf_symbol(symbol: str, exchange: str) -> str:
 def fetch_weekly_data(symbol: str, exchange: str) -> pd.DataFrame:
     ysym = yf_symbol(symbol, exchange)
     daily = yf.Ticker(ysym).history(period="1y", interval="1d")[["Close", "Volume"]]
+    daily = daily.reset_index()  # Ensure 'Date' is a column
+    daily["Date"] = pd.to_datetime(daily["Date"])
+    daily = daily.set_index("Date")  # Set DatetimeIndex for resampling
     weekly = daily.resample("W-FRI").agg({"Close": "last", "Volume": "sum"}).dropna()
     weekly['MA10'] = weekly['Close'].rolling(10).mean()
     weekly['MA20'] = weekly['Close'].rolling(20).mean()
