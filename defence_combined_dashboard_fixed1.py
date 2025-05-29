@@ -110,4 +110,55 @@ def technicals(df: pd.DataFrame) -> dict:
     }
 
 # ──────────────────────────────────────────
-# Stream
+# Streamlit UI
+# ──────────────────────────────────────────
+
+st.set_page_config(page_title="Defense Dashboard", layout="wide")
+st.title("🛡️ Defense Sector: Weekly Signal Dashboard")
+
+# Sidebar navigation only
+with st.sidebar:
+    page = st.radio("Navigate", ("Overview", "Screener", "Chart"))
+    st.markdown("---")
+
+# Ticker input only for 'Overview' page
+if page == "Overview":
+    st.header("Ticker Screener")
+    default_text = "ETR:RHM STO:SAAB-B EPA:HO LON:BA BIT:LDO"
+    user_text = st.text_input("Enter tickers", default_text)
+    if st.button("Load Tickers"):
+        st.session_state["tickers"] = split_tickers(user_text)
+
+    tickers = st.session_state.get("tickers", split_tickers(default_text))
+    show_tbl = st.checkbox("Show All Tickers Table", True)
+    fund_df = fetch_fundamentals(tickers)
+    tech_df = pd.DataFrame({t: technicals(fetch_weekly_ohlcv(t)) for t in tickers}).T
+    combined = pd.concat([tech_df, fund_df], axis=1).round(2)
+
+    if show_tbl:
+        st.subheader("📊 All Tickers – Technical & Fundamental Metrics")
+        st.dataframe(
+            combined.style.format({
+                "Dividend Payout Ratio (%)": lambda x: f"{x:.1f}%" if pd.notnull(x) else "—"
+            }),
+            use_container_width=True,
+        )
+
+elif page == "Chart":
+    tickers = st.session_state.get("tickers", [])
+    if not tickers:
+        st.warning("Please load tickers in the Overview page first.")
+    else:
+        sel = st.selectbox("Select Ticker to View Chart", tickers)
+        wk = fetch_weekly_ohlcv(sel)
+        if wk.empty:
+            st.warning("No price data available for that ticker.")
+        else:
+            plot = wk.copy()
+            plot["MA10"] = plot["Close"].rolling(10).mean()
+            plot["MA20"] = plot["Close"].rolling(20).mean()
+            st.subheader(f"📈 Weekly Price Chart: {sel}")
+            st.line_chart(plot[["Close", "MA10", "MA20"]])
+
+elif page == "Screener":
+    st.info("Screener functionality placeholder. Coming soon!")
