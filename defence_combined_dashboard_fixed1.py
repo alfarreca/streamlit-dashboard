@@ -1,16 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Streamlit Defense‐Sector Dashboard
+"""Streamlit Defense‐Sector Dashboard integrated with Google Sheets
 
-Compatible with Streamlit 1.x and Python 3.8+.
+Compatible with Streamlit 1.x and Python 3.8+.
 """
 
-import re
 import numpy as np
 import pandas as pd
-import requests
 import streamlit as st
 import yfinance as yf
-from io import StringIO
 from google.oauth2.service_account import Credentials
 import gspread
 
@@ -19,12 +16,12 @@ import gspread
 # ──────────────────────────────────────────
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
-creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
+creds = Credentials.from_service_account_info(dict(SERVICE_ACCOUNT_INFO), scopes=SCOPES)
 gc = gspread.authorize(creds)
 
-# Open the Google Sheet
-sheet = gc.open_by_key("1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg").sheet1
-sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"]).drop_duplicates("Symbol")
+# Open Google Sheet
+sheet = gc.open_by_key("1JqJ7lSBFkPoTE0ZrYk9qrTfD2so4m2csZuQZ5aPCu4M").sheet1
+sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"])
 
 # ──────────────────────────────────────────
 # Helper functions
@@ -32,7 +29,7 @@ sheet_df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Excha
 
 def yf_symbol(symbol: str, exchange: str) -> str:
     suffix_map = {"ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
-                  "SWX": "SW", "TSE": "TO", "ASX": "AX", "HKG": "HK", "NYSE": "", "NASDAQ": ""}
+                  "NYSE": "", "NASDAQ": ""}
     suffix = suffix_map.get(exchange.upper(), "")
     return f"{symbol}{('.' + suffix) if suffix else ''}"
 
