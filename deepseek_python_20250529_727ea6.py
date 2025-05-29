@@ -31,6 +31,43 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
     suffix = exchange_suffix(exchange)
     return f"{symbol}.{suffix}" if suffix else symbol
 
+def calculate_crossover(close_series):
+    try:
+        ma10 = close_series.rolling(window=10).mean()
+        ma20 = close_series.rolling(window=20).mean()
+        
+        # Get the last 6 values (current + previous 5)
+        ma10_values = ma10.iloc[-6:].values
+        ma20_values = ma20.iloc[-6:].values
+        
+        # Current relationship
+        current_relation = "MA10 > MA20" if ma10_values[-1] > ma20_values[-1] else "MA10 ≤ MA20"
+        
+        # Initialize crossover status
+        crossover_status = "No Crossover"
+        
+        # Check for Golden Cross (MA10 crosses above MA20)
+        if (ma10_values[-2] <= ma20_values[-2]) and (ma10_values[-1] > ma20_values[-1]):
+            crossover_status = "🟢 Golden Cross (Bullish)"
+        
+        # Check for Death Cross (MA10 crosses below MA20)
+        elif (ma10_values[-2] >= ma20_values[-2]) and (ma10_values[-1] < ma20_values[-1]):
+            crossover_status = "🔴 Death Cross (Bearish)"
+        
+        # Check for recent crossovers within last 5 days
+        else:
+            for i in range(1, 6):
+                if (ma10_values[-i-1] <= ma20_values[-i-1]) and (ma10_values[-1] > ma20_values[-1]):
+                    crossover_status = "🟡 Recent Golden Cross"
+                    break
+                elif (ma10_values[-i-1] >= ma20_values[-i-1]) and (ma10_values[-1] < ma20_values[-1]):
+                    crossover_status = "🟠 Recent Death Cross"
+                    break
+        
+        return f"{current_relation} | {crossover_status}"
+    except Exception as e:
+        return f"Error: {str(e)}"
+
 def create_price_chart(symbol, history_data):
     fig = go.Figure()
     
@@ -105,6 +142,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
         divergence = round((last_price - ma10) / ma10 * 100, 2)
         signal = "🟢 Buy" if (last_price > ma10 and ma10 > ma20) else "🔴 Sell" if (last_price < ma10 and ma10 < ma20) else "🟡 Neutral"
+        crossover = calculate_crossover(close)
 
         ticker_info = ticker_obj.info
         dividend_yield = ticker_info.get("dividendYield", 0) * 100
@@ -125,6 +163,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Volume": int(volume.iloc[-1]),
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
+            "Crossover": crossover,
             "P/E Ratio": round(pe_ratio, 2) if pe_ratio else "N/A",
             "Dividend Yield (%)": round(dividend_yield, 2),
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
@@ -140,7 +179,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
 # Streamlit UI Configuration
 st.set_page_config(layout="wide")
-st.title("📊 Stock Watchlist Dashboard with Charts")
+st.title("📊 Stock Watchlist Dashboard with Charts & Crossovers")
 
 # Load data
 df = get_google_sheet_data()
@@ -158,6 +197,12 @@ with col2:
         "Filter by Signal",
         options=["🟢 Buy", "🔴 Sell", "🟡 Neutral"],
         default=["🟢 Buy", "🔴 Sell", "🟡 Neutral"]
+    )
+with col3:
+    crossover_filter = st.multiselect(
+        "Filter by Crossover",
+        options=["Golden Cross", "Death Cross", "Recent Golden Cross", "Recent Death Cross"],
+        default=["Golden Cross", "Death Cross"]
     )
 
 # Process data
@@ -186,7 +231,8 @@ if results:
     
     # Apply filters
     results_df = results_df[
-        results_df["Signal"].isin(signal_filter)
+        results_df["Signal"].isin(signal_filter) &
+        results_df["Crossover"].str.contains("|".join(crossover_filter), case=False, na=False)
     ]
     
     # Sort options
