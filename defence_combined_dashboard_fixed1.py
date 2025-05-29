@@ -16,8 +16,9 @@ import gspread
 # ──────────────────────────────────────────
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
-creds = Credentials.from_service_account_info(dict(SERVICE_ACCOUNT_INFO), scopes=SCOPES)
+creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
 gc = gspread.authorize(creds)
+
 
 # Open Google Sheet
 sheet = gc.open_by_key("1JqJ7lSBFkPoTE0ZrYk9qrTfD2so4m2csZuQZ5aPCu4M").sheet1
