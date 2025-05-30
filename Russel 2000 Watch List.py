@@ -140,7 +140,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         prev_ma10 = close.rolling(window=10).mean().iloc[-2]
         volume_ma10 = volume.rolling(window=10).mean().iloc[-1]
 
-        # NEW: Calculate 5-day price change
+        # Calculate 5-day price change
         if len(close) >= 5:
             price_5d_ago = close.iloc[-5]
             change_5d = ((last_price - price_5d_ago) / price_5d_ago) * 100
@@ -159,6 +159,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         dividend_payout_ratio = ticker_info.get("payoutRatio", 0) * 100
         free_cash_flow = ticker_info.get("freeCashflow", None)
         pe_ratio = ticker_info.get("trailingPE", None)
+        market_cap = ticker_info.get("marketCap", None)
 
         # Create chart
         chart = create_price_chart(_ticker, hist)
@@ -167,7 +168,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Symbol": _ticker,
             "Exchange": exchange,
             "Price": round(last_price, 2),
-            "5D Change %": round(change_5d, 2) if change_5d is not None else None,  # NEW COLUMN
+            "5D Change %": round(change_5d, 2) if change_5d is not None else None,
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
             "Divergence": divergence,
@@ -180,6 +181,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Dividend Yield": round(dividend_yield, 4),
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
             "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else None,
+            "Market Cap (m)": round(market_cap / 1e6, 2) if market_cap else None,
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF Symbol": yf_symbol,
             "Chart": chart
@@ -247,13 +249,14 @@ if results:
         results_df["Crossover"].str.contains("|".join(crossover_filter), case=False, na=False)
     ]
     
-    # Sort options (added 5D Change to sort options)
+    # Sort options
     sort_options = {
         "5D Change (High to Low)": ("5D Change %", False),
         "Divergence (High to Low)": ("Divergence", False),
         "Price (High to Low)": ("Price", False),
         "P/E Ratio (Low to High)": ("P/E Ratio", True),
-        "Dividend Yield (High to Low)": ("Dividend Yield", False)
+        "Dividend Yield (High to Low)": ("Dividend Yield", False),
+        "Market Cap (High to Low)": ("Market Cap (m)", False)
     }
     
     sort_col, _, _ = st.columns(3)
@@ -275,11 +278,12 @@ if results:
         height=700,
         column_config={
             "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "5D Change %": st.column_config.NumberColumn(format="%.2f%%"),  # NEW COLUMN
+            "5D Change %": st.column_config.NumberColumn(format="%.2f%%"),
             "Dividend Yield": st.column_config.NumberColumn(format="%.4f"),
             "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),
             "Dividend Payout Ratio (%)": st.column_config.NumberColumn(format="%.2f%%"),
-            "Free Cash Flow (LC m)": st.column_config.NumberColumn(format="$%.2f")
+            "Free Cash Flow (LC m)": st.column_config.NumberColumn(format="$%.2f"),
+            "Market Cap (m)": st.column_config.NumberColumn(format="$%.2f")
         }
     )
     
