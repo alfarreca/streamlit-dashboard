@@ -14,7 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 MAX_WORKERS = 6  # Conservative to avoid rate limits
 REQUEST_DELAY = (0.5, 2.0)  # Random delay between requests
 CACHE_TTL = 3600 * 12  # 12-hour cache
-PRELOAD_SYMBOLS = 30  # Initial symbols to load
+PRELOAD_SYMBOLS = 50  # Initial symbols to load
 MAX_RETRIES = 3  # Max retries for failed requests
 
 # ========== YFINANCE SETUP ==========
@@ -270,7 +270,7 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                         st.warning(f"Error processing future: {str(e)}")
                     
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100))
+                        progress = min(100, int((i+1)/len(futures)*100)
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
