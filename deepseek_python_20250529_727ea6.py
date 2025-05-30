@@ -140,14 +140,21 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         prev_ma10 = close.rolling(window=10).mean().iloc[-2]
         volume_ma10 = volume.rolling(window=10).mean().iloc[-1]
 
+        # NEW: Calculate 5-day price change
+        if len(close) >= 5:
+            price_5d_ago = close.iloc[-5]
+            change_5d = ((last_price - price_5d_ago) / price_5d_ago) * 100
+        else:
+            change_5d = None
+
         divergence = round((last_price - ma10) / ma10 * 100, 2)
         signal = "🟢 Buy" if (last_price > ma10 and ma10 > ma20) else "🔴 Sell" if (last_price < ma10 and ma10 < ma20) else "🟡 Neutral"
         crossover = calculate_crossover(close)
 
         ticker_info = ticker_obj.info
         
-        # FIXED DIVIDEND YIELD (Divided by 100)
-        dividend_yield = ticker_info.get("dividendYield", 0) / 100  # Key change here
+        # Dividend Yield (divided by 100)
+        dividend_yield = ticker_info.get("dividendYield", 0) / 100
         
         dividend_payout_ratio = ticker_info.get("payoutRatio", 0) * 100
         free_cash_flow = ticker_info.get("freeCashflow", None)
@@ -160,6 +167,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Symbol": _ticker,
             "Exchange": exchange,
             "Price": round(last_price, 2),
+            "5D Change %": round(change_5d, 2) if change_5d is not None else None,  # NEW COLUMN
             "MA10": round(ma10, 2),
             "MA20": round(ma20, 2),
             "Divergence": divergence,
@@ -168,8 +176,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Vol MA10": int(volume_ma10),
             "Signal": signal,
             "Crossover": crossover,
-            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else None,  # Unchanged
-            "Dividend Yield": round(dividend_yield, 4),  # Now shows as decimal (e.g., 3.42 instead of 342%)
+            "P/E Ratio": round(pe_ratio, 2) if pe_ratio else None,
+            "Dividend Yield": round(dividend_yield, 4),
             "Dividend Payout Ratio (%)": round(dividend_payout_ratio, 2),
             "Free Cash Flow (LC m)": round(free_cash_flow / 1e6, 2) if free_cash_flow else None,
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -239,8 +247,9 @@ if results:
         results_df["Crossover"].str.contains("|".join(crossover_filter), case=False, na=False)
     ]
     
-    # Sort options
+    # Sort options (added 5D Change to sort options)
     sort_options = {
+        "5D Change (High to Low)": ("5D Change %", False),
         "Divergence (High to Low)": ("Divergence", False),
         "Price (High to Low)": ("Price", False),
         "P/E Ratio (Low to High)": ("P/E Ratio", True),
@@ -266,8 +275,9 @@ if results:
         height=700,
         column_config={
             "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "Dividend Yield": st.column_config.NumberColumn(format="%.4f"),  # Shows as decimal
-            "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),  # Unchanged
+            "5D Change %": st.column_config.NumberColumn(format="%.2f%%"),  # NEW COLUMN
+            "Dividend Yield": st.column_config.NumberColumn(format="%.4f"),
+            "P/E Ratio": st.column_config.NumberColumn(format="%.2f"),
             "Dividend Payout Ratio (%)": st.column_config.NumberColumn(format="%.2f%%"),
             "Free Cash Flow (LC m)": st.column_config.NumberColumn(format="$%.2f")
         }
