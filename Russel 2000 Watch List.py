@@ -11,13 +11,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # ========== CONFIGURATION ==========
-MAX_WORKERS = 6  # Conservative to avoid rate limits
-REQUEST_DELAY = (0.5, 2.0)  # Random delay between requests
-CACHE_TTL = 3600 * 12  # 12-hour cache
-PRELOAD_SYMBOLS = 50  # Initial symbols to load
-MAX_RETRIES = 3  # Max retries for failed requests
+MAX_WORKERS = 6
+REQUEST_DELAY = (0.5, 2.0)
+CACHE_TTL = 3600 * 12
+PRELOAD_SYMBOLS = 50
+MAX_RETRIES = 3
 
-# ========== YFINANCE SETUP ==========
+# ========== SETUP ==========
 yf.set_tz_cache_location("cache")
 yf.pdr_override()
 
@@ -86,7 +86,7 @@ def calculate_momentum(hist):
     # Volume
     vol_avg_20 = volume.rolling(20).mean().iloc[-1]
     
-    # ADX (Trend Strength)
+    # ADX
     tr = pd.concat([high - low, 
                    (high - close.shift()).abs(), 
                    (low - close.shift()).abs()], axis=1).max(axis=1)
@@ -178,18 +178,10 @@ df = get_google_sheet_data()
 # ========== FILTERS ==========
 with st.sidebar:
     st.header("Momentum Filters")
-    
-    # Momentum Score
     min_score = st.slider("Minimum Momentum Score", 0, 100, 70, 5)
-    
-    # Trend Strength
     trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
     selected_trends = st.multiselect("Trend Strength", options=trend_options, default=trend_options)
-    
-    # Price Filters
     price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
-    
-    # Exchange Filters
     exchange_options = df["Exchange"].unique()
     selected_exchanges = st.multiselect("Exchanges", options=exchange_options, default=["NASDAQ", "NYSE"])
 
@@ -209,7 +201,6 @@ if not st.session_state.initial_results:
 
 # ========== DISPLAY RESULTS ==========
 if st.session_state.initial_results:
-    # Apply filters
     filtered = pd.DataFrame(st.session_state.initial_results)
     filtered = filtered[
         (filtered["Momentum_Score"] >= min_score) &
@@ -220,13 +211,11 @@ if st.session_state.initial_results:
     
     st.session_state.filtered_results = filtered
     
-    # Display metrics
     col1, col2, col3 = st.columns(3)
     col1.metric("Stocks Found", len(filtered))
     col2.metric("Avg Momentum Score", round(filtered["Momentum_Score"].mean(), 1))
     col3.metric("Strong Trends", len(filtered[filtered["Trend"] == "↑ Strong"]))
     
-    # Main dataframe
     st.dataframe(
         filtered[[
             "Symbol", "Exchange", "Price", "5D_Change", 
@@ -270,7 +259,7 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                         st.warning(f"Error processing future: {str(e)}")
                     
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100)
+                        progress = min(100, int((i+1)/len(futures)*100))
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
@@ -298,11 +287,9 @@ if selected_symbol:
                 st.session_state.filtered_results["Symbol"] == selected_symbol
             ].iloc[0]
             
-            # Create tabs
             tab1, tab2 = st.tabs(["Price Chart", "Momentum Indicators"])
             
             with tab1:
-                # Price chart with EMAs
                 ticker = yf.Ticker(symbol_data["YF_Symbol"])
                 hist = safe_yfinance_fetch(ticker, "6mo")
                 
@@ -331,10 +318,9 @@ if selected_symbol:
                 st.plotly_chart(fig, use_container_width=True)
             
             with tab2:
-                # Momentum indicators
                 col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Momentum Score", symbol_data["Momentum_Score"], delta=None)
+                    st.metric("Momentum Score", symbol_data["Momentum_Score"])
                     st.metric("Trend Strength", symbol_data["Trend"])
                     st.metric("RSI", symbol_data["RSI"])
                 
@@ -343,7 +329,6 @@ if selected_symbol:
                     st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
                     st.metric("ADX (Trend Strength)", symbol_data["ADX"])
                 
-                # Additional momentum analysis
                 st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
                 
         except Exception as e:
