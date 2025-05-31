@@ -19,7 +19,6 @@ MAX_RETRIES = 3
 
 # ========== SETUP ==========
 yf.set_tz_cache_location("cache")
-yf.pdr_override()
 
 # ========== RETRY MECHANISM ==========
 @retry(
@@ -259,7 +258,7 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                         st.warning(f"Error processing future: {str(e)}")
                     
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100))
+                        progress = min(100, int((i+1)/len(futures)*100)
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
