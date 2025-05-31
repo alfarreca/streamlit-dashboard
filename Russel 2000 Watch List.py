@@ -60,12 +60,12 @@ def calculate_momentum(hist):
     high = hist['High']
     low = hist['Low']
     volume = hist['Volume']
-    
+
     # Moving Averages
     ema20 = close.ewm(span=20).mean().iloc[-1]
     ema50 = close.ewm(span=50).mean().iloc[-1]
     ema200 = close.ewm(span=200).mean().iloc[-1]
-    
+
     # RSI
     delta = close.diff()
     gain = delta.clip(lower=0)
@@ -74,27 +74,27 @@ def calculate_momentum(hist):
     avg_loss = loss.rolling(14).mean().iloc[-1]
     rs = avg_gain / avg_loss if avg_loss != 0 else 100
     rsi = 100 - (100 / (1 + rs))
-    
+
     # MACD
     ema12 = close.ewm(span=12).mean()
     ema26 = close.ewm(span=26).mean()
     macd = ema12 - ema26
     macd_signal = macd.ewm(span=9).mean()
     macd_hist = macd.iloc[-1] - macd_signal.iloc[-1]
-    
+
     # Volume
     vol_avg_20 = volume.rolling(20).mean().iloc[-1]
-    
+
     # ADX
-    tr = pd.concat([high - low, 
-                   (high - close.shift()).abs(), 
+    tr = pd.concat([high - low,
+                   (high - close.shift()).abs(),
                    (low - close.shift()).abs()], axis=1).max(axis=1)
     atr = tr.rolling(14).mean().iloc[-1]
     plus_di = 100 * (high.diff().clip(lower=0).ewm(alpha=1/14).mean() / atr)
-    minus_di = 100 * (-low.diff().clip(upper=0).ewm(alpha=1/14).mean() / atr)
+    minus_di = 100 * (-low.diff(upper=0).ewm(alpha=1/14).mean() / atr)
     dx = (abs(plus_di.iloc[-1] - minus_di.iloc[-1]) / (plus_di.iloc[-1] + minus_di.iloc[-1])) * 100 if (plus_di.iloc[-1] + minus_di.iloc[-1]) != 0 else 0
     adx = dx.rolling(14).mean().iloc[-1]
-    
+
     # Momentum Score (0-100)
     momentum_score = 0
     if close.iloc[-1] > ema20 > ema50 > ema200:
@@ -109,7 +109,7 @@ def calculate_momentum(hist):
         momentum_score += 15
     if plus_di.iloc[-1] > minus_di.iloc[-1]:
         momentum_score += 10
-        
+
     return {
         "EMA20": round(ema20, 2),
         "EMA50": round(ema50, 2),
@@ -119,8 +119,8 @@ def calculate_momentum(hist):
         "ADX": round(adx, 1),
         "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
         "Momentum_Score": momentum_score,
-        "Trend": "↑ Strong" if momentum_score >= 70 else 
-                "↑ Medium" if momentum_score >= 50 else 
+        "Trend": "↑ Strong" if momentum_score >= 70 else
+                "↑ Medium" if momentum_score >= 50 else
                 "↗ Weak" if momentum_score >= 30 else "→ Neutral"
     }
 
@@ -129,7 +129,7 @@ def calculate_momentum(hist):
 def get_ticker_data(_ticker, exchange, yf_symbol):
     try:
         ticker_obj = yf.Ticker(yf_symbol)
-        
+
         try:
             hist = safe_yfinance_fetch(ticker_obj)
         except yf.YFRateLimitError:
@@ -138,12 +138,12 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         except Exception as e:
             st.warning(f"Error fetching {_ticker}: {str(e)}")
             return None
-            
+
         if hist.empty or len(hist) < 20:
             return None
 
         momentum_data = calculate_momentum(hist)
-        
+
         return {
             "Symbol": _ticker,
             "Exchange": exchange,
@@ -189,10 +189,10 @@ if not st.session_state.initial_results:
     with st.spinner(f'Loading initial {PRELOAD_SYMBOLS} symbols...'):
         subset = df[df["Exchange"].isin(selected_exchanges)].head(PRELOAD_SYMBOLS)
         with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
-                      map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
+            futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"],
+                      map_to_yfinance_symbol(row["Symbol"], row["Exchange"]))
                       for row in subset.to_dict('records')]
-            
+
             for future in as_completed(futures):
                 result = future.result()
                 if result:
@@ -207,18 +207,18 @@ if st.session_state.initial_results:
         (filtered["Price"].between(*price_range)) &
         (filtered["Exchange"].isin(selected_exchanges))
     ].sort_values("Momentum_Score", ascending=False)
-    
+
     st.session_state.filtered_results = filtered
-    
+
     col1, col2, col3 = st.columns(3)
     col1.metric("Stocks Found", len(filtered))
     col2.metric("Avg Momentum Score", round(filtered["Momentum_Score"].mean(), 1))
     col3.metric("Strong Trends", len(filtered[filtered["Trend"] == "↑ Strong"]))
-    
+
     st.dataframe(
         filtered[[
-            "Symbol", "Exchange", "Price", "5D_Change", 
-            "Momentum_Score", "Trend", "RSI", "MACD_Hist", 
+            "Symbol", "Exchange", "Price", "5D_Change",
+            "Momentum_Score", "Trend", "RSI", "MACD_Hist",
             "Volume_Ratio", "Last_Updated"
         ]],
         use_container_width=True,
@@ -233,7 +233,7 @@ if st.session_state.initial_results:
 
 # ========== FULL DATASET LOAD ==========
 if st.button('Load Full Dataset (500+ Symbols)'):
-    if (st.session_state.last_full_load and 
+    if (st.session_state.last_full_load and
         (datetime.now() - st.session_state.last_full_load) < timedelta(hours=1)):
         st.warning("Please wait 1 hour between full loads to avoid rate limits")
     else:
@@ -241,14 +241,14 @@ if st.button('Load Full Dataset (500+ Symbols)'):
             progress_bar = st.progress(0)
             status_text = st.empty()
             results = []
-            
+
             filtered_df = df[df["Exchange"].isin(selected_exchanges)]
-            
+
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
-                          map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
+                futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"],
+                          map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx
                           for idx, row in enumerate(filtered_df.to_dict('records'))}
-                
+
                 for i, future in enumerate(as_completed(futures)):
                     try:
                         result = future.result()
@@ -256,13 +256,13 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                             results.append(result)
                     except Exception as e:
                         st.warning(f"Error processing future: {str(e)}")
-                    
+
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100)
+                        progress = min(100, int((i+1)/len(futures)*100))
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
-            
+
             st.session_state.full_results = results
             st.session_state.full_data_loaded = True
             st.session_state.last_full_load = datetime.now()
@@ -275,7 +275,7 @@ st.divider()
 st.subheader("📈 Detailed Analysis")
 
 selected_symbol = st.selectbox(
-    "Select symbol for detailed chart:", 
+    "Select symbol for detailed chart:",
     options=st.session_state.filtered_results["Symbol"] if not st.session_state.filtered_results.empty else []
 )
 
@@ -285,16 +285,16 @@ if selected_symbol:
             symbol_data = st.session_state.filtered_results[
                 st.session_state.filtered_results["Symbol"] == selected_symbol
             ].iloc[0]
-            
+
             tab1, tab2 = st.tabs(["Price Chart", "Momentum Indicators"])
-            
+
             with tab1:
                 ticker = yf.Ticker(symbol_data["YF_Symbol"])
                 hist = safe_yfinance_fetch(ticker, "6mo")
-                
+
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=hist.index, y=hist['Close'], 
+                    x=hist.index, y=hist['Close'],
                     name='Price', line=dict(color='#1f77b4', width=2)
                 ))
                 fig.add_trace(go.Scatter(
@@ -315,21 +315,21 @@ if selected_symbol:
                     showlegend=True
                 )
                 st.plotly_chart(fig, use_container_width=True)
-            
+
             with tab2:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.metric("Momentum Score", symbol_data["Momentum_Score"])
                     st.metric("Trend Strength", symbol_data["Trend"])
                     st.metric("RSI", symbol_data["RSI"])
-                
+
                 with col2:
                     st.metric("MACD Histogram", round(symbol_data["MACD_Hist"], 3))
                     st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
                     st.metric("ADX (Trend Strength)", symbol_data["ADX"])
-                
+
                 st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
-                
+
         except Exception as e:
             st.error(f"Error loading {selected_symbol}: {str(e)}")
 
@@ -339,6 +339,6 @@ with st.expander("System Controls"):
         st.cache_data.clear()
         st.session_state.clear()
         st.rerun()
-    
+
     st.write(f"Last full load: {st.session_state.last_full_load}")
     st.write(f"Initial symbols loaded: {len(st.session_state.initial_results)}")
