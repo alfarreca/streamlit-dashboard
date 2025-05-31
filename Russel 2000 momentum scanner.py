@@ -14,7 +14,7 @@ if 'full_data' not in st.session_state:
 if 'alerts' not in st.session_state:
     st.session_state.alerts = []
 
-# Sample Russell 2000 symbols (replace with actual constituents in production)
+# Sample Russell 2000 symbols (replace with full list in production)
 RUSSEL_2000_SYMBOLS = [
     'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META',
     'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX',
@@ -53,6 +53,10 @@ def load_full_dataset():
                     volatility = hist['Close'].pct_change().std() * np.sqrt(21) * 100
                     avg_volume = hist['Volume'].mean()
                     
+                    # Moving averages
+                    ma_50 = close.rolling(50).mean().iloc[-1]
+                    ma_200 = close.rolling(200).mean().iloc[-1]
+                    
                     # Composite score
                     composite_score = (0.4*momentum_1m + 0.3*momentum_3m + 0.3*momentum_6m)
                     
@@ -60,6 +64,8 @@ def load_full_dataset():
                         'Symbol': symbol,
                         'Name': ticker.info.get('shortName', symbol),
                         'Price': close.iloc[-1],
+                        '50_MA': ma_50,
+                        '200_MA': ma_200,
                         '1M Momentum (%)': momentum_1m,
                         '3M Momentum (%)': momentum_3m,
                         '6M Momentum (%)': momentum_6m,
@@ -67,7 +73,8 @@ def load_full_dataset():
                         'Volatility (%)': volatility,
                         'Avg Volume': avg_volume,
                         'Composite Score': composite_score,
-                        'Sector': ticker.info.get('sector', 'Unknown')
+                        'Sector': ticker.info.get('sector', 'Unknown'),
+                        'MA_Status': 'Golden Cross' if ma_50 > ma_200 else 'Death Cross'
                     })
                     
                     if i % 10 == 0:
@@ -103,21 +110,29 @@ def apply_filters(df, params):
     filtered = filtered[filtered['Volatility (%)'] <= params['max_volatility']]
     filtered = filtered[filtered['Avg Volume'] >= params['min_volume']]
     
+    # MA Status filter
+    if params['ma_filter'] != 'All':
+        filtered = filtered[filtered['MA_Status'] == params['ma_filter']]
+    
     return filtered.sort_values('Composite Score', ascending=False)
 
 # --------------------------
 # VISUALIZATION FUNCTIONS
 # --------------------------
 def plot_symbol_chart(symbol):
-    """Detailed price chart for selected symbol"""
+    """Detailed price chart with moving averages"""
     try:
         ticker = yf.Ticker(symbol)
         hist = ticker.history(period='6mo')
         
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+        # Calculate moving averages
+        hist['MA_50'] = hist['Close'].rolling(50).mean()
+        hist['MA_200'] = hist['Close'].rolling(200).mean()
+        
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                           vertical_spacing=0.05, row_heights=[0.7, 0.3])
         
-        # Candlestick chart
+        # Candlestick
         fig.add_trace(go.Candlestick(
             x=hist.index,
             open=hist['Open'],
@@ -127,7 +142,22 @@ def plot_symbol_chart(symbol):
             name='Price'
         ), row=1, col=1)
         
-        # Volume chart
+        # Moving Averages
+        fig.add_trace(go.Scatter(
+            x=hist.index,
+            y=hist['MA_50'],
+            name='50-Day MA',
+            line=dict(color='blue', width=1.5)
+        ), row=1, col=1)
+        
+        fig.add_trace(go.Scatter(
+            x=hist.index,
+            y=hist['MA_200'],
+            name='200-Day MA',
+            line=dict(color='red', width=1.5)
+        ), row=1, col=1)
+        
+        # Volume
         fig.add_trace(go.Bar(
             x=hist.index,
             y=hist['Volume'],
@@ -135,17 +165,28 @@ def plot_symbol_chart(symbol):
             marker_color='rgba(100, 100, 255, 0.6)'
         ), row=2, col=1)
         
+        # Layout
         fig.update_layout(
-            title=f"{symbol} Price and Volume",
+            title=f"{symbol} Price with Moving Averages",
             height=600,
-            showlegend=False,
-            xaxis_rangeslider_visible=False
+            showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            xaxis_rangeslider_visible=False,
+            hovermode="x unified"
         )
+        
+        # Formatting
+        fig.update_yaxes(title_text="Price", row=1, col=1)
+        fig.update_yaxes(title_text="Volume", row=2, col=1)
         
         st.plotly_chart(fig, use_container_width=True)
         
+        # MA Crossover Status
+        current_status = "Golden Cross (Bullish)" if hist['MA_50'].iloc[-1] > hist['MA_200'].iloc[-1] else "Death Cross (Bearish)"
+        st.metric("MA Crossover Status", current_status)
+        
     except Exception as e:
-        st.error(f"Couldn't load chart for {symbol}: {str(e)}")
+        st.error(f"Chart error for {symbol}: {str(e)}")
 
 def plot_radial_momentum(symbol):
     """Radial momentum visualization"""
@@ -177,7 +218,7 @@ def plot_radial_momentum(symbol):
         st.plotly_chart(fig, use_container_width=True)
     
     except Exception as e:
-        st.warning(f"Couldn't generate radial chart: {str(e)}")
+        st.warning(f"Radial chart error: {str(e)}")
 
 # --------------------------
 # MAIN APP LAYOUT
@@ -198,7 +239,10 @@ def main():
             'mom_6m_min': st.slider("6M Min Momentum (%)", -50.0, 100.0, 0.0),
             'rel_strength_min': st.slider("Min Rel Strength (%)", -20.0, 30.0, 0.0),
             'max_volatility': st.slider("Max Volatility (%)", 5.0, 50.0, 30.0),
-            'min_volume': st.slider("Min Avg Volume", 0, 10_000_000, 500_000)
+            'min_volume': st.slider("Min Avg Volume", 0, 10_000_000, 500_000),
+            'ma_filter': st.selectbox("MA Crossover", 
+                                   ['All', 'Golden Cross', 'Death Cross'],
+                                   index=0)
         }
         
         if st.button("🔄 Load/Refresh Data", type="primary"):
@@ -206,6 +250,7 @@ def main():
                 st.session_state.full_data = load_full_dataset()
                 st.session_state.filtered_results = apply_filters(
                     st.session_state.full_data, params)
+                st.toast("Data loaded successfully!", icon="✅")
     
     # ------------------
     # MAIN DASHBOARD
@@ -219,20 +264,30 @@ def main():
             with col1:
                 st.subheader("Filtered Results")
                 if not st.session_state.filtered_results.empty:
+                    # Enhanced dataframe display
                     st.dataframe(
-                        st.session_state.filtered_results,
+                        st.session_state.filtered_results[
+                            ['Symbol', 'Name', 'Price', '50_MA', '200_MA',
+                             '1M Momentum (%)', '3M Momentum (%)', '6M Momentum (%)',
+                             'MA_Status', 'Sector']
+                        ].sort_values('1M Momentum (%)', ascending=False),
                         column_config={
+                            "Price": st.column_config.NumberColumn(format="$%.2f"),
+                            "50_MA": st.column_config.NumberColumn(format="$%.2f"),
+                            "200_MA": st.column_config.NumberColumn(format="$%.2f"),
                             "1M Momentum (%)": st.column_config.NumberColumn(format="%.1f%%"),
                             "3M Momentum (%)": st.column_config.NumberColumn(format="%.1f%%"),
                             "6M Momentum (%)": st.column_config.NumberColumn(format="%.1f%%")
                         },
                         hide_index=True,
-                        use_container_width=True
+                        use_container_width=True,
+                        height=700
                     )
                     
                     selected_symbol = st.selectbox(
                         "Select symbol for detailed analysis:",
-                        options=st.session_state.filtered_results['Symbol']
+                        options=st.session_state.filtered_results['Symbol'],
+                        index=0
                     )
                     
                     if selected_symbol:
@@ -252,15 +307,29 @@ def main():
                 with st.expander("🔔 Price Alerts"):
                     alert_symbol = st.selectbox(
                         "Symbol", 
-                        options=st.session_state.filtered_results['Symbol'] if not st.session_state.filtered_results.empty else []
+                        options=st.session_state.filtered_results['Symbol'] if not st.session_state.filtered_results.empty else [],
+                        key="alert_symbol"
                     )
-                    alert_price = st.number_input("Alert Price", value=0.0)
+                    alert_price = st.number_input("Alert Price", 
+                                               value=st.session_state.filtered_results[
+                                                   st.session_state.filtered_results['Symbol'] == alert_symbol
+                                               ]['Price'].iloc[0] if not st.session_state.filtered_results.empty else 0.0,
+                                               step=0.01,
+                                               format="%.2f")
                     if st.button("Set Alert"):
                         st.session_state.alerts.append({
                             'symbol': alert_symbol,
-                            'price': alert_price
+                            'price': alert_price,
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M")
                         })
                         st.success(f"Alert set for {alert_symbol} at ${alert_price:.2f}")
+                
+                with st.expander("⚠️ Active Alerts"):
+                    for alert in st.session_state.alerts:
+                        st.write(f"{alert['symbol']} @ ${alert['price']:.2f} ({alert['timestamp']})")
+                        if st.button(f"Remove {alert['symbol']}", key=f"remove_{alert['symbol']}"):
+                            st.session_state.alerts.remove(alert)
+                            st.rerun()
         
         else:
             st.warning("Please load data using the button in the sidebar")
@@ -268,8 +337,32 @@ def main():
     with tab2:
         st.subheader("Sector Momentum Analysis")
         if not st.session_state.full_data.empty:
-            sector_mom = st.session_state.full_data.groupby('Sector')['1M Momentum (%)'].mean().sort_values()
-            st.bar_chart(sector_mom)
+            sector_mom = st.session_state.full_data.groupby('Sector').agg({
+                '1M Momentum (%)': 'mean',
+                '3M Momentum (%)': 'mean',
+                '6M Momentum (%)': 'mean'
+            }).sort_values('1M Momentum (%)', ascending=False)
+            
+            st.dataframe(
+                sector_mom.style.background_gradient(cmap='RdYlGn', axis=0),
+                use_container_width=True
+            )
+            
+            fig = go.Figure()
+            for col in sector_mom.columns:
+                fig.add_trace(go.Bar(
+                    x=sector_mom.index,
+                    y=sector_mom[col],
+                    name=col
+                ))
+            
+            fig.update_layout(
+                barmode='group',
+                title="Sector Momentum by Timeframe",
+                xaxis_title="Sector",
+                yaxis_title="Momentum (%)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("Load data to see sector analysis")
 
