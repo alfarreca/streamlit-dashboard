@@ -24,7 +24,7 @@ yf.set_tz_cache_location("cache")
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
     wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type(Exception)  # Updated to use Exception
+    retry=retry_if_exception_type(Exception)  # Use Exception to catch all errors
 )
 def safe_yfinance_fetch(ticker, period="3mo"):
     time.sleep(random.uniform(*REQUEST_DELAY))
@@ -132,8 +132,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
         try:
             hist = safe_yfinance_fetch(ticker_obj)
-        except Exception:
-            st.warning(f"Error fetching {_ticker}, skipping...")
+        except Exception as e:
+            st.warning(f"Error fetching {_ticker}: {str(e)}")
             return None
 
         if hist.empty or len(hist) < 20:
