@@ -14,7 +14,7 @@ if 'full_data' not in st.session_state:
 if 'alerts' not in st.session_state:
     st.session_state.alerts = []
 
-# Sample Russell 2000 symbols (replace with full list in production)
+# Sample Russell 2000 symbols
 RUSSEL_2000_SYMBOLS = [
     'AAPL', 'MSFT', 'AMZN', 'GOOGL', 'META',
     'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX',
@@ -41,9 +41,9 @@ def load_full_dataset():
                     
                     # Momentum calculations
                     close = hist['Close']
-                    momentum_1m = (close.iloc[-1] / close.iloc[-21] - 1) * 100  # 21 trading days
-                    momentum_3m = (close.iloc[-1] / close.iloc[-63] - 1) * 100  # 63 trading days
-                    momentum_6m = (close.iloc[-1] / close.iloc[-126] - 1) * 100  # 126 trading days
+                    momentum_1m = (close.iloc[-1] / close.iloc[-21] - 1) * 100
+                    momentum_3m = (close.iloc[-1] / close.iloc[-63] - 1) * 100
+                    momentum_6m = (close.iloc[-1] / close.iloc[-126] - 1) * 100
                     
                     # Relative strength vs benchmark
                     benchmark_1m = (benchmark.iloc[-1] / benchmark.iloc[-21] - 1) * 100
@@ -175,10 +175,6 @@ def plot_symbol_chart(symbol):
             hovermode="x unified"
         )
         
-        # Formatting
-        fig.update_yaxes(title_text="Price", row=1, col=1)
-        fig.update_yaxes(title_text="Volume", row=2, col=1)
-        
         st.plotly_chart(fig, use_container_width=True)
         
         # MA Crossover Status
@@ -187,38 +183,6 @@ def plot_symbol_chart(symbol):
         
     except Exception as e:
         st.error(f"Chart error for {symbol}: {str(e)}")
-
-def plot_radial_momentum(symbol):
-    """Radial momentum visualization"""
-    try:
-        data = st.session_state.filtered_results
-        row = data[data['Symbol'] == symbol].iloc[0]
-        
-        fig = go.Figure()
-        
-        fig.add_trace(go.Scatterpolar(
-            r=[row['1M Momentum (%)'], row['3M Momentum (%)'], row['6M Momentum (%)']],
-            theta=['1M', '3M', '6M'],
-            fill='toself',
-            name='Momentum'
-        ))
-        
-        fig.update_layout(
-            polar=dict(
-                radialaxis=dict(
-                    visible=True,
-                    range=[min(row['1M Momentum (%)'], row['3M Momentum (%)'], row['6M Momentum (%)']) - 10, 
-                    max(row['1M Momentum (%)'], row['3M Momentum (%)'], row['6M Momentum (%)']) + 10]
-                )
-            ),
-            title=f"{symbol} Momentum Profile",
-            height=400
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
-    
-    except Exception as e:
-        st.warning(f"Radial chart error: {str(e)}")
 
 # --------------------------
 # MAIN APP LAYOUT
@@ -264,7 +228,6 @@ def main():
             with col1:
                 st.subheader("Filtered Results")
                 if not st.session_state.filtered_results.empty:
-                    # Enhanced dataframe display
                     st.dataframe(
                         st.session_state.filtered_results[
                             ['Symbol', 'Name', 'Price', '50_MA', '200_MA',
@@ -292,7 +255,6 @@ def main():
                     
                     if selected_symbol:
                         plot_symbol_chart(selected_symbol)
-                        plot_radial_momentum(selected_symbol)
                 else:
                     st.warning("No stocks match current filters. Try adjusting criteria.")
             
@@ -303,51 +265,24 @@ def main():
                     if not st.session_state.filtered_results.empty:
                         sector_counts = st.session_state.filtered_results['Sector'].value_counts()
                         st.bar_chart(sector_counts)
-                
-                with st.expander("🔔 Price Alerts"):
-                    alert_symbol = st.selectbox(
-                        "Symbol", 
-                        options=st.session_state.filtered_results['Symbol'] if not st.session_state.filtered_results.empty else [],
-                        key="alert_symbol"
-                    )
-                    alert_price = st.number_input("Alert Price", 
-                                               value=st.session_state.filtered_results[
-                                                   st.session_state.filtered_results['Symbol'] == alert_symbol
-                                               ]['Price'].iloc[0] if not st.session_state.filtered_results.empty else 0.0,
-                                               step=0.01,
-                                               format="%.2f")
-                    if st.button("Set Alert"):
-                        st.session_state.alerts.append({
-                            'symbol': alert_symbol,
-                            'price': alert_price,
-                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M")
-                        })
-                        st.success(f"Alert set for {alert_symbol} at ${alert_price:.2f}")
-                
-                with st.expander("⚠️ Active Alerts"):
-                    for alert in st.session_state.alerts:
-                        st.write(f"{alert['symbol']} @ ${alert['price']:.2f} ({alert['timestamp']})")
-                        if st.button(f"Remove {alert['symbol']}", key=f"remove_{alert['symbol']}"):
-                            st.session_state.alerts.remove(alert)
-                            st.rerun()
-        
-        else:
-            st.warning("Please load data using the button in the sidebar")
     
     with tab2:
         st.subheader("Sector Momentum Analysis")
         if not st.session_state.full_data.empty:
+            # FIXED: Properly handle styled dataframe
             sector_mom = st.session_state.full_data.groupby('Sector').agg({
                 '1M Momentum (%)': 'mean',
                 '3M Momentum (%)': 'mean',
                 '6M Momentum (%)': 'mean'
             }).sort_values('1M Momentum (%)', ascending=False)
             
+            # Display the dataframe without style first
             st.dataframe(
-                sector_mom.style.background_gradient(cmap='RdYlGn', axis=0),
+                sector_mom,
                 use_container_width=True
             )
             
+            # Then create a visualization
             fig = go.Figure()
             for col in sector_mom.columns:
                 fig.add_trace(go.Bar(
