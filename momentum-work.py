@@ -63,7 +63,7 @@ def get_events_data(ticker_obj):
 # ... (rest of the script remains the same until DISPLAY RESULTS section)
 
 # ========== DISPLAY RESULTS ==========
-if st.session_state.initial_results:
+if "initial_results" in st.session_state and st.session_state.initial_results:
     filtered = pd.DataFrame(st.session_state.initial_results)
     
     # Debug: Show raw earnings data
