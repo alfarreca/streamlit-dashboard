@@ -56,31 +56,15 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
-    """Simplified to only get earnings and dividend dates"""
-    events = {
-        'earnings_dates': [],
-        'dividend_dates': []
-    }
-    
+    """Get earnings dates only"""
     try:
         # Earnings Calendar
         calendar = ticker_obj.calendar
         if not calendar.empty:
-            events['earnings_dates'] = [pd.to_datetime(date) for date in calendar['Earnings Date'].tolist()]
-            
-        # Dividends (next ex-dividend date)
-        dividends = ticker_obj.dividends
-        if not dividends.empty:
-            # Get future dividend dates (if available)
-            future_divs = [d[0] for d in dividends.tail(3).reset_index().values.tolist() 
-                         if pd.to_datetime(d[0]) > datetime.now()]
-            if future_divs:
-                events['dividend_dates'] = future_divs
-                
+            return [pd.to_datetime(date) for date in calendar['Earnings Date'].tolist()]
     except Exception as e:
         st.warning(f"Error fetching events data: {str(e)}")
-    
-    return events
+    return []
 
 # ========== TECHNICAL INDICATORS ==========
 def calculate_momentum(hist):
@@ -167,7 +151,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         ticker_obj = yf.Ticker(yf_symbol)
         try:
             hist = safe_yfinance_fetch(ticker_obj)
-            events_data = get_events_data(ticker_obj)
+            earnings_dates = get_events_data(ticker_obj)
         except Exception as e:
             st.warning(f"Error fetching {_ticker}: {str(e)}")
             return None
@@ -181,8 +165,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Price": round(hist['Close'].iloc[-1], 2),
             "5D_Change": round((hist['Close'].iloc[-1]/hist['Close'].iloc[-5]-1)*100, 1) if len(hist) >= 5 else None,
             **momentum_data,
-            "Earnings_Dates": events_data['earnings_dates'],
-            "Dividend_Dates": events_data['dividend_dates'],
+            "Earnings_Dates": earnings_dates,
             "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF_Symbol": yf_symbol
         }
@@ -192,7 +175,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(layout="wide", page_title="Russell 2000 Momentum Scanner")
-st.title("🚀 Russell 2000 Momentum Scanner with Event Analysis")
+st.title("🚀 Russell 2000 Momentum Scanner with Earnings Analysis")
 
 # Initialize session state
 if 'full_data_loaded' not in st.session_state:
@@ -205,7 +188,6 @@ if 'full_data_loaded' not in st.session_state:
         'min_score': 50,
         'price_range': (5.0, 200.0),
         'earnings_window': "Next 2 weeks",
-        'dividend_window': "Next month",
         'require_events': False
     })
 
@@ -238,21 +220,15 @@ with st.sidebar:
         default=["NASDAQ", "NYSE"]
     )
     
-    st.header("Event Date Filters")
+    st.header("Earnings Date Filters")
     st.session_state.earnings_window = st.selectbox(
         "Earnings Coming Within:",
         ["Any time", "Next week", "Next 2 weeks", "Next month"],
         index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
     )
     
-    st.session_state.dividend_window = st.selectbox(
-        "Dividends Coming Within:",
-        ["Any time", "Next week", "Next 2 weeks", "Next month"],
-        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.dividend_window)
-    )
-    
     st.session_state.require_events = st.checkbox(
-        "Only stocks with upcoming earnings OR dividends",
+        "Only stocks with upcoming earnings",
         value=st.session_state.require_events
     )
     
@@ -260,17 +236,16 @@ with st.sidebar:
         st.session_state.min_score = 50
         st.session_state.price_range = (5.0, 200.0)
         st.session_state.earnings_window = "Next 2 weeks"
-        st.session_state.dividend_window = "Next month"
         st.session_state.require_events = False
         st.rerun()
 
 # ========== FILTER APPLICATION ==========
 def apply_event_filters(stock_data):
-    """Apply the event date filters to the dataframe"""
+    """Apply the earnings date filters to the dataframe"""
     if not st.session_state.require_events:
         return stock_data
     
-    # Convert time windows to days
+    # Convert time window to days
     earnings_days = {
         "Any time": 365*5,
         "Next week": 7,
@@ -278,22 +253,13 @@ def apply_event_filters(stock_data):
         "Next month": 30
     }[st.session_state.earnings_window]
     
-    dividend_days = {
-        "Any time": 365*5,
-        "Next week": 7,
-        "Next 2 weeks": 14,
-        "Next month": 30
-    }[st.session_state.dividend_window]
-    
     today = datetime.now()
     
-    # Filter for stocks meeting either criteria
+    # Filter for stocks meeting earnings criteria
     filtered = stock_data[
         stock_data.apply(lambda row: 
             any((date - today).days <= earnings_days 
-                for date in row.get('Earnings_Dates', [])) |
-            any((date - today).days <= dividend_days 
-                for date in row.get('Dividend_Dates', [])),
+                for date in row.get('Earnings_Dates', [])),
             axis=1
         )
     ]
@@ -414,23 +380,15 @@ if st.session_state.initial_results:
     if not filtered.empty:
         # Format event dates for display
         display_df = filtered.copy()
-        display_df["Upcoming Events"] = display_df.apply(
+        display_df["Upcoming Earnings"] = display_df.apply(
             lambda row: [
-                f"Earnings: {date.strftime('%Y-%m-%d')}" for date in row['Earnings_Dates'] 
+                date.strftime('%Y-%m-%d') for date in row['Earnings_Dates'] 
                 if (date - datetime.now()).days <= {
                     "Any time": 365*5,
                     "Next week": 7,
                     "Next 2 weeks": 14,
                     "Next month": 30
                 }[st.session_state.earnings_window]
-            ] + [
-                f"Dividend: {date.strftime('%Y-%m-%d')}" for date in row['Dividend_Dates'] 
-                if (date - datetime.now()).days <= {
-                    "Any time": 365*5,
-                    "Next week": 7,
-                    "Next 2 weeks": 14,
-                    "Next month": 30
-                }[st.session_state.dividend_window]
             ],
             axis=1
         )
@@ -439,7 +397,7 @@ if st.session_state.initial_results:
         st.dataframe(
             display_df[[
                 "Symbol", "Exchange", "Price", "5D_Change", 
-                "Momentum_Score", "Trend", "Upcoming Events", "Last_Updated"
+                "Momentum_Score", "Trend", "Upcoming Earnings", "Last_Updated"
             ]],
             use_container_width=True,
             height=600,
@@ -447,7 +405,7 @@ if st.session_state.initial_results:
                 "Price": st.column_config.NumberColumn(format="$%.2f"),
                 "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
                 "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
-                "Upcoming Events": st.column_config.ListColumn(width="medium")
+                "Upcoming Earnings": st.column_config.ListColumn(width="medium")
             }
         )
     else:
@@ -457,7 +415,7 @@ if st.session_state.initial_results:
             - **Lower the Minimum Momentum Score** (currently {})
             - **Widen the Price Range** (currently ${} - ${})
             - **Include more Trend Strength options**
-            - **Relax event date requirements**
+            - **Relax earnings date requirements**
             - **Try different Exchange selections**
             """.format(
                 st.session_state.min_score,
@@ -506,18 +464,14 @@ if not st.session_state.filtered_results.empty:
                         name='200 EMA', line=dict(color='purple', width=1)
                     ))
                     
-                    # Add event markers
+                    # Add earnings markers
                     if symbol_data["Earnings_Dates"]:
                         for date in symbol_data["Earnings_Dates"]:
                             fig.add_vline(x=date, line_color="red", line_dash="dash",
                                         annotation_text="Earnings", annotation_position="top left")
-                    if symbol_data["Dividend_Dates"]:
-                        for date in symbol_data["Dividend_Dates"]:
-                            fig.add_vline(x=date, line_color="green", line_dash="dot",
-                                        annotation_text="Dividend", annotation_position="bottom right")
                     
                     fig.update_layout(
-                        title=f"{selected_symbol} Price with EMAs and Events",
+                        title=f"{selected_symbol} Price with EMAs and Earnings",
                         height=500,
                         showlegend=True
                     )
@@ -535,15 +489,13 @@ if not st.session_state.filtered_results.empty:
                         st.metric("ADX (Trend Strength)", symbol_data["ADX"])
                     st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
                     
-                    # Display upcoming events
-                    st.subheader("Upcoming Events")
-                    if symbol_data["Earnings_Dates"] or symbol_data["Dividend_Dates"]:
+                    # Display upcoming earnings
+                    st.subheader("Upcoming Earnings")
+                    if symbol_data["Earnings_Dates"]:
                         for date in symbol_data["Earnings_Dates"]:
                             st.write(f"📅 Earnings: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
-                        for date in symbol_data["Dividend_Dates"]:
-                            st.write(f"💰 Dividend: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
                     else:
-                        st.write("No upcoming events found")
+                        st.write("No upcoming earnings found")
                     
             except Exception as e:
                 st.error(f"Error loading {selected_symbol}: {str(e)}")
