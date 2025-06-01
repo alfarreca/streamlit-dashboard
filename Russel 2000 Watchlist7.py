@@ -277,7 +277,10 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
 
 def process_ticker(row, selected_exchange):
     try:
-        symbol, exchange = row["Symbol"], row["Exchange"]
+        # Fixed: Access row elements using dot notation since itertuples() returns named tuples
+        symbol = row.Symbol
+        exchange = row.Exchange
+        
         if selected_exchange and exchange not in selected_exchange:
             return None
             
@@ -290,7 +293,7 @@ def process_ticker(row, selected_exchange):
             
         return get_ticker_data(symbol, exchange, yf_symbol)
     except Exception as e:
-        logger.error(f"Error in process_ticker for {row.get('Symbol', 'unknown')}: {str(e)}")
+        logger.error(f"Error in process_ticker for {getattr(row, 'Symbol', 'unknown')}: {str(e)}")
         return None
 
 # Streamlit UI Configuration
@@ -302,6 +305,10 @@ if 'processing' not in st.session_state:
     st.session_state.processing = False
 if 'stop_processing' not in st.session_state:
     st.session_state.stop_processing = False
+if 'results' not in st.session_state:
+    st.session_state.results = []
+if 'error_details' not in st.session_state:
+    st.session_state.error_details = []
 
 # Dark mode toggle
 dark_mode = st.sidebar.checkbox("Dark Mode", value=False)
@@ -346,8 +353,8 @@ with col3:
 def process_data():
     st.session_state.processing = True
     st.session_state.stop_processing = False
-    results = []
-    error_details = []
+    st.session_state.results = []
+    st.session_state.error_details = []
     progress_bar = st.progress(0)
     status_text = st.empty()
     processed_count = 0
@@ -371,10 +378,10 @@ def process_data():
             try:
                 ticker_data, history_data = future.result()
                 if ticker_data:
-                    results.append(ticker_data)
+                    st.session_state.results.append(ticker_data)
             except Exception as e:
                 error_count += 1
-                error_details.append(f"Row {idx}: {str(e)}")
+                st.session_state.error_details.append(f"Row {idx}: {str(e)}")
                 logger.error(f"Error processing future: {str(e)}")
             
             processed_count += 1
@@ -382,19 +389,16 @@ def process_data():
             progress_bar.progress(progress_percent)
             status_text.text(
                 f"Processed {processed_count}/{len(filtered_df)} tickers | "
-                f"Success: {len(results)} | Errors: {error_count}"
+                f"Success: {len(st.session_state.results)} | Errors: {error_count}"
             )
 
     progress_bar.progress(100)
     
     if st.session_state.stop_processing:
-        status_text.text(f"Processing stopped by user. Completed {len(results)} tickers")
+        status_text.text(f"Processing stopped by user. Completed {len(st.session_state.results)} tickers")
     else:
-        status_text.text(f"Completed processing {len(results)} tickers ({(len(results)/len(filtered_df)*100):.1f}% success rate)")
+        status_text.text(f"Completed processing {len(st.session_state.results)} tickers ({(len(st.session_state.results)/len(filtered_df)*100):.1f}% success rate)")
     
-    # Store results in session state
-    st.session_state.results = results
-    st.session_state.error_details = error_details
     st.session_state.processing = False
 
 # Start/Stop buttons
@@ -408,7 +412,7 @@ with col2:
         st.warning("Stopping processing... Please wait")
 
 # Display results if available
-if 'results' in st.session_state and st.session_state.results:
+if st.session_state.results:
     results_df = pd.DataFrame(st.session_state.results)
     
     # Apply filters
@@ -488,7 +492,7 @@ else:
 st.sidebar.markdown(f"""
 ---
 **Last Updated**: {datetime.now().strftime("%Y-%m-%d %H:%M")}  
-**Version**: 2.0  
+**Version**: 2.1  
 **Data Source**: Yahoo Finance  
 **Note**: This tool is for informational purposes only.
 """)
