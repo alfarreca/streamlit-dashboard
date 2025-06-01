@@ -56,12 +56,20 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
-    """Get earnings dates only"""
+    """Get earnings date robustly from yfinance ticker.calendar."""
     try:
-        # Earnings Calendar
         calendar = ticker_obj.calendar
-        if not calendar.empty:
-            return [pd.to_datetime(date) for date in calendar['Earnings Date'].tolist()]
+        # The calendar is usually a DataFrame with index as event name and columns as [0] (dates)
+        if calendar is not None and not calendar.empty:
+            # Try index-based access
+            if "Earnings Date" in calendar.index:
+                dates = calendar.loc["Earnings Date"]
+                # dates could be a Series or a scalar (Timestamp or NaT)
+                if hasattr(dates, '__iter__') and not isinstance(dates, str):
+                    # Filter out NaT
+                    return [pd.to_datetime(date) for date in dates if pd.notnull(date)]
+                elif pd.notnull(dates):
+                    return [pd.to_datetime(dates)]
     except Exception as e:
         st.warning(f"Error fetching events data: {str(e)}")
     return []
@@ -251,7 +259,7 @@ def apply_event_filters(stock_data):
         return stock_data[
             stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
             axis=1
-        )]  # <-- Fixed: closed the square bracket
+        )]
     
     # Convert time window to days
     earnings_days = {
