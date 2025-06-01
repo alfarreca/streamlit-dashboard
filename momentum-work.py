@@ -1,17 +1,4 @@
-import streamlit as st
-import pandas as pd
-from datetime import datetime
-
-# ========== DUMMY FILTERS (Replace with your actual sidebar widgets) ==========
-# Example trends and exchanges; replace with your real options or widgets.
-selected_trends = st.multiselect("Select trend(s):", ["Up", "Down", "Sideways"], default=["Up", "Down", "Sideways"])
-selected_exchanges = st.multiselect("Select exchange(s):", ["NYSE", "NASDAQ"], default=["NYSE", "NASDAQ"])
-min_score = st.slider("Minimum Momentum Score:", min_value=0, max_value=100, value=50)
-price_range = st.slider("Price Range:", min_value=0, max_value=500, value=(100, 200))
-
-# Store filter selections in session state for use in main filtering
-st.session_state.min_score = min_score
-st.session_state.price_range = price_range
+# ... (previous imports remain the same)
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
@@ -73,44 +60,12 @@ def get_events_data(ticker_obj):
     st.write(f"No earnings dates found for {ticker} after all methods")
     return []
 
-# ========== DUMMY EVENT FILTER FUNCTION (Replace with your actual logic) ==========
-def apply_event_filters(df):
-    # Example: return unchanged; replace with your filtering logic as needed
-    return df
-
-# ========== DEMO DATA FOR INITIAL RUN ==========
-if "initial_results" not in st.session_state:
-    st.session_state.initial_results = [
-        {
-            "Symbol": "AAPL",
-            "Earnings_Dates": [datetime(2025, 7, 20), datetime(2025, 10, 22)],
-            "Momentum_Score": 85,
-            "Trend": "Up",
-            "Price": 180,
-            "Exchange": "NASDAQ"
-        },
-        {
-            "Symbol": "TSLA",
-            "Earnings_Dates": [datetime(2025, 7, 15)],
-            "Momentum_Score": 60,
-            "Trend": "Down",
-            "Price": 180,
-            "Exchange": "NASDAQ"
-        },
-        {
-            "Symbol": "IBM",
-            "Earnings_Dates": [],
-            "Momentum_Score": 90,
-            "Trend": "Up",
-            "Price": 140,
-            "Exchange": "NYSE"
-        }
-    ]
+# ... (rest of the script remains the same until DISPLAY RESULTS section)
 
 # ========== DISPLAY RESULTS ==========
-if "initial_results" in st.session_state and st.session_state.initial_results:
+if st.session_state.initial_results:
     filtered = pd.DataFrame(st.session_state.initial_results)
-
+    
     # Debug: Show raw earnings data
     st.write("Sample raw earnings data:", filtered[["Symbol", "Earnings_Dates"]].head())
     
@@ -126,11 +81,13 @@ if "initial_results" in st.session_state and st.session_state.initial_results:
     def extract_next_earnings(dates):
         if not dates or len(dates) == 0:
             return "No upcoming earnings"
+        
         try:
             # Get all future dates
             future_dates = [date for date in dates if hasattr(date, 'strftime') and date > datetime.now()]
             if not future_dates:
                 return "No upcoming earnings"
+                
             next_date = min(future_dates)
             days_until = (next_date - datetime.now()).days
             return f"{next_date.strftime('%Y-%m-%d')} (in {days_until} days)"
@@ -139,7 +96,7 @@ if "initial_results" in st.session_state and st.session_state.initial_results:
             return "Date error"
 
     filtered["Upcoming Earnings Date"] = filtered["Earnings_Dates"].apply(extract_next_earnings)
-
+    
     # Debug: Show processed earnings data
     st.write("Processed earnings data:", filtered[["Symbol", "Earnings_Dates", "Upcoming Earnings Date"]].head())
     
@@ -149,7 +106,4 @@ if "initial_results" in st.session_state and st.session_state.initial_results:
     filtered = filtered.sort_values("Momentum_Score", ascending=False)
     st.session_state.filtered_results = filtered
 
-    st.write("Final filtered and sorted results:")
-    st.dataframe(filtered)
-else:
-    st.info("No initial results to display. Please load or generate results.")
+    # ... (rest of the script remains the same)
