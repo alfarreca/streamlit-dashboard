@@ -85,16 +85,24 @@ def calculate_momentum(hist):
     # Volume
     vol_avg_20 = volume.rolling(20).mean().iloc[-1]
     
-    # ADX
-    tr = pd.concat([high - low, 
-                   (high - close.shift()).abs(), 
-                   (low - close.shift()).abs()], axis=1).max(axis=1)
-    atr = tr.rolling(14).mean().iloc[-1]
-    plus_di = 100 * (high.diff().clip(lower=0).ewm(alpha=1/14).mean() / atr)
-    minus_di = 100 * (-low.diff().clip(upper=0).ewm(alpha=1/14).mean() / atr)
-    dx = (abs(plus_di.iloc[-1] - minus_di.iloc[-1]) / (plus_di.iloc[-1] + minus_di.iloc[-1])) * 100 if (plus_di.iloc[-1] + minus_di.iloc[-1]) != 0 else 0
-    adx = dx.rolling(14).mean().iloc[-1]
-    
+    # ADX (Fixed rolling calculation)
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(14).mean()
+    up_move = high.diff()
+    down_move = low.diff().abs()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    plus_di = 100 * (plus_dm.rolling(14).sum() / atr)
+    minus_di = 100 * (minus_dm.rolling(14).sum() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.rolling(14).mean().iloc[-1] if not dx.isnull().all() else 0
+    plus_di_last = plus_di.iloc[-1] if not plus_di.isnull().all() else 0
+    minus_di_last = minus_di.iloc[-1] if not minus_di.isnull().all() else 0
+
     # Momentum Score (0-100)
     momentum_score = 0
     if close.iloc[-1] > ema20 > ema50 > ema200:
@@ -107,7 +115,7 @@ def calculate_momentum(hist):
         momentum_score += 10
     if adx > 25:
         momentum_score += 15
-    if plus_di.iloc[-1] > minus_di.iloc[-1]:
+    if plus_di_last > minus_di_last:
         momentum_score += 10
         
     return {
@@ -120,8 +128,8 @@ def calculate_momentum(hist):
         "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
         "Momentum_Score": momentum_score,
         "Trend": "↑ Strong" if momentum_score >= 70 else 
-                "↑ Medium" if momentum_score >= 50 else 
-                "↗ Weak" if momentum_score >= 30 else "→ Neutral"
+                 "↑ Medium" if momentum_score >= 50 else 
+                 "↗ Weak" if momentum_score >= 30 else "→ Neutral"
     }
 
 # ========== TICKER PROCESSING ==========
@@ -198,6 +206,13 @@ if not st.session_state.initial_results:
                 if result:
                     st.session_state.initial_results.append(result)
 
+# Ensure filtered_results is always a DataFrame
+if not isinstance(st.session_state.filtered_results, pd.DataFrame):
+    st.session_state.filtered_results = pd.DataFrame(columns=[
+        "Symbol", "Exchange", "Price", "5D_Change", "Momentum_Score", "Trend", "RSI", "MACD_Hist", 
+        "Volume_Ratio", "Last_Updated", "ADX", "YF_Symbol"
+    ])
+
 # ========== DISPLAY RESULTS ==========
 if st.session_state.initial_results:
     filtered = pd.DataFrame(st.session_state.initial_results)
@@ -258,7 +273,7 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                         st.warning(f"Error processing future: {str(e)}")
                     
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100)
+                        progress = min(100, int((i+1)/len(futures)*100))
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
@@ -273,6 +288,12 @@ if st.button('Load Full Dataset (500+ Symbols)'):
 # ========== DETAILED CHART VIEW ==========
 st.divider()
 st.subheader("📈 Detailed Analysis")
+
+if not isinstance(st.session_state.filtered_results, pd.DataFrame):
+    st.session_state.filtered_results = pd.DataFrame(columns=[
+        "Symbol", "Exchange", "Price", "5D_Change", "Momentum_Score", "Trend", "RSI", "MACD_Hist", 
+        "Volume_Ratio", "Last_Updated", "ADX", "YF_Symbol"
+    ])
 
 selected_symbol = st.selectbox(
     "Select symbol for detailed chart:", 
