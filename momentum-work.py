@@ -87,35 +87,44 @@ def get_events_data(ticker_obj):
 
 # ========== TECHNICAL INDICATORS ==========
 def calculate_momentum(hist):
+    if hist is None or hist.empty or len(hist) < 20:
+        return {
+            "EMA20": None, "EMA50": None, "EMA200": None, "RSI": None,
+            "MACD_Hist": None, "ADX": None, "Volume_Ratio": None,
+            "Momentum_Score": 0, "Trend": "→ Neutral"
+        }
     close = hist['Close']
     high = hist['High']
     low = hist['Low']
     volume = hist['Volume']
     
     # Moving Averages
-    ema20 = close.ewm(span=20).mean().iloc[-1]
-    ema50 = close.ewm(span=50).mean().iloc[-1]
-    ema200 = close.ewm(span=200).mean().iloc[-1]
+    ema20 = close.ewm(span=20).mean().iloc[-1] if len(close) >= 20 else None
+    ema50 = close.ewm(span=50).mean().iloc[-1] if len(close) >= 50 else None
+    ema200 = close.ewm(span=200).mean().iloc[-1] if len(close) >= 200 else None
     
     # RSI
     delta = close.diff()
     gain = delta.clip(lower=0)
     loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean().iloc[-1]
-    avg_loss = loss.rolling(14).mean().iloc[-1]
-    rs = avg_gain / avg_loss if avg_loss != 0 else 100
-    rsi = 100 - (100 / (1 + rs))
-    
+    avg_gain = gain.rolling(14).mean().iloc[-1] if len(gain) >= 14 else None
+    avg_loss = loss.rolling(14).mean().iloc[-1] if len(loss) >= 14 else None
+    if avg_loss and avg_loss != 0:
+        rs = avg_gain / avg_loss
+        rsi = 100 - (100 / (1 + rs))
+    else:
+        rsi = None
+
     # MACD
     ema12 = close.ewm(span=12).mean()
     ema26 = close.ewm(span=26).mean()
     macd = ema12 - ema26
     macd_signal = macd.ewm(span=9).mean()
-    macd_hist = macd.iloc[-1] - macd_signal.iloc[-1]
-    
+    macd_hist = (macd.iloc[-1] - macd_signal.iloc[-1]) if len(macd) > 0 and len(macd_signal) > 0 else None
+
     # Volume
-    vol_avg_20 = volume.rolling(20).mean().iloc[-1]
-    
+    vol_avg_20 = volume.rolling(20).mean().iloc[-1] if len(volume) >= 20 else None
+
     # ADX
     tr = pd.concat([
         high - low,
@@ -136,27 +145,30 @@ def calculate_momentum(hist):
 
     # Momentum Score (0-100)
     momentum_score = 0
-    if close.iloc[-1] > ema20 > ema50 > ema200:
-        momentum_score += 30
-    if 60 < rsi < 80:
-        momentum_score += 20
-    if macd_hist > 0:
-        momentum_score += 15
-    if volume.iloc[-1] > vol_avg_20 * 1.2:
-        momentum_score += 10
-    if adx > 25:
-        momentum_score += 15
-    if plus_di_last > minus_di_last:
-        momentum_score += 10
-        
+    try:
+        if close.iloc[-1] and ema20 and ema50 and ema200 and close.iloc[-1] > ema20 > ema50 > ema200:
+            momentum_score += 30
+        if rsi and 60 < rsi < 80:
+            momentum_score += 20
+        if macd_hist and macd_hist > 0:
+            momentum_score += 15
+        if vol_avg_20 and volume.iloc[-1] > vol_avg_20 * 1.2:
+            momentum_score += 10
+        if adx and adx > 25:
+            momentum_score += 15
+        if plus_di_last and minus_di_last and plus_di_last > minus_di_last:
+            momentum_score += 10
+    except Exception:
+        momentum_score += 0
+
     return {
-        "EMA20": round(ema20, 2),
-        "EMA50": round(ema50, 2),
-        "EMA200": round(ema200, 2),
-        "RSI": round(rsi, 1),
-        "MACD_Hist": round(macd_hist, 3),
-        "ADX": round(adx, 1),
-        "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
+        "EMA20": round(ema20, 2) if ema20 is not None else None,
+        "EMA50": round(ema50, 2) if ema50 is not None else None,
+        "EMA200": round(ema200, 2) if ema200 is not None else None,
+        "RSI": round(rsi, 1) if rsi is not None else None,
+        "MACD_Hist": round(macd_hist, 3) if macd_hist is not None else None,
+        "ADX": round(adx, 1) if adx is not None else None,
+        "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2) if vol_avg_20 and vol_avg_20 != 0 else None,
         "Momentum_Score": momentum_score,
         "Trend": "↑ Strong" if momentum_score >= 80 else 
                  "↑ Medium" if momentum_score >= 60 else 
@@ -170,19 +182,23 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         ticker_obj = yf.Ticker(yf_symbol)
         try:
             hist = safe_yfinance_fetch(ticker_obj)
+            if hist is None or hist.empty or len(hist) < 20:
+                return None
             earnings_dates = get_events_data(ticker_obj)
         except Exception as e:
             st.warning(f"Error fetching {_ticker}: {str(e)}")
             return None
-        if hist.empty or len(hist) < 20:
-            return None
-
         momentum_data = calculate_momentum(hist)
+        price = round(hist['Close'].iloc[-1], 2) if len(hist['Close']) else None
+        five_d_change = (
+            round((hist['Close'].iloc[-1]/hist['Close'].iloc[-5]-1)*100, 1)
+            if len(hist['Close']) >= 5 else None
+        )
         return {
             "Symbol": _ticker,
             "Exchange": exchange,
-            "Price": round(hist['Close'].iloc[-1], 2),
-            "5D_Change": round((hist['Close'].iloc[-1]/hist['Close'].iloc[-5]-1)*100, 1) if len(hist) >= 5 else None,
+            "Price": price,
+            "5D_Change": five_d_change,
             **momentum_data,
             "Earnings_Dates": earnings_dates,
             "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -219,7 +235,7 @@ with st.sidebar:
     st.session_state.min_score = st.slider(
         "Minimum Momentum Score", 
         0, 100, 
-        st.session_state.min_score, 5
+        st.session_state.get('min_score', 50), 5
     )
     trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
     selected_trends = st.multiselect(
@@ -230,7 +246,7 @@ with st.sidebar:
     st.session_state.price_range = st.slider(
         "Price Range ($)", 
         0.0, 500.0, 
-        st.session_state.price_range, 5.0
+        st.session_state.get('price_range', (5.0, 200.0)), 5.0
     )
     exchange_options = df["Exchange"].unique()
     selected_exchanges = st.multiselect(
@@ -243,12 +259,12 @@ with st.sidebar:
     st.session_state.earnings_window = st.selectbox(
         "Earnings Coming Within:",
         ["Any time", "Next week", "Next 2 weeks", "Next month"],
-        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
+        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.get("earnings_window", "Next 2 weeks"))
     )
     
     st.session_state.require_events = st.checkbox(
         "Only stocks with upcoming earnings",
-        value=st.session_state.require_events
+        value=st.session_state.get('require_events', False)
     )
     
     if st.button("Reset All Filters"):
@@ -268,9 +284,8 @@ def apply_event_filters(stock_data):
     
     if st.session_state.earnings_window == "Any time":
         return stock_data[
-            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
-            axis=1
-        )
+            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0, axis=1)
+        ]
     
     # Convert time window to days
     earnings_days = {
@@ -280,14 +295,22 @@ def apply_event_filters(stock_data):
     }[st.session_state.earnings_window]
     
     # Filter for stocks meeting earnings criteria
+    def has_earnings_within(row):
+        dates = row.get('Earnings_Dates', [])
+        # Defensive: ensure dates are pd.Timestamp or datetime
+        for date in dates:
+            if not isinstance(date, (pd.Timestamp, datetime)):
+                try:
+                    date = pd.to_datetime(date)
+                except Exception:
+                    continue
+            if (date - today).days <= earnings_days and (date - today).days >= 0:
+                return True
+        return False
+
     filtered = stock_data[
-        stock_data.apply(lambda row: 
-            any((date - today).days <= earnings_days 
-                for date in row.get('Earnings_Dates', [])),
-            axis=1
-        )
+        stock_data.apply(has_earnings_within, axis=1)
     ]
-    
     return filtered
 
 # ========== DATA PROCESSING ==========
@@ -320,6 +343,7 @@ with col1:
                 futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
                           map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
                           for row in subset.to_dict('records')]
+                n_futures = len(futures) if len(futures) else 1
                 for i, future in enumerate(as_completed(futures)):
                     try:
                         result = future.result()
@@ -329,9 +353,9 @@ with col1:
                     except Exception as e:
                         st.warning(f"Error processing future: {str(e)}")
                     if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100))
+                        progress = min(100, int((i+1)/n_futures*100))
                         progress_bar.progress(progress)
-                        status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                        status_text.text(f"Processed {i+1}/{n_futures} symbols")
                         time.sleep(0.1)
             
             st.session_state.last_loaded_index = end_idx
@@ -355,6 +379,7 @@ with col2:
                     futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
                               map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
                               for idx, row in enumerate(filtered_df.to_dict('records'))}
+                    n_futures = len(futures) if len(futures) else 1
                     for i, future in enumerate(as_completed(futures)):
                         try:
                             result = future.result()
@@ -363,9 +388,9 @@ with col2:
                         except Exception as e:
                             st.warning(f"Error processing future: {str(e)}")
                         if i % 10 == 0:
-                            progress = min(100, int((i+1)/len(futures)*100))
+                            progress = min(100, int((i+1)/n_futures*100))
                             progress_bar.progress(progress)
-                            status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                            status_text.text(f"Processed {i+1}/{n_futures} symbols")
                             time.sleep(0.1)
                 st.session_state.initial_results = results
                 st.session_state.full_results = results
@@ -392,7 +417,7 @@ if st.session_state.initial_results:
     def extract_next_earnings(dates):
         if dates and len(dates) > 0:
             # Get all future dates
-            future_dates = [date for date in dates if date > datetime.now()]
+            future_dates = [date for date in dates if (isinstance(date, (pd.Timestamp, datetime)) and date > datetime.now()) or (not isinstance(date, (pd.Timestamp, datetime)) and pd.to_datetime(date) > datetime.now())]
             if future_dates:
                 next_date = min(future_dates)
                 days_until = (next_date - datetime.now()).days
@@ -435,17 +460,13 @@ if st.session_state.initial_results:
     else:
         st.warning("No stocks match your current filters. Try adjusting your criteria.")
         with st.expander("Filter Suggestions"):
-            st.markdown("""
-            - **Lower the Minimum Momentum Score** (currently {})
-            - **Widen the Price Range** (currently ${} - ${})
+            st.markdown(f"""
+            - **Lower the Minimum Momentum Score** (currently {st.session_state.min_score})
+            - **Widen the Price Range** (currently ${st.session_state.price_range[0]} - ${st.session_state.price_range[1]})
             - **Include more Trend Strength options**
             - **Relax earnings date requirements**
             - **Try different Exchange selections**
-            """.format(
-                st.session_state.min_score,
-                st.session_state.price_range[0],
-                st.session_state.price_range[1]
-            ))
+            """)
 
 # ========== DETAILED CHART VIEW ==========
 st.divider()
@@ -469,37 +490,39 @@ if not st.session_state.filtered_results.empty:
                 with tab1:
                     ticker = yf.Ticker(symbol_data["YF_Symbol"])
                     hist = safe_yfinance_fetch(ticker, "6mo")
-                    
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=hist.index, y=hist['Close'], 
-                        name='Price', line=dict(color='#1f77b4', width=2)
-                    ))
-                    fig.add_trace(go.Scatter(
-                        x=hist.index, y=hist['Close'].ewm(span=20).mean(),
-                        name='20 EMA', line=dict(color='orange', width=1)
-                    ))
-                    fig.add_trace(go.Scatter(
-                        x=hist.index, y=hist['Close'].ewm(span=50).mean(),
-                        name='50 EMA', line=dict(color='red', width=1)
-                    ))
-                    fig.add_trace(go.Scatter(
-                        x=hist.index, y=hist['Close'].ewm(span=200).mean(),
-                        name='200 EMA', line=dict(color='purple', width=1)
-                    ))
-                    
-                    # Add earnings markers
-                    if symbol_data["Earnings_Dates"]:
-                        for date in symbol_data["Earnings_Dates"]:
-                            fig.add_vline(x=date, line_color="red", line_dash="dash",
-                                        annotation_text="Earnings", annotation_position="top left")
-                    
-                    fig.update_layout(
-                        title=f"{selected_symbol} Price with EMAs and Earnings",
-                        height=500,
-                        showlegend=True
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
+                    if hist is None or hist.empty:
+                        st.warning("No historical data available for this symbol.")
+                    else:
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(
+                            x=hist.index, y=hist['Close'], 
+                            name='Price', line=dict(color='#1f77b4', width=2)
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=hist.index, y=hist['Close'].ewm(span=20).mean(),
+                            name='20 EMA', line=dict(color='orange', width=1)
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=hist.index, y=hist['Close'].ewm(span=50).mean(),
+                            name='50 EMA', line=dict(color='red', width=1)
+                        ))
+                        fig.add_trace(go.Scatter(
+                            x=hist.index, y=hist['Close'].ewm(span=200).mean(),
+                            name='200 EMA', line=dict(color='purple', width=1)
+                        ))
+                        
+                        # Add earnings markers
+                        if symbol_data["Earnings_Dates"]:
+                            for date in symbol_data["Earnings_Dates"]:
+                                fig.add_vline(x=date, line_color="red", line_dash="dash",
+                                            annotation_text="Earnings", annotation_position="top left")
+                        
+                        fig.update_layout(
+                            title=f"{selected_symbol} Price with EMAs and Earnings",
+                            height=500,
+                            showlegend=True
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
                 
                 with tab2:
                     col1, col2 = st.columns(2)
@@ -508,15 +531,20 @@ if not st.session_state.filtered_results.empty:
                         st.metric("Trend Strength", symbol_data["Trend"])
                         st.metric("RSI", symbol_data["RSI"])
                     with col2:
-                        st.metric("MACD Histogram", round(symbol_data["MACD_Hist"], 3))
-                        st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
-                        st.metric("ADX (Trend Strength)", symbol_data["ADX"])
+                        st.metric("MACD Histogram", round(symbol_data["MACD_Hist"], 3) if symbol_data["MACD_Hist"] is not None else "N/A")
+                        st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x" if symbol_data["Volume_Ratio"] is not None else "N/A")
+                        st.metric("ADX (Trend Strength)", symbol_data["ADX"] if symbol_data["ADX"] is not None else "N/A")
                     st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
                     
                     # Display upcoming earnings
                     st.subheader("Upcoming Earnings")
                     if symbol_data["Earnings_Dates"]:
                         for date in symbol_data["Earnings_Dates"]:
+                            if not isinstance(date, (pd.Timestamp, datetime)):
+                                try:
+                                    date = pd.to_datetime(date)
+                                except Exception:
+                                    continue
                             st.write(f"📅 Earnings: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
                     else:
                         st.write("No upcoming earnings found")
