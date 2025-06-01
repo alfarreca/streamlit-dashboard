@@ -251,7 +251,7 @@ def apply_event_filters(stock_data):
         return stock_data[
             stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
             axis=1
-        )
+        )]  # <-- Fixed: closed the square bracket
     
     # Convert time window to days
     earnings_days = {
