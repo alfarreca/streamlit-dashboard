@@ -271,7 +271,10 @@ if 'full_data_loaded' not in st.session_state:
         'last_full_load': None,
         'filtered_results': [],
         'last_loaded_index': PRELOAD_SYMBOLS,
-        'show_event_stocks_only': False
+        'show_event_stocks_only': False,
+        'min_score': 70,
+        'price_range': (10.0, 200.0),
+        'min_event_impact': 10
     })
 
 # Load basic data
@@ -280,19 +283,46 @@ df = get_google_sheet_data()
 # ========== FILTERS ==========
 with st.sidebar:
     st.header("Momentum Filters")
-    min_score = st.slider("Minimum Momentum Score", 0, 100, 70, 5)
+    st.session_state.min_score = st.slider(
+        "Minimum Momentum Score", 
+        0, 100, 
+        st.session_state.min_score, 5
+    )
     trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
-    selected_trends = st.multiselect("Trend Strength", options=trend_options, default=trend_options)
-    price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
+    selected_trends = st.multiselect(
+        "Trend Strength", 
+        options=trend_options, 
+        default=trend_options
+    )
+    st.session_state.price_range = st.slider(
+        "Price Range ($)", 
+        0.0, 500.0, 
+        st.session_state.price_range, 5.0
+    )
     exchange_options = df["Exchange"].unique()
-    selected_exchanges = st.multiselect("Exchanges", options=exchange_options, default=["NASDAQ", "NYSE"])
+    selected_exchanges = st.multiselect(
+        "Exchanges", 
+        options=exchange_options, 
+        default=["NASDAQ", "NYSE"]
+    )
     
     st.header("Event Filters")
     st.session_state.show_event_stocks_only = st.checkbox(
         "Only stocks with upcoming events", 
         value=st.session_state.show_event_stocks_only
     )
-    min_event_impact = st.slider("Minimum Event Impact", 0, 30, 10, 1)
+    st.session_state.min_event_impact = st.slider(
+        "Minimum Event Impact", 
+        0, 30, 
+        st.session_state.min_event_impact, 1
+    )
+    
+    if st.button("Reset All Filters"):
+        st.session_state.min_score = 70
+        st.session_state.price_range = (10.0, 200.0)
+        st.session_state.min_event_impact = 10
+        st.session_state.show_event_stocks_only = False
+        st.rerun()
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
@@ -386,11 +416,11 @@ if st.session_state.initial_results:
     
     # Apply filters
     filtered = filtered[
-        (filtered["Momentum_Score"] >= min_score) &
+        (filtered["Momentum_Score"] >= st.session_state.min_score) &
         (filtered["Trend"].isin(selected_trends)) &
-        (filtered["Price"].between(*price_range)) &
+        (filtered["Price"].between(*st.session_state.price_range)) &
         (filtered["Exchange"].isin(selected_exchanges)) &
-        (filtered["Event_Impact"] >= min_event_impact)
+        (filtered["Event_Impact"] >= st.session_state.min_event_impact)
     ]
     
     # Apply event filter if enabled
@@ -403,28 +433,49 @@ if st.session_state.initial_results:
     # Summary Metrics
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Stocks Found", len(filtered))
-    col2.metric("Avg Momentum Score", round(filtered["Momentum_Score"].mean(), 1))
-    col3.metric("Strong Trends", len(filtered[filtered["Trend"] == "↑ Strong"]))
-    col4.metric("High Event Impact", len(filtered[filtered["Event_Impact"] >= 20]))
+    avg_score = round(filtered["Momentum_Score"].mean(), 1) if not filtered.empty else 0
+    col2.metric("Avg Momentum Score", avg_score)
+    strong_trends = len(filtered[filtered["Trend"] == "↑ Strong"]) if not filtered.empty else 0
+    col3.metric("Strong Trends", strong_trends)
+    high_impact = len(filtered[filtered["Event_Impact"] >= 20]) if not filtered.empty else 0
+    col4.metric("High Event Impact", high_impact)
     
-    # Results Table
-    st.dataframe(
-        filtered[[
-            "Symbol", "Exchange", "Price", "5D_Change", 
-            "Momentum_Score", "Trend", "Event_Impact", "RSI", 
-            "MACD_Hist", "Volume_Ratio", "Upcoming_Events", "Last_Updated"
-        ]],
-        use_container_width=True,
-        height=600,
-        column_config={
-            "Price": st.column_config.NumberColumn(format="$%.2f"),
-            "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
-            "Volume_Ratio": st.column_config.NumberColumn(format="%.2fx"),
-            "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
-            "Event_Impact": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=30),
-            "Upcoming_Events": st.column_config.ListColumn(width="medium")
-        }
-    )
+    if not filtered.empty:
+        # Results Table
+        st.dataframe(
+            filtered[[
+                "Symbol", "Exchange", "Price", "5D_Change", 
+                "Momentum_Score", "Trend", "Event_Impact", "RSI", 
+                "MACD_Hist", "Volume_Ratio", "Upcoming_Events", "Last_Updated"
+            ]],
+            use_container_width=True,
+            height=600,
+            column_config={
+                "Price": st.column_config.NumberColumn(format="$%.2f"),
+                "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
+                "Volume_Ratio": st.column_config.NumberColumn(format="%.2fx"),
+                "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
+                "Event_Impact": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=30),
+                "Upcoming_Events": st.column_config.ListColumn(width="medium")
+            }
+        )
+    else:
+        st.warning("No stocks match your current filters. Try adjusting your criteria.")
+        with st.expander("Filter Suggestions"):
+            st.markdown("""
+            - **Lower the Minimum Momentum Score** (currently {})
+            - **Widen the Price Range** (currently ${} - ${})
+            - **Include more Trend Strength options**
+            - **Reduce the Minimum Event Impact** (currently {})
+            - **Disable 'Only stocks with upcoming events'** (currently {})
+            - **Try different Exchange selections**
+            """.format(
+                st.session_state.min_score,
+                st.session_state.price_range[0],
+                st.session_state.price_range[1],
+                st.session_state.min_event_impact,
+                "ON" if st.session_state.show_event_stocks_only else "OFF"
+            ))
 
 # ========== DETAILED CHART VIEW ==========
 st.divider()
@@ -522,6 +573,8 @@ if not st.session_state.filtered_results.empty:
                     
             except Exception as e:
                 st.error(f"Error loading {selected_symbol}: {str(e)}")
+else:
+    st.warning("No stocks available for detailed analysis. Please load data first.")
 
 # ========== SYSTEM CONTROLS ==========
 with st.expander("System Controls"):
