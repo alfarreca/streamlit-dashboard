@@ -60,7 +60,6 @@ def get_events_data(ticker_obj):
     try:
         df = ticker_obj.get_earnings_dates(limit=2)
         if not df.empty:
-            # The index is DatetimeIndex, filter for future earnings
             future_dates = df[df.index >= pd.Timestamp.now()].index.tolist()
             return [pd.to_datetime(date) for date in future_dates]
     except Exception as e:
@@ -81,5 +80,433 @@ def calculate_momentum(hist):
     
     # RSI
     delta = close.diff()
-    gain = delta
-
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean().iloc[-1]
+    avg_loss = loss.rolling(14).mean().iloc[-1]
+    rs = avg_gain / avg_loss if avg_loss != 0 else 100
+    rsi = 100 - (100 / (1 + rs))
+    
+    # MACD
+    ema12 = close.ewm(span=12).mean()
+    ema26 = close.ewm(span=26).mean()
+    macd = ema12 - ema26
+    macd_signal = macd.ewm(span=9).mean()
+    macd_hist = macd.iloc[-1] - macd_signal.iloc[-1]
+    
+    # Volume
+    vol_avg_20 = volume.rolling(20).mean().iloc[-1]
+    
+    # ADX
+    tr = pd.concat([
+        high - low,
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(14).mean()
+    up_move = high.diff()
+    down_move = low.diff().abs()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    plus_di = 100 * (plus_dm.rolling(14).sum() / atr)
+    minus_di = 100 * (minus_dm.rolling(14).sum() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.rolling(14).mean().iloc[-1] if not dx.isnull().all() else 0
+    plus_di_last = plus_di.iloc[-1] if not plus_di.isnull().all() else 0
+    minus_di_last = minus_di.iloc[-1] if not minus_di.isnull().all() else 0
+
+    # Momentum Score (0-100)
+    momentum_score = 0
+    if close.iloc[-1] > ema20 > ema50 > ema200:
+        momentum_score += 30
+    if 60 < rsi < 80:
+        momentum_score += 20
+    if macd_hist > 0:
+        momentum_score += 15
+    if volume.iloc[-1] > vol_avg_20 * 1.2:
+        momentum_score += 10
+    if adx > 25:
+        momentum_score += 15
+    if plus_di_last > minus_di_last:
+        momentum_score += 10
+        
+    return {
+        "EMA20": round(ema20, 2),
+        "EMA50": round(ema50, 2),
+        "EMA200": round(ema200, 2),
+        "RSI": round(rsi, 1),
+        "MACD_Hist": round(macd_hist, 3),
+        "ADX": round(adx, 1),
+        "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
+        "Momentum_Score": momentum_score,
+        "Trend": "↑ Strong" if momentum_score >= 80 else 
+                 "↑ Medium" if momentum_score >= 60 else 
+                 "↗ Weak" if momentum_score >= 40 else "→ Neutral"
+    }
+
+# ========== TICKER PROCESSING ==========
+@st.cache_data(ttl=CACHE_TTL, show_spinner=False)
+def get_ticker_data(_ticker, exchange, yf_symbol):
+    try:
+        ticker_obj = yf.Ticker(yf_symbol)
+        try:
+            hist = safe_yfinance_fetch(ticker_obj)
+            earnings_dates = get_events_data(ticker_obj)
+        except Exception as e:
+            st.warning(f"Error fetching {_ticker}: {str(e)}")
+            return None
+        if hist.empty or len(hist) < 20:
+            return None
+
+        momentum_data = calculate_momentum(hist)
+        return {
+            "Symbol": _ticker,
+            "Exchange": exchange,
+            "Price": round(hist['Close'].iloc[-1], 2),
+            "5D_Change": round((hist['Close'].iloc[-1]/hist['Close'].iloc[-5]-1)*100, 1) if len(hist) >= 5 else None,
+            **momentum_data,
+            "Earnings_Dates": earnings_dates,
+            "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "YF_Symbol": yf_symbol
+        }
+    except Exception as e:
+        st.warning(f"Error processing {_ticker}: {str(e)}")
+        return None
+
+# ========== STREAMLIT UI ==========
+st.set_page_config(layout="wide", page_title="Russell 2000 Momentum Scanner")
+st.title("🚀 Russell 2000 Momentum Scanner with Earnings Analysis")
+
+# Initialize session state
+if 'full_data_loaded' not in st.session_state:
+    st.session_state.update({
+        'full_data_loaded': False,
+        'initial_results': [],
+        'last_full_load': None,
+        'filtered_results': [],
+        'last_loaded_index': PRELOAD_SYMBOLS,
+        'min_score': 50,
+        'price_range': (5.0, 200.0),
+        'earnings_window': "Next 2 weeks",
+        'require_events': False
+    })
+
+# Load basic data
+df = get_google_sheet_data()
+
+# ========== FILTERS ==========
+with st.sidebar:
+    st.header("Momentum Filters")
+    st.session_state.min_score = st.slider(
+        "Minimum Momentum Score", 
+        0, 100, 
+        st.session_state.min_score, 5
+    )
+    trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
+    selected_trends = st.multiselect(
+        "Trend Strength", 
+        options=trend_options, 
+        default=trend_options
+    )
+    st.session_state.price_range = st.slider(
+        "Price Range ($)", 
+        0.0, 500.0, 
+        st.session_state.price_range, 5.0
+    )
+    exchange_options = df["Exchange"].unique()
+    selected_exchanges = st.multiselect(
+        "Exchanges", 
+        options=exchange_options, 
+        default=["NASDAQ", "NYSE"]
+    )
+    
+    st.header("Earnings Date Filters")
+    st.session_state.earnings_window = st.selectbox(
+        "Earnings Coming Within:",
+        ["Any time", "Next week", "Next 2 weeks", "Next month"],
+        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
+    )
+    
+    st.session_state.require_events = st.checkbox(
+        "Only stocks with upcoming earnings",
+        value=st.session_state.require_events
+    )
+    
+    if st.button("Reset All Filters"):
+        st.session_state.min_score = 50
+        st.session_state.price_range = (5.0, 200.0)
+        st.session_state.earnings_window = "Next 2 weeks"
+        st.session_state.require_events = False
+        st.rerun()
+
+# ========== FILTER APPLICATION ==========
+def apply_event_filters(stock_data):
+    """Apply the earnings date filters to the dataframe"""
+    if not st.session_state.require_events:
+        return stock_data
+    
+    today = datetime.now()
+    
+    if st.session_state.earnings_window == "Any time":
+        return stock_data[
+            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
+            axis=1
+        )]
+    
+    # Convert time window to days
+    earnings_days = {
+        "Next week": 7,
+        "Next 2 weeks": 14,
+        "Next month": 30
+    }[st.session_state.earnings_window]
+    
+    # Filter for stocks meeting earnings criteria
+    filtered = stock_data[
+        stock_data.apply(lambda row: 
+            any((date - today).days <= earnings_days 
+                for date in row.get('Earnings_Dates', [])),
+            axis=1
+        )
+    ]
+    
+    return filtered
+
+# ========== DATA PROCESSING ==========
+if not st.session_state.initial_results:
+    with st.spinner(f'Loading initial {PRELOAD_SYMBOLS} symbols...'):
+        subset = df[df["Exchange"].isin(selected_exchanges)].head(PRELOAD_SYMBOLS)
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
+                      map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
+                      for row in subset.to_dict('records')]
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    st.session_state.initial_results.append(result)
+
+# ========== BATCH LOADING BUTTONS ==========
+col1, col2 = st.columns(2)
+with col1:
+    if st.button('Load Next 300 Tickers') and not st.session_state.full_data_loaded:
+        with st.spinner('Loading next 300 symbols...'):
+            start_idx = st.session_state.last_loaded_index
+            end_idx = start_idx + BATCH_SIZE
+            subset = df[df["Exchange"].isin(selected_exchanges)].iloc[start_idx:end_idx]
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            new_results = []
+            
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
+                          map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
+                          for row in subset.to_dict('records')]
+                for i, future in enumerate(as_completed(futures)):
+                    try:
+                        result = future.result()
+                        if result:
+                            new_results.append(result)
+                            st.session_state.initial_results.append(result)
+                    except Exception as e:
+                        st.warning(f"Error processing future: {str(e)}")
+                    if i % 10 == 0:
+                        progress = min(100, int((i+1)/len(futures)*100))
+                        progress_bar.progress(progress)
+                        status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                        time.sleep(0.1)
+            
+            st.session_state.last_loaded_index = end_idx
+            progress_bar.empty()
+            status_text.empty()
+            st.success(f"Loaded {len(new_results)} additional symbols")
+            st.rerun()
+
+with col2:
+    if st.button('Load Full Dataset (500+ Symbols)'):
+        if (st.session_state.last_full_load and 
+            (datetime.now() - st.session_state.last_full_load) < timedelta(hours=1)):
+            st.warning("Please wait 1 hour between full loads to avoid rate limits")
+        else:
+            with st.spinner('Loading full dataset (5-10 minutes)...'):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                results = []
+                filtered_df = df[df["Exchange"].isin(selected_exchanges)]
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
+                              map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
+                              for idx, row in enumerate(filtered_df.to_dict('records'))}
+                    for i, future in enumerate(as_completed(futures)):
+                        try:
+                            result = future.result()
+                            if result:
+                                results.append(result)
+                        except Exception as e:
+                            st.warning(f"Error processing future: {str(e)}")
+                        if i % 10 == 0:
+                            progress = min(100, int((i+1)/len(futures)*100))
+                            progress_bar.progress(progress)
+                            status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                            time.sleep(0.1)
+                st.session_state.initial_results = results
+                st.session_state.full_results = results
+                st.session_state.full_data_loaded = True
+                st.session_state.last_full_load = datetime.now()
+                st.session_state.last_loaded_index = len(df)
+                progress_bar.empty()
+                status_text.empty()
+                st.success(f"Loaded {len(results)} symbols")
+
+# ========== DISPLAY RESULTS ==========
+if st.session_state.initial_results:
+    filtered = pd.DataFrame(st.session_state.initial_results)
+    
+    # Apply momentum filters
+    filtered = filtered[
+        (filtered["Momentum_Score"] >= st.session_state.min_score) &
+        (filtered["Trend"].isin(selected_trends)) &
+        (filtered["Price"].between(*st.session_state.price_range)) &
+        (filtered["Exchange"].isin(selected_exchanges))
+    ]
+    
+    # Apply event filters
+    filtered = apply_event_filters(filtered)
+    filtered = filtered.sort_values("Momentum_Score", ascending=False)
+    st.session_state.filtered_results = filtered
+    
+    # Summary Metrics
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Stocks Found", len(filtered))
+    avg_score = round(filtered["Momentum_Score"].mean(), 1) if not filtered.empty else 0
+    col2.metric("Avg Momentum Score", avg_score)
+    strong_trends = len(filtered[filtered["Trend"] == "↑ Strong"]) if not filtered.empty else 0
+    col3.metric("Strong Trends", strong_trends)
+    
+    if not filtered.empty:
+        # Format event dates for display
+        display_df = filtered.copy()
+        display_df["Upcoming Earnings"] = display_df.apply(
+            lambda row: [
+                date.strftime('%Y-%m-%d') for date in row['Earnings_Dates']
+            ],
+            axis=1
+        )
+        
+        # Results Table
+        st.dataframe(
+            display_df[[
+                "Symbol", "Exchange", "Price", "5D_Change", 
+                "Momentum_Score", "Trend", "Upcoming Earnings", "Last_Updated"
+            ]],
+            use_container_width=True,
+            height=600,
+            column_config={
+                "Price": st.column_config.NumberColumn(format="$%.2f"),
+                "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
+                "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
+                "Upcoming Earnings": st.column_config.ListColumn(width="medium")
+            }
+        )
+    else:
+        st.warning("No stocks match your current filters. Try adjusting your criteria.")
+        with st.expander("Filter Suggestions"):
+            st.markdown("""
+            - **Lower the Minimum Momentum Score** (currently {})
+            - **Widen the Price Range** (currently ${} - ${})
+            - **Include more Trend Strength options**
+            - **Relax earnings date requirements**
+            - **Try different Exchange selections**
+            """.format(
+                st.session_state.min_score,
+                st.session_state.price_range[0],
+                st.session_state.price_range[1]
+            ))
+
+# ========== DETAILED CHART VIEW ==========
+st.divider()
+st.subheader("📈 Detailed Analysis")
+
+if not st.session_state.filtered_results.empty:
+    selected_symbol = st.selectbox(
+        "Select symbol for detailed chart:", 
+        options=st.session_state.filtered_results["Symbol"]
+    )
+
+    if selected_symbol:
+        with st.spinner(f'Loading {selected_symbol} analysis...'):
+            try:
+                symbol_data = st.session_state.filtered_results[
+                    st.session_state.filtered_results["Symbol"] == selected_symbol
+                ].iloc[0]
+                
+                tab1, tab2 = st.tabs(["Price Chart", "Momentum Indicators"])
+                
+                with tab1:
+                    ticker = yf.Ticker(symbol_data["YF_Symbol"])
+                    hist = safe_yfinance_fetch(ticker, "6mo")
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=hist.index, y=hist['Close'], 
+                        name='Price', line=dict(color='#1f77b4', width=2)
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=hist.index, y=hist['Close'].ewm(span=20).mean(),
+                        name='20 EMA', line=dict(color='orange', width=1)
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=hist.index, y=hist['Close'].ewm(span=50).mean(),
+                        name='50 EMA', line=dict(color='red', width=1)
+                    ))
+                    fig.add_trace(go.Scatter(
+                        x=hist.index, y=hist['Close'].ewm(span=200).mean(),
+                        name='200 EMA', line=dict(color='purple', width=1)
+                    ))
+                    
+                    # Add earnings markers
+                    if symbol_data["Earnings_Dates"]:
+                        for date in symbol_data["Earnings_Dates"]:
+                            fig.add_vline(x=date, line_color="red", line_dash="dash",
+                                        annotation_text="Earnings", annotation_position="top left")
+                    
+                    fig.update_layout(
+                        title=f"{selected_symbol} Price with EMAs and Earnings",
+                        height=500,
+                        showlegend=True
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                
+                with tab2:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Momentum Score", symbol_data["Momentum_Score"])
+                        st.metric("Trend Strength", symbol_data["Trend"])
+                        st.metric("RSI", symbol_data["RSI"])
+                    with col2:
+                        st.metric("MACD Histogram", round(symbol_data["MACD_Hist"], 3))
+                        st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
+                        st.metric("ADX (Trend Strength)", symbol_data["ADX"])
+                    st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
+                    
+                    # Display upcoming earnings
+                    st.subheader("Upcoming Earnings")
+                    if symbol_data["Earnings_Dates"]:
+                        for date in symbol_data["Earnings_Dates"]:
+                            st.write(f"📅 Earnings: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
+                    else:
+                        st.write("No upcoming earnings found")
+                    
+            except Exception as e:
+                st.error(f"Error loading {selected_symbol}: {str(e)}")
+else:
+    st.warning("No stocks available for detailed analysis. Please load data first.")
+
+# ========== SYSTEM CONTROLS ==========
+with st.expander("System Controls"):
+    if st.button("Clear Cache & Reload"):
+        st.cache_data.clear()
+        st.session_state.clear()
+        st.rerun()
+    st.write(f"Last full load: {st.session_state.last_full_load}")
+    st.write(f"Total symbols loaded: {len(st.session_state.initial_results)}")
+    st.write(f"Next batch starts at index: {st.session_state.last_loaded_index}")
