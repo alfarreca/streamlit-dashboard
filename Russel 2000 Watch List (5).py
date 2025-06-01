@@ -16,7 +16,7 @@ REQUEST_DELAY = (0.5, 2.0)
 CACHE_TTL = 3600 * 12
 PRELOAD_SYMBOLS = 50
 MAX_RETRIES = 3
-BATCH_SIZE = 100  # Number of tickers to load in each batch
+BATCH_SIZE = 300  # Changed from 100 to 300 for "Load Next 300 Tickers"
 
 # ========== SETUP ==========
 yf.set_tz_cache_location("cache")
@@ -202,8 +202,8 @@ if not st.session_state.initial_results:
 # ========== BATCH LOADING BUTTONS ==========
 col1, col2 = st.columns(2)
 with col1:
-    if st.button('Load Next 100 Tickers') and not st.session_state.full_data_loaded:
-        with st.spinner('Loading next 100 symbols...'):
+    if st.button('Load Next 300 Tickers') and not st.session_state.full_data_loaded:  # Changed from 100 to 300
+        with st.spinner('Loading next 300 symbols...'):  # Changed from 100 to 300
             start_idx = st.session_state.last_loaded_index
             end_idx = start_idx + BATCH_SIZE
             subset = df[df["Exchange"].isin(selected_exchanges)].iloc[start_idx:end_idx]
