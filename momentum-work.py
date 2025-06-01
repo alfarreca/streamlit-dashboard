@@ -56,16 +56,33 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
-    """Get upcoming earnings dates using get_earnings_dates()"""
+    """Get upcoming earnings dates using multiple methods"""
     try:
+        # Method 1: get_earnings_dates()
         earnings = ticker_obj.get_earnings_dates()
         if earnings is not None and not earnings.empty:
-            # Get future earnings dates (after today)
             future_earnings = earnings[earnings.index > pd.Timestamp.now()]
             if not future_earnings.empty:
                 return sorted(future_earnings.index.tolist())
+        
+        # Method 2: calendar (fallback)
+        calendar = ticker_obj.calendar
+        if calendar is not None and not calendar.empty and 'Earnings Date' in calendar:
+            dates = [pd.to_datetime(date) for date in calendar['Earnings Date'].tolist()]
+            future_dates = [date for date in dates if date > pd.Timestamp.now()]
+            if future_dates:
+                return sorted(future_dates)
+                
+        # Method 3: earnings_dates (alternative)
+        if hasattr(ticker_obj, 'earnings_dates'):
+            dates = ticker_obj.earnings_dates
+            if dates is not None and not dates.empty:
+                future_dates = [date for date in dates if date > pd.Timestamp.now()]
+                if future_dates:
+                    return sorted(future_dates)
+                    
     except Exception as e:
-        st.warning(f"Error fetching earnings dates: {str(e)}")
+        st.warning(f"Error fetching earnings dates for {ticker_obj.ticker}: {str(e)}")
     return []
 
 # ========== TECHNICAL INDICATORS ==========
@@ -188,7 +205,9 @@ if 'full_data_loaded' not in st.session_state:
         'filtered_results': [],
         'last_loaded_index': PRELOAD_SYMBOLS,
         'min_score': 50,
-        'price_range': (5.0, 200.0)
+        'price_range': (5.0, 200.0),
+        'earnings_window': "Next 2 weeks",
+        'require_events': False
     })
 
 # Load basic data
@@ -219,10 +238,57 @@ with st.sidebar:
         options=exchange_options, 
         default=["NASDAQ", "NYSE"]
     )
+    
+    st.header("Earnings Date Filters")
+    st.session_state.earnings_window = st.selectbox(
+        "Earnings Coming Within:",
+        ["Any time", "Next week", "Next 2 weeks", "Next month"],
+        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
+    )
+    
+    st.session_state.require_events = st.checkbox(
+        "Only stocks with upcoming earnings",
+        value=st.session_state.require_events
+    )
+    
     if st.button("Reset All Filters"):
         st.session_state.min_score = 50
         st.session_state.price_range = (5.0, 200.0)
+        st.session_state.earnings_window = "Next 2 weeks"
+        st.session_state.require_events = False
         st.rerun()
+
+# ========== FILTER APPLICATION ==========
+def apply_event_filters(stock_data):
+    """Apply the earnings date filters to the dataframe"""
+    if not st.session_state.require_events:
+        return stock_data
+    
+    today = datetime.now()
+    
+    if st.session_state.earnings_window == "Any time":
+        return stock_data[
+            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
+            axis=1
+        )
+    
+    # Convert time window to days
+    earnings_days = {
+        "Next week": 7,
+        "Next 2 weeks": 14,
+        "Next month": 30
+    }[st.session_state.earnings_window]
+    
+    # Filter for stocks meeting earnings criteria
+    filtered = stock_data[
+        stock_data.apply(lambda row: 
+            any((date - today).days <= earnings_days 
+                for date in row.get('Earnings_Dates', [])),
+            axis=1
+        )
+    ]
+    
+    return filtered
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
@@ -325,13 +391,18 @@ if st.session_state.initial_results:
     # Add "Upcoming Earnings Date" column - show the next earnings date if available
     def extract_next_earnings(dates):
         if dates and len(dates) > 0:
-            # Format the next upcoming date
-            next_date = min(dates)  # Get the earliest future date
-            days_until = (next_date - datetime.now()).days
-            return f"{next_date.strftime('%Y-%m-%d')} (in {days_until} days)"
+            # Get all future dates
+            future_dates = [date for date in dates if date > datetime.now()]
+            if future_dates:
+                next_date = min(future_dates)
+                days_until = (next_date - datetime.now()).days
+                return f"{next_date.strftime('%Y-%m-%d')} (in {days_until} days)"
         return "No upcoming earnings"
     
     filtered["Upcoming Earnings Date"] = filtered["Earnings_Dates"].apply(extract_next_earnings)
+    
+    # Apply event filters
+    filtered = apply_event_filters(filtered)
     
     filtered = filtered.sort_values("Momentum_Score", ascending=False)
     st.session_state.filtered_results = filtered
@@ -368,6 +439,7 @@ if st.session_state.initial_results:
             - **Lower the Minimum Momentum Score** (currently {})
             - **Widen the Price Range** (currently ${} - ${})
             - **Include more Trend Strength options**
+            - **Relax earnings date requirements**
             - **Try different Exchange selections**
             """.format(
                 st.session_state.min_score,
