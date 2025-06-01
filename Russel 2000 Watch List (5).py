@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ========== CONFIGURATION ==========
 MAX_WORKERS = 6
@@ -23,8 +23,7 @@ yf.set_tz_cache_location("cache")
 # ========== RETRY MECHANISM ==========
 @retry(
     stop=stop_after_attempt(MAX_RETRIES),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    retry=retry_if_exception_type(yf.YFRateLimitError)
+    wait=wait_exponential(multiplier=1, min=4, max=10)
 )
 def safe_yfinance_fetch(ticker, period="3mo"):
     time.sleep(random.uniform(*REQUEST_DELAY))
@@ -137,21 +136,15 @@ def calculate_momentum(hist):
 def get_ticker_data(_ticker, exchange, yf_symbol):
     try:
         ticker_obj = yf.Ticker(yf_symbol)
-        
         try:
             hist = safe_yfinance_fetch(ticker_obj)
-        except yf.YFRateLimitError:
-            st.warning(f"Rate limit reached for {_ticker}, skipping...")
-            return None
         except Exception as e:
             st.warning(f"Error fetching {_ticker}: {str(e)}")
             return None
-            
         if hist.empty or len(hist) < 20:
             return None
 
         momentum_data = calculate_momentum(hist)
-        
         return {
             "Symbol": _ticker,
             "Exchange": exchange,
@@ -161,7 +154,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF_Symbol": yf_symbol
         }
-
     except Exception as e:
         st.warning(f"Error processing {_ticker}: {str(e)}")
         return None
@@ -200,7 +192,6 @@ if not st.session_state.initial_results:
             futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
                       map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
                       for row in subset.to_dict('records')]
-            
             for future in as_completed(futures):
                 result = future.result()
                 if result:
@@ -256,14 +247,11 @@ if st.button('Load Full Dataset (500+ Symbols)'):
             progress_bar = st.progress(0)
             status_text = st.empty()
             results = []
-            
             filtered_df = df[df["Exchange"].isin(selected_exchanges)]
-            
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
                 futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
                           map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
                           for idx, row in enumerate(filtered_df.to_dict('records'))}
-                
                 for i, future in enumerate(as_completed(futures)):
                     try:
                         result = future.result()
@@ -271,13 +259,11 @@ if st.button('Load Full Dataset (500+ Symbols)'):
                             results.append(result)
                     except Exception as e:
                         st.warning(f"Error processing future: {str(e)}")
-                    
                     if i % 10 == 0:
                         progress = min(100, int((i+1)/len(futures)*100))
                         progress_bar.progress(progress)
                         status_text.text(f"Processed {i+1}/{len(futures)} symbols")
                         time.sleep(0.1)
-            
             st.session_state.full_results = results
             st.session_state.full_data_loaded = True
             st.session_state.last_full_load = datetime.now()
@@ -343,14 +329,11 @@ if selected_symbol:
                     st.metric("Momentum Score", symbol_data["Momentum_Score"])
                     st.metric("Trend Strength", symbol_data["Trend"])
                     st.metric("RSI", symbol_data["RSI"])
-                
                 with col2:
                     st.metric("MACD Histogram", round(symbol_data["MACD_Hist"], 3))
                     st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
                     st.metric("ADX (Trend Strength)", symbol_data["ADX"])
-                
                 st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
-                
         except Exception as e:
             st.error(f"Error loading {selected_symbol}: {str(e)}")
 
@@ -360,6 +343,5 @@ with st.expander("System Controls"):
         st.cache_data.clear()
         st.session_state.clear()
         st.rerun()
-    
     st.write(f"Last full load: {st.session_state.last_full_load}")
     st.write(f"Initial symbols loaded: {len(st.session_state.initial_results)}")
