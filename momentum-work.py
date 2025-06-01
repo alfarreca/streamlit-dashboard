@@ -17,7 +17,6 @@ CACHE_TTL = 3600 * 12
 PRELOAD_SYMBOLS = 50
 MAX_RETRIES = 3
 BATCH_SIZE = 300
-EVENT_DAYS_WINDOW = 14  # Days before/after event to consider
 
 # ========== SETUP ==========
 yf.set_tz_cache_location("cache")
@@ -57,76 +56,34 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
+    """Simplified to only get earnings and dividend dates"""
     events = {
         'earnings_dates': [],
-        'dividends': [],
-        'splits': [],
-        'news': []
+        'dividend_dates': []
     }
     
     try:
         # Earnings Calendar
         calendar = ticker_obj.calendar
         if not calendar.empty:
-            events['earnings_dates'] = calendar['Earnings Date'].tolist()
+            events['earnings_dates'] = [pd.to_datetime(date) for date in calendar['Earnings Date'].tolist()]
             
-        # Dividends
+        # Dividends (next ex-dividend date)
         dividends = ticker_obj.dividends
         if not dividends.empty:
-            events['dividends'] = dividends.tail(3).reset_index().values.tolist()
-            
-        # Splits
-        splits = ticker_obj.splits
-        if not splits.empty:
-            events['splits'] = splits.tail(3).reset_index().values.tolist()
-            
-        # News
-        news = ticker_obj.news
-        if news:
-            events['news'] = [{
-                'title': item.get('title', ''),
-                'date': pd.to_datetime(item.get('providerPublishTime', 0), unit='s'),
-                'link': item.get('link', '')
-            } for item in news[:3]]  # Get top 3 news items
-            
+            # Get future dividend dates (if available)
+            future_divs = [d[0] for d in dividends.tail(3).reset_index().values.tolist() 
+                         if pd.to_datetime(d[0]) > datetime.now()]
+            if future_divs:
+                events['dividend_dates'] = future_divs
+                
     except Exception as e:
         st.warning(f"Error fetching events data: {str(e)}")
     
     return events
 
-def calculate_event_impact(events, current_date):
-    impact_score = 0
-    upcoming_events = []
-    
-    # Earnings impact
-    for earnings_date in events.get('earnings_dates', []):
-        days_diff = (earnings_date - current_date).days
-        if -EVENT_DAYS_WINDOW <= days_diff <= EVENT_DAYS_WINDOW:
-            proximity_factor = 1 - abs(days_diff)/EVENT_DAYS_WINDOW
-            impact_score += 15 * proximity_factor  # Max 15 points
-            upcoming_events.append(f"Earnings in {days_diff} days")
-    
-    # News impact
-    recent_news = [n for n in events.get('news', []) 
-                  if (current_date - n['date']).days <= 7]
-    impact_score += min(10, len(recent_news) * 3)  # Max 10 points for news
-    
-    # Dividends impact
-    if events.get('dividends'):
-        last_div_date = max([d[0] for d in events['dividends']])
-        days_since_div = (current_date - last_div_date).days
-        if days_since_div <= 5:
-            impact_score += 5  # 5 points for recent dividend
-    
-    return {
-        'event_impact_score': min(30, impact_score),  # Cap at 30 points
-        'upcoming_events': upcoming_events,
-        'has_recent_news': len(recent_news) > 0,
-        'recent_news': recent_news
-    }
-
 # ========== TECHNICAL INDICATORS ==========
-def calculate_momentum(hist, events_data=None):
+def calculate_momentum(hist):
     close = hist['Close']
     high = hist['High']
     low = hist['Low']
@@ -174,7 +131,7 @@ def calculate_momentum(hist, events_data=None):
     plus_di_last = plus_di.iloc[-1] if not plus_di.isnull().all() else 0
     minus_di_last = minus_di.iloc[-1] if not minus_di.isnull().all() else 0
 
-    # Base Momentum Score (0-70)
+    # Momentum Score (0-100)
     momentum_score = 0
     if close.iloc[-1] > ema20 > ema50 > ema200:
         momentum_score += 30
@@ -189,47 +146,19 @@ def calculate_momentum(hist, events_data=None):
     if plus_di_last > minus_di_last:
         momentum_score += 10
         
-    # Add event impact if available (0-30)
-    if events_data:
-        event_impact = calculate_event_impact(events_data, hist.index[-1])
-        momentum_score += event_impact['event_impact_score']
-        momentum_score = min(100, momentum_score)  # Cap at 100
-        
-        return {
-            "EMA20": round(ema20, 2),
-            "EMA50": round(ema50, 2),
-            "EMA200": round(ema200, 2),
-            "RSI": round(rsi, 1),
-            "MACD_Hist": round(macd_hist, 3),
-            "ADX": round(adx, 1),
-            "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
-            "Momentum_Score": momentum_score,
-            "Trend": "↑ Strong" if momentum_score >= 80 else 
-                     "↑ Medium" if momentum_score >= 60 else 
-                     "↗ Weak" if momentum_score >= 40 else "→ Neutral",
-            "Event_Impact": event_impact['event_impact_score'],
-            "Upcoming_Events": event_impact['upcoming_events'],
-            "Has_Recent_News": event_impact['has_recent_news'],
-            "Recent_News": event_impact['recent_news']
-        }
-    else:
-        return {
-            "EMA20": round(ema20, 2),
-            "EMA50": round(ema50, 2),
-            "EMA200": round(ema200, 2),
-            "RSI": round(rsi, 1),
-            "MACD_Hist": round(macd_hist, 3),
-            "ADX": round(adx, 1),
-            "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
-            "Momentum_Score": momentum_score,
-            "Trend": "↑ Strong" if momentum_score >= 70 else 
-                     "↑ Medium" if momentum_score >= 50 else 
-                     "↗ Weak" if momentum_score >= 30 else "→ Neutral",
-            "Event_Impact": 0,
-            "Upcoming_Events": [],
-            "Has_Recent_News": False,
-            "Recent_News": []
-        }
+    return {
+        "EMA20": round(ema20, 2),
+        "EMA50": round(ema50, 2),
+        "EMA200": round(ema200, 2),
+        "RSI": round(rsi, 1),
+        "MACD_Hist": round(macd_hist, 3),
+        "ADX": round(adx, 1),
+        "Volume_Ratio": round(volume.iloc[-1]/vol_avg_20, 2),
+        "Momentum_Score": momentum_score,
+        "Trend": "↑ Strong" if momentum_score >= 80 else 
+                 "↑ Medium" if momentum_score >= 60 else 
+                 "↗ Weak" if momentum_score >= 40 else "→ Neutral"
+    }
 
 # ========== TICKER PROCESSING ==========
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
@@ -245,13 +174,15 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         if hist.empty or len(hist) < 20:
             return None
 
-        momentum_data = calculate_momentum(hist, events_data)
+        momentum_data = calculate_momentum(hist)
         return {
             "Symbol": _ticker,
             "Exchange": exchange,
             "Price": round(hist['Close'].iloc[-1], 2),
             "5D_Change": round((hist['Close'].iloc[-1]/hist['Close'].iloc[-5]-1)*100, 1) if len(hist) >= 5 else None,
             **momentum_data,
+            "Earnings_Dates": events_data['earnings_dates'],
+            "Dividend_Dates": events_data['dividend_dates'],
             "Last_Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF_Symbol": yf_symbol
         }
@@ -271,10 +202,11 @@ if 'full_data_loaded' not in st.session_state:
         'last_full_load': None,
         'filtered_results': [],
         'last_loaded_index': PRELOAD_SYMBOLS,
-        'show_event_stocks_only': False,
-        'min_score': 70,
-        'price_range': (10.0, 200.0),
-        'min_event_impact': 10
+        'min_score': 50,
+        'price_range': (5.0, 200.0),
+        'earnings_window': "Next 2 weeks",
+        'dividend_window': "Next month",
+        'require_events': False
     })
 
 # Load basic data
@@ -306,23 +238,67 @@ with st.sidebar:
         default=["NASDAQ", "NYSE"]
     )
     
-    st.header("Event Filters")
-    st.session_state.show_event_stocks_only = st.checkbox(
-        "Only stocks with upcoming events", 
-        value=st.session_state.show_event_stocks_only
+    st.header("Event Date Filters")
+    st.session_state.earnings_window = st.selectbox(
+        "Earnings Coming Within:",
+        ["Any time", "Next week", "Next 2 weeks", "Next month"],
+        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
     )
-    st.session_state.min_event_impact = st.slider(
-        "Minimum Event Impact", 
-        0, 30, 
-        st.session_state.min_event_impact, 1
+    
+    st.session_state.dividend_window = st.selectbox(
+        "Dividends Coming Within:",
+        ["Any time", "Next week", "Next 2 weeks", "Next month"],
+        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.dividend_window)
+    )
+    
+    st.session_state.require_events = st.checkbox(
+        "Only stocks with upcoming earnings OR dividends",
+        value=st.session_state.require_events
     )
     
     if st.button("Reset All Filters"):
-        st.session_state.min_score = 70
-        st.session_state.price_range = (10.0, 200.0)
-        st.session_state.min_event_impact = 10
-        st.session_state.show_event_stocks_only = False
+        st.session_state.min_score = 50
+        st.session_state.price_range = (5.0, 200.0)
+        st.session_state.earnings_window = "Next 2 weeks"
+        st.session_state.dividend_window = "Next month"
+        st.session_state.require_events = False
         st.rerun()
+
+# ========== FILTER APPLICATION ==========
+def apply_event_filters(stock_data):
+    """Apply the event date filters to the dataframe"""
+    if not st.session_state.require_events:
+        return stock_data
+    
+    # Convert time windows to days
+    earnings_days = {
+        "Any time": 365*5,
+        "Next week": 7,
+        "Next 2 weeks": 14,
+        "Next month": 30
+    }[st.session_state.earnings_window]
+    
+    dividend_days = {
+        "Any time": 365*5,
+        "Next week": 7,
+        "Next 2 weeks": 14,
+        "Next month": 30
+    }[st.session_state.dividend_window]
+    
+    today = datetime.now()
+    
+    # Filter for stocks meeting either criteria
+    filtered = stock_data[
+        stock_data.apply(lambda row: 
+            any((date - today).days <= earnings_days 
+                for date in row.get('Earnings_Dates', [])) |
+            any((date - today).days <= dividend_days 
+                for date in row.get('Dividend_Dates', [])),
+            axis=1
+        )
+    ]
+    
+    return filtered
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
@@ -414,49 +390,64 @@ with col2:
 if st.session_state.initial_results:
     filtered = pd.DataFrame(st.session_state.initial_results)
     
-    # Apply filters
+    # Apply momentum filters
     filtered = filtered[
         (filtered["Momentum_Score"] >= st.session_state.min_score) &
         (filtered["Trend"].isin(selected_trends)) &
         (filtered["Price"].between(*st.session_state.price_range)) &
-        (filtered["Exchange"].isin(selected_exchanges)) &
-        (filtered["Event_Impact"] >= st.session_state.min_event_impact)
+        (filtered["Exchange"].isin(selected_exchanges))
     ]
     
-    # Apply event filter if enabled
-    if st.session_state.show_event_stocks_only:
-        filtered = filtered[filtered["Upcoming_Events"].apply(len) > 0]
-    
+    # Apply event filters
+    filtered = apply_event_filters(filtered)
     filtered = filtered.sort_values("Momentum_Score", ascending=False)
     st.session_state.filtered_results = filtered
     
     # Summary Metrics
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Stocks Found", len(filtered))
     avg_score = round(filtered["Momentum_Score"].mean(), 1) if not filtered.empty else 0
     col2.metric("Avg Momentum Score", avg_score)
     strong_trends = len(filtered[filtered["Trend"] == "↑ Strong"]) if not filtered.empty else 0
     col3.metric("Strong Trends", strong_trends)
-    high_impact = len(filtered[filtered["Event_Impact"] >= 20]) if not filtered.empty else 0
-    col4.metric("High Event Impact", high_impact)
     
     if not filtered.empty:
+        # Format event dates for display
+        display_df = filtered.copy()
+        display_df["Upcoming Events"] = display_df.apply(
+            lambda row: [
+                f"Earnings: {date.strftime('%Y-%m-%d')}" for date in row['Earnings_Dates'] 
+                if (date - datetime.now()).days <= {
+                    "Any time": 365*5,
+                    "Next week": 7,
+                    "Next 2 weeks": 14,
+                    "Next month": 30
+                }[st.session_state.earnings_window]
+            ] + [
+                f"Dividend: {date.strftime('%Y-%m-%d')}" for date in row['Dividend_Dates'] 
+                if (date - datetime.now()).days <= {
+                    "Any time": 365*5,
+                    "Next week": 7,
+                    "Next 2 weeks": 14,
+                    "Next month": 30
+                }[st.session_state.dividend_window]
+            ],
+            axis=1
+        )
+        
         # Results Table
         st.dataframe(
-            filtered[[
+            display_df[[
                 "Symbol", "Exchange", "Price", "5D_Change", 
-                "Momentum_Score", "Trend", "Event_Impact", "RSI", 
-                "MACD_Hist", "Volume_Ratio", "Upcoming_Events", "Last_Updated"
+                "Momentum_Score", "Trend", "Upcoming Events", "Last_Updated"
             ]],
             use_container_width=True,
             height=600,
             column_config={
                 "Price": st.column_config.NumberColumn(format="$%.2f"),
                 "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
-                "Volume_Ratio": st.column_config.NumberColumn(format="%.2fx"),
                 "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
-                "Event_Impact": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=30),
-                "Upcoming_Events": st.column_config.ListColumn(width="medium")
+                "Upcoming Events": st.column_config.ListColumn(width="medium")
             }
         )
     else:
@@ -466,15 +457,12 @@ if st.session_state.initial_results:
             - **Lower the Minimum Momentum Score** (currently {})
             - **Widen the Price Range** (currently ${} - ${})
             - **Include more Trend Strength options**
-            - **Reduce the Minimum Event Impact** (currently {})
-            - **Disable 'Only stocks with upcoming events'** (currently {})
+            - **Relax event date requirements**
             - **Try different Exchange selections**
             """.format(
                 st.session_state.min_score,
                 st.session_state.price_range[0],
-                st.session_state.price_range[1],
-                st.session_state.min_event_impact,
-                "ON" if st.session_state.show_event_stocks_only else "OFF"
+                st.session_state.price_range[1]
             ))
 
 # ========== DETAILED CHART VIEW ==========
@@ -494,7 +482,7 @@ if not st.session_state.filtered_results.empty:
                     st.session_state.filtered_results["Symbol"] == selected_symbol
                 ].iloc[0]
                 
-                tab1, tab2, tab3 = st.tabs(["Price Chart", "Momentum Indicators", "Event Analysis"])
+                tab1, tab2 = st.tabs(["Price Chart", "Momentum Indicators"])
                 
                 with tab1:
                     ticker = yf.Ticker(symbol_data["YF_Symbol"])
@@ -519,13 +507,12 @@ if not st.session_state.filtered_results.empty:
                     ))
                     
                     # Add event markers
-                    events = get_events_data(ticker)
-                    if events.get('earnings_dates'):
-                        for date in events['earnings_dates']:
+                    if symbol_data["Earnings_Dates"]:
+                        for date in symbol_data["Earnings_Dates"]:
                             fig.add_vline(x=date, line_color="red", line_dash="dash",
                                         annotation_text="Earnings", annotation_position="top left")
-                    if events.get('dividends'):
-                        for date, _ in events['dividends']:
+                    if symbol_data["Dividend_Dates"]:
+                        for date in symbol_data["Dividend_Dates"]:
                             fig.add_vline(x=date, line_color="green", line_dash="dot",
                                         annotation_text="Dividend", annotation_position="bottom right")
                     
@@ -547,29 +534,16 @@ if not st.session_state.filtered_results.empty:
                         st.metric("Volume vs Avg", f"{symbol_data['Volume_Ratio']:.2f}x")
                         st.metric("ADX (Trend Strength)", symbol_data["ADX"])
                     st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
-                
-                with tab3:
+                    
+                    # Display upcoming events
                     st.subheader("Upcoming Events")
-                    if symbol_data["Upcoming_Events"]:
-                        for event in symbol_data["Upcoming_Events"]:
-                            st.write(f"- {event}")
+                    if symbol_data["Earnings_Dates"] or symbol_data["Dividend_Dates"]:
+                        for date in symbol_data["Earnings_Dates"]:
+                            st.write(f"📅 Earnings: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
+                        for date in symbol_data["Dividend_Dates"]:
+                            st.write(f"💰 Dividend: {date.strftime('%Y-%m-%d')} (in {(date - datetime.now()).days} days)")
                     else:
-                        st.write("No upcoming events found in the next 14 days")
-                    
-                    st.subheader("Recent News")
-                    if symbol_data["Recent_News"]:
-                        for news in symbol_data["Recent_News"]:
-                            st.write(f"**{news['date'].strftime('%Y-%m-%d')}**")
-                            st.write(news['title'])
-                            if news.get('link'):
-                                st.markdown(f"[Read more]({news['link']})")
-                            st.divider()
-                    else:
-                        st.write("No recent news available")
-                    
-                    st.subheader("Event Impact Analysis")
-                    st.metric("Event Impact Score", symbol_data["Event_Impact"])
-                    st.progress(symbol_data["Event_Impact"]/30, text="Event Impact Contribution")
+                        st.write("No upcoming events found")
                     
             except Exception as e:
                 st.error(f"Error loading {selected_symbol}: {str(e)}")
