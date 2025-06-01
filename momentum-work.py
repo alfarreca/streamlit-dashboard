@@ -186,9 +186,7 @@ if 'full_data_loaded' not in st.session_state:
         'filtered_results': [],
         'last_loaded_index': PRELOAD_SYMBOLS,
         'min_score': 50,
-        'price_range': (5.0, 200.0),
-        'earnings_window': "Next 2 weeks",
-        'require_events': False
+        'price_range': (5.0, 200.0)
     })
 
 # Load basic data
@@ -219,57 +217,10 @@ with st.sidebar:
         options=exchange_options, 
         default=["NASDAQ", "NYSE"]
     )
-    
-    st.header("Earnings Date Filters")
-    st.session_state.earnings_window = st.selectbox(
-        "Earnings Coming Within:",
-        ["Any time", "Next week", "Next 2 weeks", "Next month"],
-        index=["Any time", "Next week", "Next 2 weeks", "Next month"].index(st.session_state.earnings_window)
-    )
-    
-    st.session_state.require_events = st.checkbox(
-        "Only stocks with upcoming earnings",
-        value=st.session_state.require_events
-    )
-    
     if st.button("Reset All Filters"):
         st.session_state.min_score = 50
         st.session_state.price_range = (5.0, 200.0)
-        st.session_state.earnings_window = "Next 2 weeks"
-        st.session_state.require_events = False
         st.rerun()
-
-# ========== FILTER APPLICATION ==========
-def apply_event_filters(stock_data):
-    """Apply the earnings date filters to the dataframe"""
-    if not st.session_state.require_events:
-        return stock_data
-    
-    today = datetime.now()
-    
-    if st.session_state.earnings_window == "Any time":
-        return stock_data[
-            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
-            axis=1
-        )]
-    
-    # Convert time window to days
-    earnings_days = {
-        "Next week": 7,
-        "Next 2 weeks": 14,
-        "Next month": 30
-    }[st.session_state.earnings_window]
-    
-    # Filter for stocks meeting earnings criteria
-    filtered = stock_data[
-        stock_data.apply(lambda row: 
-            any((date - today).days <= earnings_days 
-                for date in row.get('Earnings_Dates', [])),
-            axis=1
-        )
-    ]
-    
-    return filtered
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
@@ -367,10 +318,15 @@ if st.session_state.initial_results:
         (filtered["Trend"].isin(selected_trends)) &
         (filtered["Price"].between(*st.session_state.price_range)) &
         (filtered["Exchange"].isin(selected_exchanges))
-    ]
+    ].copy()
+
+    # Add "Upcoming Earnings Date" column: show the next earnings date if available, else blank
+    def extract_next_earnings(dates):
+        if dates and len(dates) > 0:
+            return dates[0].strftime('%Y-%m-%d')
+        return ""
+    filtered["Upcoming Earnings Date"] = filtered["Earnings_Dates"].apply(extract_next_earnings)
     
-    # Apply event filters
-    filtered = apply_event_filters(filtered)
     filtered = filtered.sort_values("Momentum_Score", ascending=False)
     st.session_state.filtered_results = filtered
     
@@ -383,20 +339,12 @@ if st.session_state.initial_results:
     col3.metric("Strong Trends", strong_trends)
     
     if not filtered.empty:
-        # Format event dates for display
         display_df = filtered.copy()
-        display_df["Upcoming Earnings"] = display_df.apply(
-            lambda row: [
-                date.strftime('%Y-%m-%d') for date in row['Earnings_Dates']
-            ],
-            axis=1
-        )
-        
         # Results Table
         st.dataframe(
             display_df[[
                 "Symbol", "Exchange", "Price", "5D_Change", 
-                "Momentum_Score", "Trend", "Upcoming Earnings", "Last_Updated"
+                "Momentum_Score", "Trend", "Upcoming Earnings Date", "Last_Updated"
             ]],
             use_container_width=True,
             height=600,
@@ -404,7 +352,7 @@ if st.session_state.initial_results:
                 "Price": st.column_config.NumberColumn(format="$%.2f"),
                 "5D_Change": st.column_config.NumberColumn(format="%.1f%%"),
                 "Momentum_Score": st.column_config.ProgressColumn(format="%.0f", min_value=0, max_value=100),
-                "Upcoming Earnings": st.column_config.ListColumn(width="medium")
+                "Upcoming Earnings Date": st.column_config.TextColumn()
             }
         )
     else:
@@ -414,7 +362,6 @@ if st.session_state.initial_results:
             - **Lower the Minimum Momentum Score** (currently {})
             - **Widen the Price Range** (currently ${} - ${})
             - **Include more Trend Strength options**
-            - **Relax earnings date requirements**
             - **Try different Exchange selections**
             """.format(
                 st.session_state.min_score,
