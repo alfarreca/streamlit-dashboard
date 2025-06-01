@@ -56,12 +56,14 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
 
 # ========== EVENT ANALYSIS ==========
 def get_events_data(ticker_obj):
-    """Get upcoming earnings date using get_earnings_dates()."""
+    """Get upcoming earnings dates using get_earnings_dates()"""
     try:
-        df = ticker_obj.get_earnings_dates(limit=2)
-        if not df.empty:
-            future_dates = df[df.index >= pd.Timestamp.now()].index.tolist()
-            return [pd.to_datetime(date) for date in future_dates]
+        earnings = ticker_obj.get_earnings_dates()
+        if earnings is not None and not earnings.empty:
+            # Get future earnings dates (after today)
+            future_earnings = earnings[earnings.index > pd.Timestamp.now()]
+            if not future_earnings.empty:
+                return sorted(future_earnings.index.tolist())
     except Exception as e:
         st.warning(f"Error fetching earnings dates: {str(e)}")
     return []
@@ -320,11 +322,15 @@ if st.session_state.initial_results:
         (filtered["Exchange"].isin(selected_exchanges))
     ].copy()
 
-    # Add "Upcoming Earnings Date" column: show the next earnings date if available, else blank
+    # Add "Upcoming Earnings Date" column - show the next earnings date if available
     def extract_next_earnings(dates):
         if dates and len(dates) > 0:
-            return dates[0].strftime('%Y-%m-%d')
-        return ""
+            # Format the next upcoming date
+            next_date = min(dates)  # Get the earliest future date
+            days_until = (next_date - datetime.now()).days
+            return f"{next_date.strftime('%Y-%m-%d')} (in {days_until} days)"
+        return "No upcoming earnings"
+    
     filtered["Upcoming Earnings Date"] = filtered["Earnings_Dates"].apply(extract_next_earnings)
     
     filtered = filtered.sort_values("Momentum_Score", ascending=False)
