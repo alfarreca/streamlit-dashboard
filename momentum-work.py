@@ -245,15 +245,20 @@ def apply_event_filters(stock_data):
     if not st.session_state.require_events:
         return stock_data
     
+    today = datetime.now()
+    
+    if st.session_state.earnings_window == "Any time":
+        return stock_data[
+            stock_data.apply(lambda row: len(row.get('Earnings_Dates', [])) > 0,
+            axis=1
+        )
+    
     # Convert time window to days
     earnings_days = {
-        "Any time": 365*5,
         "Next week": 7,
         "Next 2 weeks": 14,
         "Next month": 30
     }[st.session_state.earnings_window]
-    
-    today = datetime.now()
     
     # Filter for stocks meeting earnings criteria
     filtered = stock_data[
@@ -382,13 +387,7 @@ if st.session_state.initial_results:
         display_df = filtered.copy()
         display_df["Upcoming Earnings"] = display_df.apply(
             lambda row: [
-                date.strftime('%Y-%m-%d') for date in row['Earnings_Dates'] 
-                if (date - datetime.now()).days <= {
-                    "Any time": 365*5,
-                    "Next week": 7,
-                    "Next 2 weeks": 14,
-                    "Next month": 30
-                }[st.session_state.earnings_window]
+                date.strftime('%Y-%m-%d') for date in row['Earnings_Dates']
             ],
             axis=1
         )
