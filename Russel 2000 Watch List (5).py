@@ -16,6 +16,7 @@ REQUEST_DELAY = (0.5, 2.0)
 CACHE_TTL = 3600 * 12
 PRELOAD_SYMBOLS = 50
 MAX_RETRIES = 3
+BATCH_SIZE = 100  # Number of tickers to load in each batch
 
 # ========== SETUP ==========
 yf.set_tz_cache_location("cache")
@@ -168,7 +169,8 @@ if 'full_data_loaded' not in st.session_state:
         'full_data_loaded': False,
         'initial_results': [],
         'last_full_load': None,
-        'filtered_results': []
+        'filtered_results': [],
+        'last_loaded_index': PRELOAD_SYMBOLS
     })
 
 # Load basic data
@@ -196,6 +198,79 @@ if not st.session_state.initial_results:
                 result = future.result()
                 if result:
                     st.session_state.initial_results.append(result)
+
+# ========== BATCH LOADING BUTTONS ==========
+col1, col2 = st.columns(2)
+with col1:
+    if st.button('Load Next 100 Tickers') and not st.session_state.full_data_loaded:
+        with st.spinner('Loading next 100 symbols...'):
+            start_idx = st.session_state.last_loaded_index
+            end_idx = start_idx + BATCH_SIZE
+            subset = df[df["Exchange"].isin(selected_exchanges)].iloc[start_idx:end_idx]
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            new_results = []
+            
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = [executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
+                          map_to_yfinance_symbol(row["Symbol"], row["Exchange"])) 
+                          for row in subset.to_dict('records')]
+                for i, future in enumerate(as_completed(futures)):
+                    try:
+                        result = future.result()
+                        if result:
+                            new_results.append(result)
+                            st.session_state.initial_results.append(result)
+                    except Exception as e:
+                        st.warning(f"Error processing future: {str(e)}")
+                    if i % 10 == 0:
+                        progress = min(100, int((i+1)/len(futures)*100))
+                        progress_bar.progress(progress)
+                        status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                        time.sleep(0.1)
+            
+            st.session_state.last_loaded_index = end_idx
+            progress_bar.empty()
+            status_text.empty()
+            st.success(f"Loaded {len(new_results)} additional symbols")
+            st.rerun()
+
+with col2:
+    if st.button('Load Full Dataset (500+ Symbols)'):
+        if (st.session_state.last_full_load and 
+            (datetime.now() - st.session_state.last_full_load) < timedelta(hours=1)):
+            st.warning("Please wait 1 hour between full loads to avoid rate limits")
+        else:
+            with st.spinner('Loading full dataset (5-10 minutes)...'):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                results = []
+                filtered_df = df[df["Exchange"].isin(selected_exchanges)]
+                with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
+                              map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
+                              for idx, row in enumerate(filtered_df.to_dict('records'))}
+                    for i, future in enumerate(as_completed(futures)):
+                        try:
+                            result = future.result()
+                            if result:
+                                results.append(result)
+                        except Exception as e:
+                            st.warning(f"Error processing future: {str(e)}")
+                        if i % 10 == 0:
+                            progress = min(100, int((i+1)/len(futures)*100))
+                            progress_bar.progress(progress)
+                            status_text.text(f"Processed {i+1}/{len(futures)} symbols")
+                            time.sleep(0.1)
+                st.session_state.initial_results = results
+                st.session_state.full_results = results
+                st.session_state.full_data_loaded = True
+                st.session_state.last_full_load = datetime.now()
+                st.session_state.last_loaded_index = len(df)  # Mark as fully loaded
+                progress_bar.empty()
+                status_text.empty()
+                st.success(f"Loaded {len(results)} symbols")
 
 # Ensure filtered_results is always a DataFrame
 if not isinstance(st.session_state.filtered_results, pd.DataFrame):
@@ -237,49 +312,9 @@ if st.session_state.initial_results:
         }
     )
 
-# ========== FULL DATASET LOAD ==========
-if st.button('Load Full Dataset (500+ Symbols)'):
-    if (st.session_state.last_full_load and 
-        (datetime.now() - st.session_state.last_full_load) < timedelta(hours=1)):
-        st.warning("Please wait 1 hour between full loads to avoid rate limits")
-    else:
-        with st.spinner('Loading full dataset (5-10 minutes)...'):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            results = []
-            filtered_df = df[df["Exchange"].isin(selected_exchanges)]
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                futures = {executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], 
-                          map_to_yfinance_symbol(row["Symbol"], row["Exchange"])): idx 
-                          for idx, row in enumerate(filtered_df.to_dict('records'))}
-                for i, future in enumerate(as_completed(futures)):
-                    try:
-                        result = future.result()
-                        if result:
-                            results.append(result)
-                    except Exception as e:
-                        st.warning(f"Error processing future: {str(e)}")
-                    if i % 10 == 0:
-                        progress = min(100, int((i+1)/len(futures)*100))
-                        progress_bar.progress(progress)
-                        status_text.text(f"Processed {i+1}/{len(futures)} symbols")
-                        time.sleep(0.1)
-            st.session_state.full_results = results
-            st.session_state.full_data_loaded = True
-            st.session_state.last_full_load = datetime.now()
-            progress_bar.empty()
-            status_text.empty()
-            st.success(f"Loaded {len(results)} symbols")
-
 # ========== DETAILED CHART VIEW ==========
 st.divider()
 st.subheader("📈 Detailed Analysis")
-
-if not isinstance(st.session_state.filtered_results, pd.DataFrame):
-    st.session_state.filtered_results = pd.DataFrame(columns=[
-        "Symbol", "Exchange", "Price", "5D_Change", "Momentum_Score", "Trend", "RSI", "MACD_Hist", 
-        "Volume_Ratio", "Last_Updated", "ADX", "YF_Symbol"
-    ])
 
 selected_symbol = st.selectbox(
     "Select symbol for detailed chart:", 
@@ -344,4 +379,5 @@ with st.expander("System Controls"):
         st.session_state.clear()
         st.rerun()
     st.write(f"Last full load: {st.session_state.last_full_load}")
-    st.write(f"Initial symbols loaded: {len(st.session_state.initial_results)}")
+    st.write(f"Total symbols loaded: {len(st.session_state.initial_results)}")
+    st.write(f"Next batch starts at index: {st.session_state.last_loaded_index}")
