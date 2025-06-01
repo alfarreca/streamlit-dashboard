@@ -85,7 +85,7 @@ def get_events_data(ticker_obj):
         if news:
             events['news'] = [{
                 'title': item.get('title', ''),
-                'date': pd.to_datetime(item.get('providerPublishTime', 0),
+                'date': pd.to_datetime(item.get('providerPublishTime', 0), unit='s'),
                 'link': item.get('link', '')
             } for item in news[:3]]  # Get top 3 news items
             
