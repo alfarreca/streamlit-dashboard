@@ -12,19 +12,19 @@ from rich.traceback import install
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.exceptions import RequestException
-import os
+import pytz  # Added for timezone handling
 
 # Initialize rich traceback
 install(show_locals=True)
 
 # Configuration
-MAX_WORKERS = 8  # Conservative number of workers
-REQUEST_DELAY = (0.8, 2.0)  # Increased delay range
-BATCH_SIZE = 10  # Smaller batch size
-CACHE_TTL = 3600 * 4  # 4 hour cache
-MAX_RETRIES = 2  # Max retries for failed requests
-RATE_LIMIT_WINDOW = 60  # 60-second rate limit window
-MAX_REQUESTS_PER_MINUTE = 50  # Conservative API limit
+MAX_WORKERS = 8
+REQUEST_DELAY = (0.8, 2.0)
+BATCH_SIZE = 10
+CACHE_TTL = 3600 * 4
+MAX_RETRIES = 2
+RATE_LIMIT_WINDOW = 60
+MAX_REQUESTS_PER_MINUTE = 50
 
 # Setup logging
 logging.basicConfig(
@@ -44,17 +44,13 @@ class RateLimiter:
     
     def check_rate_limit(self):
         now = time.time()
-        # Remove requests older than our window
         self.request_times = [t for t in self.request_times if now - t < RATE_LIMIT_WINDOW]
         
         if len(self.request_times) >= MAX_REQUESTS_PER_MINUTE:
             wait_time = RATE_LIMIT_WINDOW - (now - self.request_times[0])
             logger.warning(f"Rate limit reached. Waiting {wait_time:.1f} seconds")
             time.sleep(wait_time)
-            self.request_times = []  # Reset after waiting
-    
-    def add_request(self):
-        self.request_times.append(time.time())
+            self.request_times = []
 
 rate_limiter = RateLimiter()
 
@@ -89,7 +85,6 @@ def map_to_yfinance_symbol(symbol: str, exchange: str) -> str:
     return f"{symbol}.{suffix}" if suffix else symbol
 
 def safe_round(value, decimals=2):
-    """Safely round values that might be strings or None"""
     if isinstance(value, str):
         try:
             return round(float(value), decimals)
@@ -177,10 +172,7 @@ def create_price_chart(symbol, history_data):
 @st.cache_data(ttl=CACHE_TTL)
 def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
     try:
-        # Rate limit check
         rate_limiter.check_rate_limit()
-        
-        # Random delay to avoid rate limiting
         time.sleep(random.uniform(*REQUEST_DELAY))
         
         ticker_obj = yf.Ticker(yf_symbol)
@@ -191,9 +183,15 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
                 logger.warning(f"Insufficient data for {_ticker} ({yf_symbol})")
                 return None, None
             
-            # Data freshness check
+            # Fix: Handle timezone-aware datetime comparison
             last_data_date = hist.index[-1].to_pydatetime()
-            if (datetime.now() - last_data_date).days > 7:
+            if last_data_date.tzinfo is not None:  # If timezone-aware
+                now = datetime.now(pytz.UTC)
+                last_data_date = last_data_date.astimezone(pytz.UTC)
+            else:  # If timezone-naive
+                now = datetime.now()
+                
+            if (now - last_data_date).days > 7:
                 logger.warning(f"Stale data for {_ticker} (last update: {last_data_date})")
                 return None, None
         except (RequestException, ValueError) as e:
@@ -207,7 +205,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
         volume = hist["Volume"]
         last_price = close.iloc[-1]
         
-        # Enhanced metric calculation with validation
         try:
             ma10 = close.rolling(window=10, min_periods=5).mean().iloc[-1]
             ma20 = close.rolling(window=20, min_periods=10).mean().iloc[-1]
@@ -221,7 +218,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
 
             ticker_info = ticker_obj.info
             
-            # More robust financial metric handling
             def safe_metric(value, scale=1, default=None):
                 try:
                     if value is None:
@@ -240,7 +236,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
             if chart is None:
                 return None, None
 
-            # Track successful request
             rate_limiter.add_request()
 
             return {
@@ -264,7 +259,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
                 "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
                 "YF Symbol": yf_symbol,
                 "Chart": chart,
-                "Data Quality": "🟢 Good" if (datetime.now() - last_data_date).days <= 1 else "🟡 Stale" if (datetime.now() - last_data_date).days <= 3 else "🔴 Old"
+                "Data Quality": "🟢 Good" if (now - last_data_date).days <= 1 else "🟡 Stale" if (now - last_data_date).days <= 3 else "🔴 Old"
             }, hist
 
         except Exception as e:
@@ -277,7 +272,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
 
 def process_ticker(row, selected_exchange):
     try:
-        # Fixed: Access row elements using dot notation since itertuples() returns named tuples
         symbol = row.Symbol
         exchange = row.Exchange
         
@@ -286,7 +280,6 @@ def process_ticker(row, selected_exchange):
             
         yf_symbol = map_to_yfinance_symbol(symbol, exchange)
         
-        # Symbol validation
         if not yf_symbol or len(yf_symbol) > 10 or not yf_symbol[0].isalpha():
             logger.warning(f"Invalid symbol format: {symbol} ({exchange})")
             return None
@@ -360,7 +353,6 @@ def process_data():
     processed_count = 0
     error_count = 0
 
-    # Filter dataframe first to reduce processing
     filtered_df = df[df["Exchange"].isin(selected_exchange)] if selected_exchange else df
     
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
@@ -415,7 +407,6 @@ with col2:
 if st.session_state.results:
     results_df = pd.DataFrame(st.session_state.results)
     
-    # Apply filters
     results_df = results_df[
         results_df["Signal"].isin(signal_filter) &
         results_df["Crossover"].str.contains("|".join(crossover_filter), case=False, na=False)
@@ -440,7 +431,6 @@ if st.session_state.results:
     
     display_columns = [col for col in results_df.columns if col not in ["Chart", "YF Symbol", "Divergence"]]
     
-    # Display dataframe with enhanced formatting
     st.dataframe(
         results_df[display_columns],
         use_container_width=True,
@@ -457,7 +447,6 @@ if st.session_state.results:
         }
     )
     
-    # Charts section
     selected_symbols = st.multiselect(
         "Select stocks to view charts:",
         options=results_df["Symbol"].unique()
@@ -468,7 +457,6 @@ if st.session_state.results:
         if ticker_data and "Chart" in ticker_data:
             st.plotly_chart(ticker_data["Chart"], use_container_width=True)
     
-    # Download button
     st.download_button(
         label="Download Data as CSV",
         data=results_df.drop(columns=["Chart"]).to_csv(index=False),
@@ -476,7 +464,6 @@ if st.session_state.results:
         mime="text/csv"
     )
     
-    # Error details expander
     if st.session_state.error_details:
         with st.expander("View Error Details"):
             st.write("The following errors occurred during processing:")
@@ -492,7 +479,7 @@ else:
 st.sidebar.markdown(f"""
 ---
 **Last Updated**: {datetime.now().strftime("%Y-%m-%d %H:%M")}  
-**Version**: 2.1  
+**Version**: 2.2  
 **Data Source**: Yahoo Finance  
 **Note**: This tool is for informational purposes only.
 """)
