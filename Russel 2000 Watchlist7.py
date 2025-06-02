@@ -12,8 +12,9 @@ from rich.traceback import install
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.exceptions import RequestException
-import pytz  # Added for timezone handling
-import re    # Added for regex safety
+import pytz
+import re
+from collections import Counter
 
 # Initialize rich traceback
 install(show_locals=True)
@@ -176,24 +177,26 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
         try:
             hist = ticker_obj.history(period="6mo")
             if hist.empty or len(hist) < 20:
-                logger.warning(f"Insufficient data for {_ticker} ({yf_symbol})")
-                return None, None
-            # Fix: Handle timezone-aware datetime comparison
+                error_msg = "Insufficient historical data (less than 20 days)"
+                logger.warning(f"{_ticker} ({yf_symbol}): {error_msg}")
+                return None, error_msg
             last_data_date = hist.index[-1].to_pydatetime()
-            if last_data_date.tzinfo is not None:  # If timezone-aware
+            if last_data_date.tzinfo is not None:
                 now = datetime.now(pytz.UTC)
                 last_data_date = last_data_date.astimezone(pytz.UTC)
-            else:  # If timezone-naive
+            else:
                 now = datetime.now()
             if (now - last_data_date).days > 7:
-                logger.warning(f"Stale data for {_ticker} (last update: {last_data_date})")
-                return None, None
+                error_msg = f"Stale data (last update: {last_data_date})"
+                logger.warning(f"{_ticker} ({yf_symbol}): {error_msg}")
+                return None, error_msg
         except (RequestException, ValueError) as e:
             if attempt < MAX_RETRIES:
                 logger.info(f"Retrying {_ticker} (attempt {attempt + 1})")
                 return get_ticker_data(_ticker, exchange, yf_symbol, attempt + 1)
-            logger.error(f"Failed to fetch history for {_ticker}: {str(e)}")
-            return None, None
+            error_msg = f"Failed to fetch history: {str(e)}"
+            logger.error(f"{_ticker}: {error_msg}")
+            return None, error_msg
 
         close = hist["Close"]
         volume = hist["Volume"]
@@ -224,7 +227,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
             market_cap = safe_metric(ticker_info.get("marketCap"), scale=1e6)
             chart = create_price_chart(_ticker, hist)
             if chart is None:
-                return None, None
+                error_msg = "Failed to create chart"
+                return None, error_msg
 
             rate_limiter.add_request()
 
@@ -250,30 +254,34 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
                 "YF Symbol": yf_symbol,
                 "Chart": chart,
                 "Data Quality": "🟢 Good" if (now - last_data_date).days <= 1 else "🟡 Stale" if (now - last_data_date).days <= 3 else "🔴 Old"
-            }, hist
+            }, None
 
         except Exception as e:
-            logger.error(f"Error calculating metrics for {_ticker}: {str(e)}")
-            return None, None
+            error_msg = f"Error calculating metrics: {str(e)}"
+            logger.error(f"{_ticker}: {error_msg}")
+            return None, error_msg
 
     except Exception as e:
-        logger.error(f"Unexpected error processing {_ticker}: {str(e)}")
-        return None, None
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(f"{_ticker}: {error_msg}")
+        return None, error_msg
 
 def process_ticker(row, selected_exchange):
     try:
         symbol = row.Symbol
         exchange = row.Exchange
         if selected_exchange and exchange not in selected_exchange:
-            return None
+            return None, "Filtered by user exchange selection"
         yf_symbol = map_to_yfinance_symbol(symbol, exchange)
         if not yf_symbol or len(yf_symbol) > 10 or not yf_symbol[0].isalpha():
-            logger.warning(f"Invalid symbol format: {symbol} ({exchange})")
-            return None
+            error_msg = f"Invalid symbol format: {symbol} ({exchange})"
+            logger.warning(error_msg)
+            return None, error_msg
         return get_ticker_data(symbol, exchange, yf_symbol)
     except Exception as e:
-        logger.error(f"Error in process_ticker for {getattr(row, 'Symbol', 'unknown')}: {str(e)}")
-        return None
+        error_msg = f"Error in process_ticker: {str(e)}"
+        logger.error(f"{getattr(row, 'Symbol', 'unknown')}: {error_msg}")
+        return None, error_msg
 
 # Streamlit UI Configuration
 st.set_page_config(layout="wide", page_title="Stock Watchlist Dashboard")
@@ -288,6 +296,8 @@ if 'results' not in st.session_state:
     st.session_state.results = []
 if 'error_details' not in st.session_state:
     st.session_state.error_details = []
+if 'error_reasons' not in st.session_state:
+    st.session_state.error_reasons = []
 
 # Dark mode toggle
 dark_mode = st.sidebar.checkbox("Dark Mode", value=False)
@@ -340,6 +350,7 @@ def process_data():
     st.session_state.stop_processing = False
     st.session_state.results = []
     st.session_state.error_details = []
+    st.session_state.error_reasons = []
     progress_bar = st.progress(0)
     status_text = st.empty()
     processed_count = 0
@@ -358,13 +369,18 @@ def process_data():
                 break
             idx = futures[future]
             try:
-                ticker_data, history_data = future.result()
+                ticker_data, error_reason = future.result()
                 if ticker_data:
                     st.session_state.results.append(ticker_data)
+                else:
+                    error_count += 1
+                    reason = error_reason or "Unknown error"
+                    st.session_state.error_details.append(f"Row {idx}: {reason}")
+                    st.session_state.error_reasons.append(reason)
             except Exception as e:
                 error_count += 1
-                st.session_state.error_details.append(f"Row {idx}: {str(e)}")
-                logger.error(f"Error processing future: {str(e)}")
+                st.session_state.error_details.append(f"Row {idx}: Exception: {str(e)}")
+                st.session_state.error_reasons.append(str(e))
             processed_count += 1
             progress_percent = min(100, int(processed_count / len(filtered_df) * 100))
             progress_bar.progress(progress_percent)
@@ -442,6 +458,13 @@ if st.session_state.results:
         file_name="stock_metrics.csv",
         mime="text/csv"
     )
+    # Show error reason summary
+    if st.session_state.error_reasons:
+        st.subheader("Summary of Failure Reasons")
+        err_counter = Counter(st.session_state.error_reasons)
+        for reason, count in err_counter.most_common():
+            st.write(f"{reason}: {count} tickers")
+
     if st.session_state.error_details:
         with st.expander("View Error Details"):
             st.write("The following errors occurred during processing:")
