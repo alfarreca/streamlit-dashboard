@@ -116,7 +116,9 @@ def process_data():
     
     if gold_price and silver_price:
         gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price)
-        result_df["Gold/Silver Ratio"] = gs_ratio if result_df["Asset"] == "Silver Spot" else None
+        # FIXED: assign only to the "Silver Spot" row
+        result_df["Gold/Silver Ratio"] = None
+        result_df.loc[result_df["Asset"] == "Silver Spot", "Gold/Silver Ratio"] = gs_ratio
     else:
         result_df["Gold/Silver Ratio"] = None
     
@@ -193,7 +195,7 @@ The gold/silver ratio near 100 is well above its long-term average (~70–80), s
 A tilt toward physical silver or low-fee silver ETFs (e.g. SLV, PSLV) when the ratio exceeds 100 can capture mean-reversion.
 
 **Insight 2 (Contra-intuitive):**  
-Rather than boosting pure silver exposure, overweighting high-quality silver miners (e.g. WPM, SIL) could actually deliver better leveraged returns—miners often outperform the metal during rallies and offer optionality on operational improvements, dividends and M&A upside that bullion cannot.
+Rather than boosting pure silver exposure, overweighting high-quality silver miners (e.g. WPM, SIL) could actually deliver better leveraged returns—miners often outperform the metal during rallies.
 """)
 
 # Add a refresh button
