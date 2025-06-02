@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import pandas as pd
@@ -6,17 +5,9 @@ from datetime import datetime, timedelta
 import pytz
 
 # Configuration
-API_PROVIDER = "twelvedata"  # or "metalpriceapi" for commodities
 CACHE_TTL = 3600  # 1 hour cache
 
 @st.cache_data(ttl=CACHE_TTL)
-def fetch_data(api_key, symbol, data_type="etf"):
-    """Fetch data from appropriate API based on data type"""
-    if data_type == "commodity":
-        return fetch_metal_price(api_key, symbol)
-    else:
-        return fetch_etf_data(api_key, symbol)
-
 def fetch_metal_price(api_key, metal_code):
     """Fetch gold/silver prices from MetalPriceAPI"""
     url = f"https://api.metalpriceapi.com/v1/latest?api_key={api_key}&base=USD&currencies={metal_code}"
@@ -29,6 +20,7 @@ def fetch_metal_price(api_key, metal_code):
         st.error(f"Error fetching metal price: {str(e)}")
         return None
 
+@st.cache_data(ttl=CACHE_TTL)
 def fetch_etf_data(api_key, symbol):
     """Fetch ETF/stock data from TwelveData"""
     url = "https://api.twelvedata.com/time_series"
@@ -45,7 +37,9 @@ def fetch_etf_data(api_key, symbol):
         data = response.json()
         
         if 'values' not in data:
-            st.error(f"API Error: {data.get('message', 'Unknown error')}")
+            error_msg = data.get('message', 'Unknown error')
+            if 'API key' in error_msg:
+                st.error("TwelveData API key is invalid. Please check your secrets.toml file.")
             return None
             
         df = pd.DataFrame(data['values'])
@@ -63,7 +57,6 @@ def fetch_etf_data(api_key, symbol):
 
 def get_historical_stats(symbol):
     """Get historical statistics (simplified - would use API in production)"""
-    # These would normally come from API calls
     stats_db = {
         "XAGUSD": {"52w_high": 34.83, "52w_low": 26.65, "1y_ago": 28.15},
         "XAUUSD": {"52w_high": 3430.21, "52w_low": 2292.71, "1y_ago": 2380.50},
@@ -88,26 +81,16 @@ def main():
     Data updates hourly.
     """)
     
-    # Sidebar for controls
-    with st.sidebar:
-        st.header("Controls")
-        auto_refresh = st.checkbox("Auto-refresh every 5 minutes", True)
-        if auto_refresh:
-            st.write("Next refresh:", datetime.now() + timedelta(minutes=5))
-        
-        st.markdown("---")
-        st.markdown("""
-        **Data Sources:**
-        - MetalPriceAPI for spot prices
-        - TwelveData for ETFs/stocks
-        """)
-    
-    # Initialize secrets
+    # Initialize secrets with error handling
     try:
         metal_api_key = st.secrets["metalpriceapi"]["key"]
-        td_api_key = st.secrets["twelvedata"]["key"]
+        td_api_key = st.secrets["twelvedata"]["api_key"]  # Changed from "key" to "api_key"
+    except KeyError as e:
+        st.error(f"Missing API key in secrets: {str(e)}")
+        st.error("Please ensure your secrets.toml file is properly configured")
+        st.stop()
     except Exception as e:
-        st.error(f"API key configuration error: {str(e)}")
+        st.error(f"Error loading API keys: {str(e)}")
         st.stop()
     
     # Dashboard layout
@@ -119,12 +102,12 @@ def main():
         # Commodities row
         col1, col2, col3 = st.columns(3)
         with col1:
-            silver_spot = fetch_data(metal_api_key, "XAG", "commodity")
+            silver_spot = fetch_metal_price(metal_api_key, "XAG")
             if silver_spot:
                 st.metric("Silver Spot (XAG/USD)", f"${silver_spot:.2f}")
         
         with col2:
-            gold_spot = fetch_data(metal_api_key, "XAU", "commodity")
+            gold_spot = fetch_metal_price(metal_api_key, "XAU")
             if gold_spot:
                 st.metric("Gold Spot (XAU/USD)", f"${gold_spot:.2f}")
         
@@ -141,7 +124,7 @@ def main():
         
         for i, symbol in enumerate(etf_symbols):
             with etf_cols[i]:
-                etf_data = fetch_data(td_api_key, symbol)
+                etf_data = fetch_etf_data(td_api_key, symbol)
                 if etf_data is not None:
                     stats = get_historical_stats(symbol)
                     change_pct = ((etf_data['close'] - stats['1y_ago']) / stats['1y_ago']) * 100
@@ -152,11 +135,12 @@ def main():
                         delta=f"{change_pct:.1f}% YoY"
                     )
                     st.progress((etf_data['close'] - stats['52w_low']) / (stats['52w_high'] - stats['52w_low']))
+                else:
+                    st.warning(f"Could not load data for {symbol}")
     
     with tab2:
         st.header("Historical Performance Analysis")
-        # Historical analysis content would go here
-        st.write("Historical charts and analysis would be displayed here")
+        st.write("Historical charts and analysis coming soon")
 
 if __name__ == "__main__":
     main()
