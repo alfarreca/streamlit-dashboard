@@ -1,198 +1,206 @@
 import streamlit as st
+import yfinance as yf
 import pandas as pd
-import numpy as np
+from datetime import datetime, timedelta
 
-def main():
-    st.set_page_config(page_title="Silver Watchlist", layout="wide")
-    
-    # Custom CSS for styling
-    st.markdown("""
-    <style>
-        .header-style {
-            font-size: 24px;
-            font-weight: bold;
-            color: #4682B4;
-            margin-bottom: 20px;
-        }
-        .subheader-style {
-            font-size: 18px;
-            font-weight: bold;
-            color: #4682B4;
-            margin-top: 20px;
-            margin-bottom: 10px;
-        }
-        .dataframe {
-            width: 100%;
-        }
-        .positive-change {
-            color: green;
-        }
-        .negative-change {
-            color: red;
-        }
-        .info-box {
-            background-color: #f0f2f6;
-            padding: 15px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="header-style">Silver Investment Watchlist</div>', unsafe_allow_html=True)
-    
-    # Create the watchlist dataframe
-    data = {
-        "Asset": [
-            "Silver Spot", "Gold Spot", "iShares Silver ETF", "Sprott Physical Silver Trust",
-            "Global X Silver Miners ETF", "Wheaton Precious Metals", "First Majestic Silver",
-            "Pan American Silver", "Hecla Mining", "Gold Miners ETF"
-        ],
-        "Type": [
-            "Commodity", "Commodity", "ETF", "Closed-End Fund", "ETF", 
-            "Silver Streaming Stock", "Silver Miner", "Silver Miner", "Silver Miner", "ETF"
-        ],
-        "Ticker": [
-            "CURRENCY:XAGUSD", "CURRENCY:XAUUSD", "SLV", "PSLV", "SIL", 
-            "WPM", "AG", "PAAS", "HL", "GDX"
-        ],
-        "Live Price": [
-            32.46, 3374.57, 31.29, 11.48, 45.62, 
-            90.34, 6.83, 25.99, 5.65, 53.39
-        ],
-        "52W High": [
-            34.83, 3430.21, 31.74, 11.73, 43.15, 
-            86.75, 7.94, 28.02, 7.53, 51.91
-        ],
-        "52W Low": [
-            26.6525, 2292.71, 24.33, 9.17, 29.58, 
-            52.04, 4.62, 18.58, 4.54, 33.15
-        ],
-        "1Y Change (%)": [
-            0.1548, 0.4181, 0.1219, 0.1135, 0.3370, 
-            0.6402, -0.0367, 0.1971, -0.0325, 0.5035
-        ],
-        "Gold/Silver Ratio": [
-            103.96, np.nan, np.nan, np.nan, np.nan, 
-            np.nan, np.nan, np.nan, np.nan, np.nan
-        ],
-        "52W High Gold/Silver Ratio": [
-            112.7993, np.nan, np.nan, np.nan, np.nan, 
-            np.nan, np.nan, np.nan, np.nan, np.nan
-        ],
-        "52W Low Gold/Silver Ratio": [
-            73.1471, np.nan, np.nan, np.nan, np.nan, 
-            np.nan, np.nan, np.nan, np.nan, np.nan
-        ],
-        "Gold/Silver Ratio1Y Change (%)": [
-            0.253, np.nan, np.nan, np.nan, np.nan, 
-            np.nan, np.nan, np.nan, np.nan, np.nan
-        ]
+# App configuration
+st.set_page_config(page_title="Silver Watchlist", layout="wide")
+st.title("Silver Watchlist Dashboard")
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .metric-card {
+        padding: 10px;
+        border-radius: 5px;
+        background-color: #f0f2f6;
+        margin-bottom: 10px;
     }
-    
-    df = pd.DataFrame(data)
-    
-    # Add current price vs 52W high/low indicators
-    df['Current vs 52W High'] = (df['Live Price'] / df['52W High'] - 1) * 100
-    df['Current vs 52W Low'] = (df['Live Price'] / df['52W Low'] - 1) * 100
-    
-    # Format percentages
-    percentage_cols = ['1Y Change (%)', 'Current vs 52W High', 'Current vs 52W Low', 
-                      'Gold/Silver Ratio1Y Change (%)']
-    for col in percentage_cols:
-        df[col] = df[col].apply(lambda x: f"{x:.2%}" if pd.notnull(x) else "")
-    
-    # Display the main dataframe
-    st.markdown('<div class="subheader-style">Silver Investment Vehicles</div>', unsafe_allow_html=True)
-    
-    # Add filters
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        asset_type = st.multiselect("Filter by Type", options=df['Type'].unique(), default=df['Type'].unique())
-    with col2:
-        price_range = st.slider("Filter by Live Price Range", 
-                              min_value=float(df['Live Price'].min()), 
-                              max_value=float(df['Live Price'].max()), 
-                              value=(float(df['Live Price'].min()), float(df['Live Price'].max())))
-    with col3:
-        sort_by = st.selectbox("Sort By", options=df.columns[3:], index=3)
-        sort_order = st.radio("Sort Order", ["Ascending", "Descending"], horizontal=True)
-    
-    # Apply filters
-    filtered_df = df[df['Type'].isin(asset_type)]
-    filtered_df = filtered_df[(filtered_df['Live Price'] >= price_range[0]) & 
-                            (filtered_df['Live Price'] <= price_range[1])]
-    
-    # Apply sorting
-    filtered_df = filtered_df.sort_values(by=sort_by, ascending=(sort_order == "Ascending"))
-    
-    # Display the filtered and sorted dataframe
-    st.dataframe(
-        filtered_df.style.applymap(
-            lambda x: 'color: green' if isinstance(x, str) and '%' in x and float(x.strip('%')) > 0 
-            else ('color: red' if isinstance(x, str) and '%' in x and float(x.strip('%')) < 0 
-            else '', 
-            subset=percentage_cols
-        ),
-        use_container_width=True
-    )
-    
-    # Key metrics section
-    st.markdown('<div class="subheader-style">Key Silver Market Metrics</div>', unsafe_allow_html=True)
-    
-    # Calculate key metrics
-    current_ratio = df.loc[0, 'Gold/Silver Ratio']
-    ratio_high = df.loc[0, '52W High Gold/Silver Ratio']
-    ratio_low = df.loc[0, '52W Low Gold/Silver Ratio']
-    ratio_change = df.loc[0, 'Gold/Silver Ratio1Y Change (%)']
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Current Gold/Silver Ratio", f"{current_ratio:.2f}", 
-                 f"{ratio_change} YoY", delta_color="inverse")
-    with col2:
-        st.metric("52-Week High Ratio", f"{ratio_high:.2f}", 
-                 f"{(ratio_high - current_ratio):.2f} above current")
-    with col3:
-        st.metric("52-Week Low Ratio", f"{ratio_low:.2f}", 
-                 f"{(current_ratio - ratio_low):.2f} below current")
-    
-    # Insights from the Notes sheet
-    st.markdown('<div class="subheader-style">Market Insights</div>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="info-box">
-        <strong>Insight 1 (Sound):</strong><br>
-        The gold/silver ratio near 100 is well above its long-term average (~70–80), signaling silver is relatively 
-        undervalued versus gold. A tilt toward physical silver or low-fee silver ETFs (e.g. SLV, PSLV) when the 
-        ratio exceeds 100 can capture mean-reversion.
-    </div>
-    
-    <div class="info-box">
-        <strong>Insight 2 (Contra-intuitive):</strong><br>
-        Rather than boosting pure silver exposure, overweighting high-quality silver miners (e.g. WPM, SIL) could 
-        actually deliver better leveraged returns—miners often outperform the metal during rallies and offer 
-        optionality on operational improvements, dividends and M&A upside that bullion cannot.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Price performance visualization
-    st.markdown('<div class="subheader-style">Price Performance Analysis</div>', unsafe_allow_html=True)
-    
-    chart_data = filtered_df[['Asset', 'Live Price', '52W High', '52W Low']].melt(
-        id_vars='Asset', var_name='Metric', value_name='Price'
-    )
-    
-    st.bar_chart(
-        chart_data,
-        x='Asset',
-        y='Price',
-        color='Metric',
-        use_container_width=True
-    )
-    
-    # Add some space at the bottom
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    .positive {
+        color: green;
+    }
+    .negative {
+        color: red;
+    }
+    .dataframe {
+        width: 100%;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    main()
+# Asset data - mapping to Yahoo Finance tickers
+assets = [
+    {"Asset": "Silver Spot", "Type": "Commodity", "Ticker": "XAGUSD=X"},
+    {"Asset": "Gold Spot", "Type": "Commodity", "Ticker": "XAUUSD=X"},
+    {"Asset": "iShares Silver ETF", "Type": "ETF", "Ticker": "SLV"},
+    {"Asset": "Sprott Physical Silver Trust", "Type": "Closed-End Fund", "Ticker": "PSLV"},
+    {"Asset": "Global X Silver Miners ETF", "Type": "ETF", "Ticker": "SIL"},
+    {"Asset": "Wheaton Precious Metals", "Type": "Silver Streaming Stock", "Ticker": "WPM"},
+    {"Asset": "First Majestic Silver", "Type": "Silver Miner", "Ticker": "AG"},
+    {"Asset": "Pan American Silver", "Type": "Silver Miner", "Ticker": "PAAS"},
+    {"Asset": "Hecla Mining", "Type": "Silver Miner", "Ticker": "HL"},
+    {"Asset": "Gold Miners ETF", "Type": "ETF", "Ticker": "GDX"}
+]
+
+# Function to get financial data from Yahoo Finance
+def get_financial_data(ticker):
+    today = datetime.today()
+    one_year_ago = today - timedelta(days=365)
+    
+    try:
+        data = yf.Ticker(ticker)
+        hist = data.history(period="1y")
+        
+        if hist.empty:
+            return None
+            
+        live_price = hist['Close'].iloc[-1]
+        high_52w = hist['Close'].max()
+        low_52w = hist['Close'].min()
+        
+        # Get price from 1 year ago (approximately)
+        if len(hist) > 250:  # Roughly 1 year of trading days
+            price_1y_ago = hist['Close'].iloc[0]
+        else:
+            # If we don't have full year data, try to get more
+            older_data = data.history(start=one_year_ago, end=today)
+            price_1y_ago = older_data['Close'].iloc[0] if not older_data.empty else None
+        
+        if price_1y_ago:
+            yoy_change = (live_price - price_1y_ago) / price_1y_ago
+        else:
+            yoy_change = None
+            
+        return {
+            "Live Price": live_price,
+            "52W High": high_52w,
+            "52W Low": low_52w,
+            "1Y Change (%)": yoy_change * 100 if yoy_change else None
+        }
+    except Exception as e:
+        print(f"Error fetching data for {ticker}: {e}")
+        return None
+
+# Calculate gold/silver ratio
+def calculate_gold_silver_ratio(gold_price, silver_price):
+    if silver_price == 0:
+        return None
+    return gold_price / silver_price
+
+# Main data processing
+def process_data():
+    df = pd.DataFrame(assets)
+    financial_data = []
+    
+    # Get data for all assets
+    for asset in assets:
+        data = get_financial_data(asset["Ticker"])
+        if data:
+            financial_data.append(data)
+        else:
+            # Add empty data if fetch fails
+            financial_data.append({
+                "Live Price": None,
+                "52W High": None,
+                "52W Low": None,
+                "1Y Change (%)": None
+            })
+    
+    # Add financial data to dataframe
+    financial_df = pd.DataFrame(financial_data)
+    result_df = pd.concat([df, financial_df], axis=1)
+    
+    # Calculate gold/silver ratio if both are available
+    gold_price = result_df[result_df["Asset"] == "Gold Spot"]["Live Price"].values[0]
+    silver_price = result_df[result_df["Asset"] == "Silver Spot"]["Live Price"].values[0]
+    
+    if gold_price and silver_price:
+        gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price)
+        result_df["Gold/Silver Ratio"] = gs_ratio if result_df["Asset"] == "Silver Spot" else None
+    else:
+        result_df["Gold/Silver Ratio"] = None
+    
+    return result_df
+
+# Display the data
+data = process_data()
+
+# Display key metrics at the top
+col1, col2, col3, col4 = st.columns(4)
+
+try:
+    silver_price = data[data["Asset"] == "Silver Spot"]["Live Price"].values[0]
+    gold_price = data[data["Asset"] == "Gold Spot"]["Live Price"].values[0]
+    gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price) if gold_price and silver_price else None
+    
+    with col1:
+        st.metric("Silver Price", f"${silver_price:.2f}" if silver_price else "N/A")
+    
+    with col2:
+        st.metric("Gold Price", f"${gold_price:.2f}" if gold_price else "N/A")
+    
+    with col3:
+        st.metric("Gold/Silver Ratio", f"{gs_ratio:.2f}" if gs_ratio else "N/A")
+    
+    with col4:
+        if gs_ratio:
+            if gs_ratio > 80:
+                ratio_status = "High (Silver Undervalued)"
+                color = "green"  # Opportunity to buy silver
+            elif gs_ratio < 60:
+                ratio_status = "Low (Gold Undervalued)"
+                color = "red"  # Opportunity to buy gold
+            else:
+                ratio_status = "Normal Range"
+                color = "black"
+            
+            st.markdown(f'<div class="metric-card">Ratio Status: <span style="color:{color}">{ratio_status}</span></div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="metric-card">Ratio Status: N/A</div>', unsafe_allow_html=True)
+except Exception as e:
+    st.error(f"Error displaying metrics: {e}")
+
+# Display the main dataframe
+st.subheader("Silver Investment Watchlist")
+
+# Format the dataframe for display
+display_df = data.copy()
+display_df["1Y Change (%)"] = display_df["1Y Change (%)"].apply(lambda x: f"{x:.2f}%" if pd.notnull(x) else "N/A")
+display_df["Live Price"] = display_df["Live Price"].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
+display_df["52W High"] = display_df["52W High"].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
+display_df["52W Low"] = display_df["52W Low"].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
+display_df["Gold/Silver Ratio"] = display_df["Gold/Silver Ratio"].apply(lambda x: f"{x:.2f}" if pd.notnull(x) else "N/A")
+
+# Reorder columns to match Excel
+display_df = display_df[["Asset", "Type", "Ticker", "Live Price", "52W High", "52W Low", "1Y Change (%)", "Gold/Silver Ratio"]]
+
+# Display the dataframe with styling
+st.dataframe(
+    display_df.style.applymap(
+        lambda x: 'color: green' if isinstance(x, str) and x.endswith('%') and float(x[:-1]) > 0 
+        else ('color: red' if isinstance(x, str) and x.endswith('%') and float(x[:-1]) < 0 else ''),
+        subset=["1Y Change (%)"]
+    ),
+    height=(len(data) + 1) * 35 + 3,
+    use_container_width=True
+)
+
+# Insights section
+st.subheader("Investment Insights")
+st.markdown("""
+**Insight 1 (Sound):**  
+The gold/silver ratio near 100 is well above its long-term average (~70–80), signaling silver is relatively undervalued versus gold. 
+A tilt toward physical silver or low-fee silver ETFs (e.g. SLV, PSLV) when the ratio exceeds 100 can capture mean-reversion.
+
+**Insight 2 (Contra-intuitive):**  
+Rather than boosting pure silver exposure, overweighting high-quality silver miners (e.g. WPM, SIL) could actually deliver better leveraged returns—miners often outperform the metal during rallies and offer optionality on operational improvements, dividends and M&A upside that bullion cannot.
+""")
+
+# Add a refresh button
+if st.button("Refresh Data"):
+    st.experimental_rerun()
+
+# Add some explanation
+st.markdown("""
+*Note: Data is fetched from Yahoo Finance. The app updates when you click the Refresh Data button or when the page is reloaded.*
+""")
