@@ -116,7 +116,7 @@ def process_data():
     
     if gold_price and silver_price:
         gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price)
-        # FIXED: assign only to the "Silver Spot" row
+        # Fix: assign only to the "Silver Spot" row
         result_df["Gold/Silver Ratio"] = None
         result_df.loc[result_df["Asset"] == "Silver Spot", "Gold/Silver Ratio"] = gs_ratio
     else:
@@ -200,7 +200,7 @@ Rather than boosting pure silver exposure, overweighting high-quality silver min
 
 # Add a refresh button
 if st.button("Refresh Data"):
-    st.experimental_rerun()
+    st.rerun()  # Updated for modern Streamlit
 
 # Add some explanation
 st.markdown("""
