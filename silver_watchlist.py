@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
+import math
 
 # App configuration
 st.set_page_config(page_title="Silver Watchlist", layout="wide")
@@ -30,8 +31,8 @@ st.markdown("""
 
 # Asset data - mapping to Yahoo Finance tickers
 assets = [
-    {"Asset": "Silver Spot", "Type": "Commodity", "Ticker": "SI=F"},  # Changed from XAGUSD=X to SI=F
-    {"Asset": "Gold Spot", "Type": "Commodity", "Ticker": "XAUUSD=X"},
+    {"Asset": "Silver Spot", "Type": "Commodity", "Ticker": "SI=F"},   # Silver Futures
+    {"Asset": "Gold Spot", "Type": "Commodity", "Ticker": "GC=F"},     # Gold Futures
     {"Asset": "iShares Silver ETF", "Type": "ETF", "Ticker": "SLV"},
     {"Asset": "Sprott Physical Silver Trust", "Type": "Closed-End Fund", "Ticker": "PSLV"},
     {"Asset": "Global X Silver Miners ETF", "Type": "ETF", "Ticker": "SIL"},
@@ -55,10 +56,9 @@ def get_financial_data(ticker):
         high_52w = hist['Close'].max()
         low_52w = hist['Close'].min()
         # Get price from 1 year ago (approximately)
-        if len(hist) > 250:  # Roughly 1 year of trading days
+        if len(hist) > 250:
             price_1y_ago = hist['Close'].iloc[0]
         else:
-            # If we don't have full year data, try to get more
             older_data = data.history(start=one_year_ago, end=today)
             price_1y_ago = older_data['Close'].iloc[0] if not older_data.empty else None
         if price_1y_ago:
@@ -76,20 +76,21 @@ def get_financial_data(ticker):
         return None
 
 def calculate_gold_silver_ratio(gold_price, silver_price):
-    if not silver_price or silver_price == 0:
+    if (
+        gold_price is None or silver_price is None or
+        silver_price == 0 or (isinstance(silver_price, float) and math.isnan(silver_price))
+    ):
         return None
     return gold_price / silver_price
 
 def process_data():
     df = pd.DataFrame(assets)
     financial_data = []
-    # Get data for all assets
     for asset in assets:
         data = get_financial_data(asset["Ticker"])
         if data:
             financial_data.append(data)
         else:
-            # Add empty data if fetch fails
             financial_data.append({
                 "Live Price": None,
                 "52W High": None,
@@ -98,15 +99,15 @@ def process_data():
             })
     financial_df = pd.DataFrame(financial_data)
     result_df = pd.concat([df, financial_df], axis=1)
-    # Calculate gold/silver ratio if both are available
     gold_price = result_df[result_df["Asset"] == "Gold Spot"]["Live Price"].values[0]
     silver_price = result_df[result_df["Asset"] == "Silver Spot"]["Live Price"].values[0]
-    if gold_price and silver_price:
+    if gold_price is None or silver_price is None:
+        st.warning(f"Gold price: {gold_price}, Silver price: {silver_price} – one or both are missing, so ratio is N/A.")
+        result_df["Gold/Silver Ratio"] = None
+    else:
         gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price)
         result_df["Gold/Silver Ratio"] = None
         result_df.loc[result_df["Asset"] == "Silver Spot", "Gold/Silver Ratio"] = gs_ratio
-    else:
-        result_df["Gold/Silver Ratio"] = None
     return result_df
 
 # Display the data
@@ -181,7 +182,7 @@ Rather than boosting pure silver exposure, overweighting high-quality silver min
 
 # Add a refresh button
 if st.button("Refresh Data"):
-    st.rerun()  # Updated for modern Streamlit
+    st.rerun()  # Modern Streamlit refresh
 
 # Add some explanation
 st.markdown("""
