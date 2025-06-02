@@ -1,23 +1,71 @@
-# Add this to your imports
+# --- Imports ---
+import streamlit as st
+import pandas as pd
+import requests
+import random
+import time
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any
-import json
+import plotly.graph_objs as go
+import logging
 
-# Add EODHD configuration
+# --- Configuration ---
 EODHD_BASE_URL = "https://eodhistoricaldata.com/api"
 EODHD_CACHE_TTL = 3600  # 1 hour cache for EODHD data
 
-# Replace the get_ticker_data function with this version
+ETF_SYMBOLS = {
+    "SLV": "iShares Silver Trust",
+    "PSLV": "Sprott Physical Silver Trust",
+    "SIL": "Global X Silver Miners ETF",
+    "GDX": "VanEck Gold Miners ETF"
+}
+
+REQUEST_DELAY = (1, 2)  # in seconds, tuple for random.uniform
+
+# --- Utility Functions ---
+def safe_round(value, digits):
+    try:
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+def calculate_crossover(series):
+    # Example: returns "Bullish" if last MA10 > last MA20, else "Bearish"
+    if len(series) < 20:
+        return "NA"
+    ma10 = series.rolling(window=10).mean()
+    ma20 = series.rolling(window=20).mean()
+    if ma10.iloc[-1] > ma20.iloc[-1]:
+        return "Bullish"
+    elif ma10.iloc[-1] < ma20.iloc[-1]:
+        return "Bearish"
+    else:
+        return "Neutral"
+
+# --- Logger ---
+logger = logging.getLogger("SilverWatchList")
+logging.basicConfig(level=logging.INFO)
+
+# --- Dummy rate_limiter for standalone run ---
+class DummyRateLimiter:
+    def check_rate_limit(self):
+        pass
+    def add_request(self):
+        pass
+
+rate_limiter = DummyRateLimiter()
+
+# --- Main Functions ---
+
 @st.cache_data(ttl=EODHD_CACHE_TTL)
 def get_ticker_data(_ticker: str, exchange: str, yf_symbol: str, attempt: int = 0) -> (Optional[Dict[str, Any]], Optional[str]):
     try:
         rate_limiter.check_rate_limit()
-        
         # Use EODHD for ETFs, Yahoo Finance for others
         if exchange.upper() in ["NYSE", "NASDAQ", "BATS"] and _ticker in ETF_SYMBOLS:
             return get_eodhd_data(_ticker, yf_symbol)
         else:
             return get_yfinance_data(_ticker, exchange, yf_symbol, attempt)
-            
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
         logger.error(f"{_ticker}: {error_msg}")
@@ -33,20 +81,20 @@ def get_eodhd_data(symbol: str, yf_symbol: str) -> (Optional[Dict[str, Any]], Op
             'fmt': 'json',
             'filter': 'last_close,high,low,change_p,change,volume'
         }
-        
+
         # Add rate limiting
         rate_limiter.check_rate_limit()
         time.sleep(random.uniform(*REQUEST_DELAY))
-        
+
         response = requests.get(endpoint, params=params)
         response.raise_for_status()
         data = response.json()
-        
+
         if isinstance(data, dict) and 'code' in data:
             error_msg = f"EODHD API Error: {data.get('message', 'Unknown error')}"
             logger.error(f"{symbol}: {error_msg}")
             return None, error_msg
-        
+
         # Get historical data for MA calculations
         hist_endpoint = f"{EODHD_BASE_URL}/eod/{yf_symbol}"
         hist_params = {
@@ -56,22 +104,23 @@ def get_eodhd_data(symbol: str, yf_symbol: str) -> (Optional[Dict[str, Any]], Op
             'order': 'd',
             'from': (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
         }
-        
+
         hist_response = requests.get(hist_endpoint, params=hist_params)
         hist_response.raise_for_status()
         hist_data = hist_response.json()
-        
+
         if not isinstance(hist_data, list) or len(hist_data) < 20:
             error_msg = "Insufficient historical data from EODHD"
             logger.warning(f"{symbol}: {error_msg}")
             return None, error_msg
-        
+
         # Process historical data
         hist_df = pd.DataFrame(hist_data)
         hist_df['date'] = pd.to_datetime(hist_df['date'])
         hist_df.set_index('date', inplace=True)
         hist_df['close'] = pd.to_numeric(hist_df['close'])
-        
+        hist_df['volume'] = pd.to_numeric(hist_df['volume'])
+
         # Calculate metrics
         last_price = data['last_close']
         ma10 = hist_df['close'].rolling(window=10).mean().iloc[-1]
@@ -79,15 +128,15 @@ def get_eodhd_data(symbol: str, yf_symbol: str) -> (Optional[Dict[str, Any]], Op
         change_pct = data.get('change_p', 0)
         volume = data.get('volume', 0)
         volume_ma10 = hist_df['volume'].rolling(window=10).mean().iloc[-1]
-        
+
         # Create chart
         chart = create_eodhd_chart(symbol, hist_df)
         if chart is None:
             error_msg = "Failed to create chart from EODHD data"
             return None, error_msg
-            
+
         rate_limiter.add_request()
-        
+
         return {
             "Symbol": symbol,
             "Exchange": "ETF",
@@ -101,17 +150,17 @@ def get_eodhd_data(symbol: str, yf_symbol: str) -> (Optional[Dict[str, Any]], Op
             "Vol MA10": int(volume_ma10),
             "Signal": "🟢 Buy" if (last_price > ma10 and ma10 > ma20) else "🔴 Sell" if (last_price < ma10 and ma10 < ma20) else "🟡 Neutral",
             "Crossover": calculate_crossover(hist_df['close']),
-            "P/E Ratio": None,  # Not available from EODHD real-time
-            "Dividend Yield": None,  # Would need separate endpoint
+            "P/E Ratio": None,
+            "Dividend Yield": None,
             "Dividend Payout Ratio (%)": None,
             "Free Cash Flow (LC m)": None,
             "Market Cap (m)": None,
             "Last Updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
             "YF Symbol": yf_symbol,
             "Chart": chart,
-            "Data Quality": "🟢 Good"  # EODHD provides fresh data
+            "Data Quality": "🟢 Good"
         }, None
-        
+
     except Exception as e:
         error_msg = f"EODHD API Error: {str(e)}"
         logger.error(f"{symbol}: {error_msg}")
@@ -161,10 +210,8 @@ def create_eodhd_chart(symbol: str, hist_data: pd.DataFrame) -> Optional[go.Figu
         logger.error(f"Error creating EODHD chart for {symbol}: {str(e)}")
         return None
 
-# Add this to your configuration section
-ETF_SYMBOLS = {
-    "SLV": "iShares Silver Trust",
-    "PSLV": "Sprott Physical Silver Trust",
-    "SIL": "Global X Silver Miners ETF",
-    "GDX": "VanEck Gold Miners ETF"
-}
+# --- Placeholder for get_yfinance_data ---
+def get_yfinance_data(_ticker, exchange, yf_symbol, attempt):
+    # This function should fetch data using yfinance
+    # For now, just return dummy data (implement as needed)
+    return None, "yfinance not implemented"
