@@ -1,6 +1,7 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import math
 import numpy as np
@@ -38,6 +39,13 @@ st.markdown("""
         color: #2c3e50;
         margin-bottom: 10px;
     }
+    .chart-container {
+        margin-top: 20px;
+        margin-bottom: 30px;
+    }
+    .tab-content {
+        padding-top: 20px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -54,6 +62,110 @@ assets = [
     {"Asset": "Hecla Mining", "Type": "Silver Miner", "Ticker": "HL"},
     {"Asset": "Gold Miners ETF", "Type": "ETF", "Ticker": "GDX"}
 ]
+
+def get_historical_chart_data(ticker, period="1y"):
+    try:
+        data = yf.Ticker(ticker)
+        hist = data.history(period=period)
+        if hist.empty:
+            return None
+        return hist
+    except Exception as e:
+        st.warning(f"Error fetching chart data for {ticker}: {e}")
+        return None
+
+def create_price_chart(ticker, asset_name):
+    hist = get_historical_chart_data(ticker)
+    if hist is None:
+        return None
+    
+    fig = go.Figure()
+    
+    # Add price line
+    fig.add_trace(go.Scatter(
+        x=hist.index, 
+        y=hist['Close'],
+        name='Price',
+        line=dict(color='#1f77b4')
+    ))
+    
+    # Add moving averages
+    hist['20D_MA'] = hist['Close'].rolling(20).mean()
+    hist['50D_MA'] = hist['Close'].rolling(50).mean()
+    hist['200D_MA'] = hist['Close'].rolling(200).mean()
+    
+    fig.add_trace(go.Scatter(
+        x=hist.index, 
+        y=hist['20D_MA'],
+        name='20D MA',
+        line=dict(color='orange', width=1)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=hist.index, 
+        y=hist['50D_MA'],
+        name='50D MA',
+        line=dict(color='green', width=1)
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=hist.index, 
+        y=hist['200D_MA'],
+        name='200D MA',
+        line=dict(color='red', width=1)
+    ))
+    
+    fig.update_layout(
+        title=f'{asset_name} Price Chart with Moving Averages',
+        xaxis_title='Date',
+        yaxis_title='Price',
+        hovermode='x unified',
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    
+    return fig
+
+def create_momentum_chart(ticker, asset_name):
+    hist = get_historical_chart_data(ticker, "6mo")  # Shorter period for momentum indicators
+    if hist is None:
+        return None
+    
+    # Calculate momentum indicators
+    hist['Returns'] = hist['Close'].pct_change() * 100
+    hist['SMA_5'] = hist['Close'].rolling(5).mean()
+    hist['SMA_10'] = hist['Close'].rolling(10).mean()
+    hist['ROC_14'] = (hist['Close'] / hist['Close'].shift(14) - 1) * 100
+    
+    fig = go.Figure()
+    
+    # Add returns
+    fig.add_trace(go.Bar(
+        x=hist.index,
+        y=hist['Returns'],
+        name='Daily Returns (%)',
+        marker_color=np.where(hist['Returns'] >= 0, 'green', 'red')
+    ))
+    
+    # Add ROC
+    fig.add_trace(go.Scatter(
+        x=hist.index,
+        y=hist['ROC_14'],
+        name='14D Rate of Change (%)',
+        line=dict(color='purple', width=2)
+    ))
+    
+    fig.update_layout(
+        title=f'{asset_name} Momentum Indicators',
+        xaxis_title='Date',
+        yaxis_title='Value',
+        hovermode='x unified',
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20),
+        barmode='relative'
+    )
+    
+    return fig
 
 def get_momentum_data(ticker):
     today = datetime.today()
@@ -201,8 +313,6 @@ The table below shows silver-related assets ranked by their momentum score, whic
 # Sort by momentum score and format for display
 momentum_df = data.copy().sort_values("Momentum Score", ascending=False)
 
-# Format the dataframe for display
-
 def color_momentum(val):
     try:
         v = float(val)
@@ -246,6 +356,32 @@ st.dataframe(
     use_container_width=True
 )
 
+# Charts Section
+st.subheader("Asset Charts")
+
+# Create tabs for each asset
+tabs = st.tabs([asset["Asset"] for asset in assets])
+
+for i, asset in enumerate(assets):
+    with tabs[i]:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown(f"### {asset['Asset']} Price Chart")
+            price_chart = create_price_chart(asset["Ticker"], asset["Asset"])
+            if price_chart:
+                st.plotly_chart(price_chart, use_container_width=True)
+            else:
+                st.warning("No price data available for this asset")
+        
+        with col2:
+            st.markdown(f"### {asset['Asset']} Momentum Indicators")
+            momentum_chart = create_momentum_chart(asset["Ticker"], asset["Asset"])
+            if momentum_chart:
+                st.plotly_chart(momentum_chart, use_container_width=True)
+            else:
+                st.warning("No momentum data available for this asset")
+
 # Technical Analysis Section
 st.subheader("Technical Analysis Signals")
 st.markdown("""
@@ -257,6 +393,10 @@ When the 50-day moving average crosses below the 200-day moving average (highlig
 
 **Short-Term Momentum:**  
 When the 20-day moving average is above the 50-day moving average.
+
+**Momentum Indicators Explained:**
+- **Daily Returns (%):** Daily price change percentage
+- **14D Rate of Change (%):** 14-day percentage change in price
 """)
 
 # Add a refresh button
