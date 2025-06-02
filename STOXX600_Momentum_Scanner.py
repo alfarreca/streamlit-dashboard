@@ -183,8 +183,16 @@ with st.sidebar:
     trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
     selected_trends = st.multiselect("Trend Strength", options=trend_options, default=trend_options)
     price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
-    exchange_options = df["Exchange"].unique()
-    selected_exchanges = st.multiselect("Exchanges", options=exchange_options, default=["NASDAQ", "NYSE"])
+    # --- Safe multiselect for Exchanges ---
+    exchange_options = list(df["Exchange"].unique())
+    default_exchanges = [ex for ex in ["NASDAQ", "NYSE"] if ex in exchange_options]
+    if not default_exchanges:
+        default_exchanges = exchange_options
+    selected_exchanges = st.multiselect(
+        "Exchanges",
+        options=exchange_options,
+        default=default_exchanges
+    )
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
