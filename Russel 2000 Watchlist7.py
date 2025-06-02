@@ -20,13 +20,12 @@ from collections import Counter
 install(show_locals=True)
 
 # Configuration
-MAX_WORKERS = 8
-REQUEST_DELAY = (0.8, 2.0)
-BATCH_SIZE = 10
+MAX_WORKERS = 2  # Lowered for less concurrency
+REQUEST_DELAY = (2, 5)  # Increased delay
 CACHE_TTL = 3600 * 4
 MAX_RETRIES = 2
 RATE_LIMIT_WINDOW = 60
-MAX_REQUESTS_PER_MINUTE = 50
+MAX_REQUESTS_PER_MINUTE = 15  # Lowered for safety
 
 # Setup logging
 logging.basicConfig(
@@ -58,7 +57,6 @@ class RateLimiter:
 
 rate_limiter = RateLimiter()
 
-# Google Sheets Authentication
 @st.cache_data(ttl=CACHE_TTL)
 def get_google_sheet_data():
     try:
@@ -74,7 +72,6 @@ def get_google_sheet_data():
         st.error("Failed to load data from Google Sheets. Please check the connection.")
         return pd.DataFrame()
 
-# Exchange suffix mapping
 def exchange_suffix(ex: str) -> str:
     suffix_map = {
         "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
@@ -172,7 +169,9 @@ def create_price_chart(symbol, history_data):
 def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
     try:
         rate_limiter.check_rate_limit()
-        time.sleep(random.uniform(*REQUEST_DELAY))
+        # Exponential backoff on retries
+        backoff = (2 ** attempt)
+        time.sleep(random.uniform(*REQUEST_DELAY) * backoff)
         ticker_obj = yf.Ticker(yf_symbol)
         try:
             hist = ticker_obj.history(period="6mo")
@@ -191,6 +190,10 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
                 logger.warning(f"{_ticker} ({yf_symbol}): {error_msg}")
                 return None, error_msg
         except (RequestException, ValueError) as e:
+            # Check for HTTP 429 (rate limit) and wait longer if needed
+            if hasattr(e, 'response') and e.response is not None and getattr(e.response, 'status_code', None) == 429:
+                logger.warning(f"429 Too Many Requests for {_ticker}, sleeping for 60 seconds")
+                time.sleep(60)
             if attempt < MAX_RETRIES:
                 logger.info(f"Retrying {_ticker} (attempt {attempt + 1})")
                 return get_ticker_data(_ticker, exchange, yf_symbol, attempt + 1)
