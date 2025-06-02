@@ -202,12 +202,15 @@ The table below shows silver-related assets ranked by their momentum score, whic
 momentum_df = data.copy().sort_values("Momentum Score", ascending=False)
 
 # Format the dataframe for display
+
 def color_momentum(val):
-    if val is None:
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
         return "color: black"
-    if val > 0:
+    if v > 0:
         return "color: green"
-    elif val < 0:
+    elif v < 0:
         return "color: red"
     return "color: black"
 
