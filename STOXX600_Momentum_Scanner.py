@@ -37,7 +37,7 @@ def get_google_sheet_data():
     SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
     creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
     gc = gspread.authorize(creds)
-    sheet = gc.open_by_key("1CRzbTT4aN00ELyKc-Q2doRAo_ouvQj5Jo4G0-TI9u4w").sheet1
+    sheet = gc.open_by_key("1mHHNfZrJTep6nT-_NDWakV0iBx5ppAPD9MwJzYLjnRQ").sheet1
     df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"]).drop_duplicates("Symbol")
     return df
 
