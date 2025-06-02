@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from requests.exceptions import RequestException
 import pytz  # Added for timezone handling
+import re    # Added for regex safety
 
 # Initialize rich traceback
 install(show_locals=True)
@@ -41,16 +42,18 @@ logger = logging.getLogger(__name__)
 class RateLimiter:
     def __init__(self):
         self.request_times = []
-    
+
     def check_rate_limit(self):
         now = time.time()
         self.request_times = [t for t in self.request_times if now - t < RATE_LIMIT_WINDOW]
-        
         if len(self.request_times) >= MAX_REQUESTS_PER_MINUTE:
             wait_time = RATE_LIMIT_WINDOW - (now - self.request_times[0])
             logger.warning(f"Rate limit reached. Waiting {wait_time:.1f} seconds")
             time.sleep(wait_time)
             self.request_times = []
+
+    def add_request(self):
+        self.request_times.append(time.time())
 
 rate_limiter = RateLimiter()
 
@@ -98,16 +101,12 @@ def calculate_crossover(close_series):
     try:
         if len(close_series) < 20:
             return "Insufficient data"
-            
         ma10 = close_series.rolling(window=10).mean()
         ma20 = close_series.rolling(window=20).mean()
-        
         ma10_values = ma10.iloc[-6:].values
         ma20_values = ma20.iloc[-6:].values
-        
         current_relation = "MA10 > MA20" if ma10_values[-1] > ma20_values[-1] else "MA10 ≤ MA20"
         crossover_status = "No Crossover"
-        
         if (ma10_values[-2] <= ma20_values[-2]) and (ma10_values[-1] > ma20_values[-1]):
             crossover_status = "🟢 Golden Cross (Bullish)"
         elif (ma10_values[-2] >= ma20_values[-2]) and (ma10_values[-1] < ma20_values[-1]):
@@ -120,7 +119,6 @@ def calculate_crossover(close_series):
                 elif (ma10_values[-i-1] >= ma20_values[-i-1]) and (ma10_values[-1] < ma20_values[-1]):
                     crossover_status = "🟠 Recent Death Cross"
                     break
-        
         return f"{current_relation} | {crossover_status}"
     except Exception as e:
         logger.error(f"Error in calculate_crossover: {str(e)}")
@@ -174,15 +172,12 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
     try:
         rate_limiter.check_rate_limit()
         time.sleep(random.uniform(*REQUEST_DELAY))
-        
         ticker_obj = yf.Ticker(yf_symbol)
-        
         try:
             hist = ticker_obj.history(period="6mo")
             if hist.empty or len(hist) < 20:
                 logger.warning(f"Insufficient data for {_ticker} ({yf_symbol})")
                 return None, None
-            
             # Fix: Handle timezone-aware datetime comparison
             last_data_date = hist.index[-1].to_pydatetime()
             if last_data_date.tzinfo is not None:  # If timezone-aware
@@ -190,7 +185,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
                 last_data_date = last_data_date.astimezone(pytz.UTC)
             else:  # If timezone-naive
                 now = datetime.now()
-                
             if (now - last_data_date).days > 7:
                 logger.warning(f"Stale data for {_ticker} (last update: {last_data_date})")
                 return None, None
@@ -204,20 +198,17 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
         close = hist["Close"]
         volume = hist["Volume"]
         last_price = close.iloc[-1]
-        
+
         try:
             ma10 = close.rolling(window=10, min_periods=5).mean().iloc[-1]
             ma20 = close.rolling(window=20, min_periods=10).mean().iloc[-1]
             volume_ma10 = volume.rolling(window=10, min_periods=5).mean().iloc[-1]
-            
             change_5d = ((last_price - close.iloc[-5]) / close.iloc[-5] * 100) if len(close) >= 5 else None
             divergence = (last_price - ma10) / ma10 * 100
-            
             signal = "🟢 Buy" if (last_price > ma10 and ma10 > ma20) else "🔴 Sell" if (last_price < ma10 and ma10 < ma20) else "🟡 Neutral"
             crossover = calculate_crossover(close)
-
             ticker_info = ticker_obj.info
-            
+
             def safe_metric(value, scale=1, default=None):
                 try:
                     if value is None:
@@ -231,7 +222,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol, attempt=0):
             free_cash_flow = safe_metric(ticker_info.get("freeCashflow"), scale=1e6)
             pe_ratio = safe_metric(ticker_info.get("trailingPE"))
             market_cap = safe_metric(ticker_info.get("marketCap"), scale=1e6)
-
             chart = create_price_chart(_ticker, hist)
             if chart is None:
                 return None, None
@@ -274,16 +264,12 @@ def process_ticker(row, selected_exchange):
     try:
         symbol = row.Symbol
         exchange = row.Exchange
-        
         if selected_exchange and exchange not in selected_exchange:
             return None
-            
         yf_symbol = map_to_yfinance_symbol(symbol, exchange)
-        
         if not yf_symbol or len(yf_symbol) > 10 or not yf_symbol[0].isalpha():
             logger.warning(f"Invalid symbol format: {symbol} ({exchange})")
             return None
-            
         return get_ticker_data(symbol, exchange, yf_symbol)
     except Exception as e:
         logger.error(f"Error in process_ticker for {getattr(row, 'Symbol', 'unknown')}: {str(e)}")
@@ -321,6 +307,12 @@ if dark_mode:
 # Load data
 df = get_google_sheet_data()
 
+# Defensive: Check required columns
+required_columns = {"Symbol", "Exchange"}
+if not required_columns.issubset(df.columns):
+    st.error("The Google Sheet must contain columns: 'Symbol' and 'Exchange'.")
+    st.stop()
+
 # Filters
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -354,18 +346,16 @@ def process_data():
     error_count = 0
 
     filtered_df = df[df["Exchange"].isin(selected_exchange)] if selected_exchange else df
-    
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         futures = {
             executor.submit(process_ticker, row, selected_exchange): idx 
             for idx, row in enumerate(filtered_df.itertuples())
         }
-        
         for future in as_completed(futures):
             if st.session_state.stop_processing:
                 executor.shutdown(wait=False)
                 break
-                
             idx = futures[future]
             try:
                 ticker_data, history_data = future.result()
@@ -375,7 +365,6 @@ def process_data():
                 error_count += 1
                 st.session_state.error_details.append(f"Row {idx}: {str(e)}")
                 logger.error(f"Error processing future: {str(e)}")
-            
             processed_count += 1
             progress_percent = min(100, int(processed_count / len(filtered_df) * 100))
             progress_bar.progress(progress_percent)
@@ -385,12 +374,10 @@ def process_data():
             )
 
     progress_bar.progress(100)
-    
     if st.session_state.stop_processing:
         status_text.text(f"Processing stopped by user. Completed {len(st.session_state.results)} tickers")
     else:
         status_text.text(f"Completed processing {len(st.session_state.results)} tickers ({(len(st.session_state.results)/len(filtered_df)*100):.1f}% success rate)")
-    
     st.session_state.processing = False
 
 # Start/Stop buttons
@@ -406,12 +393,11 @@ with col2:
 # Display results if available
 if st.session_state.results:
     results_df = pd.DataFrame(st.session_state.results)
-    
+    pattern = "|".join([re.escape(c) for c in crossover_filter])
     results_df = results_df[
         results_df["Signal"].isin(signal_filter) &
-        results_df["Crossover"].str.contains("|".join(crossover_filter), case=False, na=False)
+        results_df["Crossover"].str.contains(pattern, case=False, na=False)
     ]
-    
     sort_options = {
         "5D Change (High to Low)": ("5D Change %", False),
         "Divergence (High to Low)": ("Divergence", False),
@@ -421,16 +407,12 @@ if st.session_state.results:
         "Market Cap (High to Low)": ("Market Cap (m)", False),
         "Data Quality": ("Data Quality", True)
     }
-    
     sort_col, _, _ = st.columns(3)
     with sort_col:
         sort_option = st.selectbox("Sort by", options=list(sort_options.keys()))
-    
     sort_column, ascending = sort_options[sort_option]
     results_df = results_df.sort_values(by=sort_column, ascending=ascending, na_position='last')
-    
     display_columns = [col for col in results_df.columns if col not in ["Chart", "YF Symbol", "Divergence"]]
-    
     st.dataframe(
         results_df[display_columns],
         use_container_width=True,
@@ -446,24 +428,20 @@ if st.session_state.results:
             "Data Quality": st.column_config.TextColumn()
         }
     )
-    
     selected_symbols = st.multiselect(
         "Select stocks to view charts:",
         options=results_df["Symbol"].unique()
     )
-    
     for symbol in selected_symbols:
         ticker_data = next((item for item in st.session_state.results if item["Symbol"] == symbol), None)
         if ticker_data and "Chart" in ticker_data:
             st.plotly_chart(ticker_data["Chart"], use_container_width=True)
-    
     st.download_button(
         label="Download Data as CSV",
         data=results_df.drop(columns=["Chart"]).to_csv(index=False),
         file_name="stock_metrics.csv",
         mime="text/csv"
     )
-    
     if st.session_state.error_details:
         with st.expander("View Error Details"):
             st.write("The following errors occurred during processing:")
