@@ -30,7 +30,7 @@ st.markdown("""
 
 # Asset data - mapping to Yahoo Finance tickers
 assets = [
-    {"Asset": "Silver Spot", "Type": "Commodity", "Ticker": "XAGUSD=X"},
+    {"Asset": "Silver Spot", "Type": "Commodity", "Ticker": "SI=F"},  # Changed from XAGUSD=X to SI=F
     {"Asset": "Gold Spot", "Type": "Commodity", "Ticker": "XAUUSD=X"},
     {"Asset": "iShares Silver ETF", "Type": "ETF", "Ticker": "SLV"},
     {"Asset": "Sprott Physical Silver Trust", "Type": "Closed-End Fund", "Ticker": "PSLV"},
@@ -42,22 +42,18 @@ assets = [
     {"Asset": "Gold Miners ETF", "Type": "ETF", "Ticker": "GDX"}
 ]
 
-# Function to get financial data from Yahoo Finance
 def get_financial_data(ticker):
     today = datetime.today()
     one_year_ago = today - timedelta(days=365)
-    
     try:
         data = yf.Ticker(ticker)
         hist = data.history(period="1y")
-        
         if hist.empty:
+            st.warning(f"No data found for ticker: {ticker}")
             return None
-            
         live_price = hist['Close'].iloc[-1]
         high_52w = hist['Close'].max()
         low_52w = hist['Close'].min()
-        
         # Get price from 1 year ago (approximately)
         if len(hist) > 250:  # Roughly 1 year of trading days
             price_1y_ago = hist['Close'].iloc[0]
@@ -65,12 +61,10 @@ def get_financial_data(ticker):
             # If we don't have full year data, try to get more
             older_data = data.history(start=one_year_ago, end=today)
             price_1y_ago = older_data['Close'].iloc[0] if not older_data.empty else None
-        
         if price_1y_ago:
             yoy_change = (live_price - price_1y_ago) / price_1y_ago
         else:
             yoy_change = None
-            
         return {
             "Live Price": live_price,
             "52W High": high_52w,
@@ -78,20 +72,17 @@ def get_financial_data(ticker):
             "1Y Change (%)": yoy_change * 100 if yoy_change else None
         }
     except Exception as e:
-        print(f"Error fetching data for {ticker}: {e}")
+        st.warning(f"Error fetching data for {ticker}: {e}")
         return None
 
-# Calculate gold/silver ratio
 def calculate_gold_silver_ratio(gold_price, silver_price):
-    if silver_price == 0:
+    if not silver_price or silver_price == 0:
         return None
     return gold_price / silver_price
 
-# Main data processing
 def process_data():
     df = pd.DataFrame(assets)
     financial_data = []
-    
     # Get data for all assets
     for asset in assets:
         data = get_financial_data(asset["Ticker"])
@@ -105,23 +96,17 @@ def process_data():
                 "52W Low": None,
                 "1Y Change (%)": None
             })
-    
-    # Add financial data to dataframe
     financial_df = pd.DataFrame(financial_data)
     result_df = pd.concat([df, financial_df], axis=1)
-    
     # Calculate gold/silver ratio if both are available
     gold_price = result_df[result_df["Asset"] == "Gold Spot"]["Live Price"].values[0]
     silver_price = result_df[result_df["Asset"] == "Silver Spot"]["Live Price"].values[0]
-    
     if gold_price and silver_price:
         gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price)
-        # Fix: assign only to the "Silver Spot" row
         result_df["Gold/Silver Ratio"] = None
         result_df.loc[result_df["Asset"] == "Silver Spot", "Gold/Silver Ratio"] = gs_ratio
     else:
         result_df["Gold/Silver Ratio"] = None
-    
     return result_df
 
 # Display the data
@@ -134,28 +119,24 @@ try:
     silver_price = data[data["Asset"] == "Silver Spot"]["Live Price"].values[0]
     gold_price = data[data["Asset"] == "Gold Spot"]["Live Price"].values[0]
     gs_ratio = calculate_gold_silver_ratio(gold_price, silver_price) if gold_price and silver_price else None
-    
+
     with col1:
         st.metric("Silver Price", f"${silver_price:.2f}" if silver_price else "N/A")
-    
     with col2:
         st.metric("Gold Price", f"${gold_price:.2f}" if gold_price else "N/A")
-    
     with col3:
         st.metric("Gold/Silver Ratio", f"{gs_ratio:.2f}" if gs_ratio else "N/A")
-    
     with col4:
         if gs_ratio:
             if gs_ratio > 80:
                 ratio_status = "High (Silver Undervalued)"
-                color = "green"  # Opportunity to buy silver
+                color = "green"
             elif gs_ratio < 60:
                 ratio_status = "Low (Gold Undervalued)"
-                color = "red"  # Opportunity to buy gold
+                color = "red"
             else:
                 ratio_status = "Normal Range"
                 color = "black"
-            
             st.markdown(f'<div class="metric-card">Ratio Status: <span style="color:{color}">{ratio_status}</span></div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="metric-card">Ratio Status: N/A</div>', unsafe_allow_html=True)
