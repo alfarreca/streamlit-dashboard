@@ -9,6 +9,16 @@ from PIL import Image
 import io
 import base64
 
+# Map your token symbols to CoinGecko ids
+COINGECKO_IDS = {
+    "UNI": "uniswap",
+    "AAVE": "aave",
+    "YFI": "yearn-finance",
+    "1INCH": "1inch",
+    "LDO": "lido-dao",
+    "SAFE": "safe"  # If this doesn't work, update with the correct CoinGecko id for Safe
+}
+
 # App configuration
 st.set_page_config(
     page_title="App-Layer Investment Dashboard",
@@ -17,7 +27,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Optionally keep background color CSS, but all dashboard text is HTML-free
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
@@ -93,6 +102,28 @@ def logo_to_base64(image):
         return base64.b64encode(buffered.getvalue()).decode()
     return ""
 
+# Fetch token price history from CoinGecko
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_token_price_history(token_id, days=30):
+    url = f"https://api.coingecko.com/api/v3/coins/{token_id}/market_chart"
+    params = {
+        "vs_currency": "usd",
+        "days": days,
+        "interval": "daily"
+    }
+    try:
+        resp = requests.get(url, params=params)
+        data = resp.json()
+        if "prices" in data:
+            df = pd.DataFrame(data["prices"], columns=["timestamp", "price"])
+            df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+            return df
+        else:
+            return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error fetching price data for {token_id}: {e}")
+        return pd.DataFrame()
+
 # Load data
 companies_df = load_company_data()
 tokens_df = load_token_data()
@@ -106,7 +137,13 @@ analysis_period = st.sidebar.selectbox(
     index=1
 )
 
-days_mapping = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "YTD": (datetime.now() - datetime(datetime.now().year, 1, 1)).days}
+days_mapping = {
+    "1M": 30, 
+    "3M": 90, 
+    "6M": 180, 
+    "1Y": 365, 
+    "YTD": (datetime.now() - datetime(datetime.now().year, 1, 1)).days
+}
 selected_days = days_mapping[analysis_period]
 
 selected_sectors = st.sidebar.multiselect(
@@ -131,7 +168,7 @@ selected_tokens = st.sidebar.multiselect(
 st.title("🚀 App-Layer Investment Dashboard")
 st.markdown("Track publicly traded companies and tokens with strong app-layer network effects")
 
-# Metrics row (HTML-free)
+# Metrics row
 col1, col2, col3 = st.columns(3)
 with col1:
     st.metric("Companies Tracked", len(selected_companies))
@@ -227,7 +264,7 @@ if not filtered_companies.empty:
 else:
     st.warning("No companies match your selected filters.")
 
-# Tokens Section (HTML-free token cards)
+# Tokens Section
 st.header("Token Analysis")
 filtered_tokens = tokens_df[tokens_df["Token"].isin(selected_tokens)]
 
@@ -244,6 +281,28 @@ if not filtered_tokens.empty:
             st.write(f"TVL: ${row['TVL (B)']:.1f}B")
             st.write(f"Composability: {row['Composability']}")
             st.markdown("---")
+
+    # Token Price Performance Section
+    st.subheader("Token Price Performance")
+    if len(selected_tokens) > 0:
+        chart_cols = st.columns(2)
+        for i, token_symbol in enumerate(selected_tokens):
+            token_id = COINGECKO_IDS.get(token_symbol)
+            if not token_id:
+                st.warning(f"No CoinGecko id for {token_symbol}.")
+                continue
+            with chart_cols[i % 2]:
+                price_df = get_token_price_history(token_id, days=selected_days)
+                if not price_df.empty:
+                    fig = px.line(price_df, x="date", y="price",
+                                  title=f"{token_symbol} Price (USD)")
+                    fig.update_layout(margin=dict(l=20, r=20, t=40, b=20))
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning(f"No price data found for {token_symbol}.")
+    else:
+        st.info("No tokens selected for price chart.")
+
     st.subheader("Token Metrics Comparison")
     st.dataframe(
         filtered_tokens.drop(columns=["Focus"]),
