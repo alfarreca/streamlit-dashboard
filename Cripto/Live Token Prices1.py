@@ -8,7 +8,7 @@ import requests
 from bs4 import BeautifulSoup
 from pytz import timezone
 import numpy as np
-from streamlit_autorefresh import st_autorefresh  # <-- NEW IMPORT
+from streamlit_autorefresh import st_autorefresh
 
 # Configure page
 st.set_page_config(
@@ -53,7 +53,6 @@ if 'data_sources' not in st.session_state:
 def get_coingecko_data(ticker_id):
     """Fetch data from CoinGecko API"""
     try:
-        # First get the current price
         price_url = f"{COINGECKO_API_URL}/simple/price?ids={ticker_id}&vs_currencies=usd&include_24hr_change=true"
         price_response = requests.get(price_url, timeout=10)
         price_data = price_response.json().get(ticker_id, {})
@@ -64,7 +63,6 @@ def get_coingecko_data(ticker_id):
         current_price = price_data.get('usd')
         daily_change = price_data.get('usd_24h_change', 0)
         
-        # Then get historical data for the weekly change
         hist_url = f"{COINGECKO_API_URL}/coins/{ticker_id}/market_chart?vs_currency=usd&days=7"
         hist_response = requests.get(hist_url, timeout=10)
         hist_data = hist_response.json()
@@ -75,7 +73,6 @@ def get_coingecko_data(ticker_id):
         prices = [p[1] for p in hist_data['prices']]
         weekly_change = ((prices[-1] - prices[0]) / prices[0]) * 100 if prices[0] else 0
         
-        # Create a pandas DataFrame similar to Yahoo Finance format
         hist_df = pd.DataFrame({
             'Date': [datetime.fromtimestamp(p[0]/1000) for p in hist_data['prices']],
             'Close': [p[1] for p in hist_data['prices']],
@@ -116,10 +113,12 @@ def get_yahoo_crypto_data(ticker):
 
 def get_crypto_data(ticker, symbol):
     """Determine which API to use based on the token"""
-    # Special cases where we prefer CoinGecko
     coingecko_mapping = {
         "UNI": "uniswap",
-        "MPL": "maple"
+        "MPL": "maple",
+        "CFG": "centrifuge",
+        "ONDO": "ondo-finance",  # CoinGecko uses 'ondo-finance'
+        # Add more if needed
     }
     
     if symbol in coingecko_mapping:
@@ -137,7 +136,7 @@ def main():
     with st.sidebar:
         st.header("Data Sources")
         st.info("""
-        - UNI and MPL: CoinGecko API
+        - UNI, MPL, CFG, ONDO: CoinGecko API
         - Others: Yahoo Finance
         """)
         st.markdown("---")
@@ -148,55 +147,79 @@ def main():
     if auto_refresh:
         st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
     
-    # Crypto data configuration (now with 'Purpose')
+    # Crypto data configuration (with new tokens)
     crypto_data = [
+        # Original tokens
         {
-            "Token ID": "UNI-USD",
-            "Symbol": "UNI",
+            "Category": "DeFi",
             "Project": "Uniswap",
-            "Purpose": "Uniswap is a decentralized exchange (DEX) protocol that allows users to swap various cryptocurrencies directly from their wallets. The UNI token is used for governance of the Uniswap protocol."
+            "Purpose": "Uniswap is a decentralized exchange (DEX) protocol. The UNI token is used for governance of the Uniswap protocol.",
+            "Token ID": "UNI-USD",
+            "Symbol": "UNI"
         },
         {
-            "Token ID": "AAVE-USD",
-            "Symbol": "AAVE",
+            "Category": "DeFi",
             "Project": "Aave",
-            "Purpose": "Aave is a decentralized finance (DeFi) protocol for lending and borrowing crypto assets. The AAVE token is used for governance and staking within the protocol."
+            "Purpose": "Aave is a decentralized lending/borrowing protocol. The AAVE token is used for governance and staking.",
+            "Token ID": "AAVE-USD",
+            "Symbol": "AAVE"
         },
         {
-            "Token ID": "DYDX",
-            "Symbol": "DYDX",
+            "Category": "DeFi",
             "Project": "dYdX",
-            "Purpose": "dYdX is a decentralized derivatives exchange. The DYDX token is used for governance and as a reward within the platform."
+            "Purpose": "dYdX is a decentralized derivatives exchange. The DYDX token is used for governance and as a reward.",
+            "Token ID": "DYDX",
+            "Symbol": "DYDX"
         },
         {
-            "Token ID": "CRV",
-            "Symbol": "CRV",
+            "Category": "DeFi",
             "Project": "Curve Finance",
-            "Purpose": "Curve Finance is a decentralized exchange optimized for stablecoin trading. The CRV token is used for governance and incentivizing liquidity providers."
+            "Purpose": "Curve Finance is a DEX optimized for stablecoin trading. The CRV token is used for governance and incentivizing liquidity providers.",
+            "Token ID": "CRV",
+            "Symbol": "CRV"
         },
+        # New RWA tokens
         {
-            "Token ID": "ONDO",
-            "Symbol": "ONDO",
+            "Category": "Tokenized RWA",
             "Project": "Ondo Finance",
-            "Purpose": "Ondo Finance is a DeFi protocol focused on institutional-grade investment products. The ONDO token is used for governance and utility within the platform."
+            "Purpose": "Ondo Finance offers tokenized US Treasuries and other real-world assets. The ONDO token governs the protocol.",
+            "Token ID": "ONDO",
+            "Symbol": "ONDO"
         },
         {
-            "Token ID": "MPL",
-            "Symbol": "MPL",
+            "Category": "Tokenized RWA",
+            "Project": "RealT",
+            "Purpose": "RealT provides tokenized real estate (mainly US properties), enabling users to earn passive income from rent. Tokens represent fractional ownership. Various tokens available.",
+            "Token ID": "REALTOKEN",
+            "Symbol": "Various"
+        },
+        {
+            "Category": "Tokenized RWA",
             "Project": "Maple Finance",
-            "Purpose": "Maple Finance is a decentralized corporate credit marketplace. The MPL token is used for governance and staking."
+            "Purpose": "Maple Finance is a decentralized credit marketplace for institutional loans. The MPL token is used for governance and staking.",
+            "Token ID": "MPL",
+            "Symbol": "MPL"
         },
         {
-            "Token ID": "CFG",
-            "Symbol": "CFG",
+            "Category": "Tokenized RWA",
+            "Project": "Backed Finance",
+            "Purpose": "Backed Finance brings tokenized ETFs and stocks on-chain. Example token: bCSPX (mirrors S&P 500 ETF).",
+            "Token ID": "bCSPX",
+            "Symbol": "bCSPX"
+        },
+        {
+            "Category": "Tokenized RWA",
             "Project": "Centrifuge",
-            "Purpose": "Centrifuge is a protocol for financing real-world assets on-chain. The CFG token is used for staking, paying transaction fees, and governance."
+            "Purpose": "Centrifuge enables asset-backed lending, bringing real-world assets like invoices and real estate on-chain. The CFG token is used for staking and governance.",
+            "Token ID": "CFG",
+            "Symbol": "CFG"
         },
         {
-            "Token ID": "POLYX",
-            "Symbol": "POLYX",
+            "Category": "Tokenized RWA",
             "Project": "Polymesh",
-            "Purpose": "Polymesh is a blockchain built for regulated assets. The POLYX token is used for paying transaction fees and governance."
+            "Purpose": "Polymesh is a blockchain for regulated assets. The POLYX token is used for transaction fees and governance.",
+            "Token ID": "POLYX",
+            "Symbol": "POLYX"
         },
     ]
     
@@ -210,20 +233,16 @@ def main():
     # Fetch data
     with st.spinner("Loading multi-source market data..."):
         progress_bar = st.progress(0)
-        
         for i, row in df.iterrows():
             ticker = row['Token ID']
             symbol = row['Symbol']
-            
             price, daily_change, weekly_change, hist = get_crypto_data(ticker, symbol)
-            
             if price is not None:
                 df.at[i, 'Price'] = price
                 df.at[i, '24h Change'] = daily_change
                 df.at[i, '7d Trend'] = weekly_change
                 df.at[i, 'Volume'] = hist['Volume'].iloc[-1] if hist is not None and 'Volume' in hist.columns else 0
                 df.at[i, 'Source'] = st.session_state.data_sources.get(symbol, "Unknown")
-            
             progress_bar.progress((i + 1) / len(df))
     
     # Display data with source tags
@@ -234,7 +253,7 @@ def main():
             return '<span class="data-source-tag yahoo-tag">Yahoo</span>'
     
     st.dataframe(
-        df[["Symbol", "Project", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
+        df[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
         use_container_width=True,
         height=500,
         column_config={
@@ -244,7 +263,6 @@ def main():
     
     st.markdown("---")
     st.markdown("### Token Explanations")
-
     for i, row in df.iterrows():
         with st.expander(f"{row['Symbol']} ({row['Project']})"):
             st.info(row["Purpose"])
@@ -252,9 +270,7 @@ def main():
     # Visualization section
     st.markdown("---")
     st.subheader("Multi-Source Performance")
-    
     tab1, tab2 = st.tabs(["Price Comparison", "Source Distribution"])
-    
     with tab1:
         fig = px.bar(
             df.sort_values('24h Change', ascending=False),
@@ -268,7 +284,6 @@ def main():
             title="24h Price Change by Data Source"
         )
         st.plotly_chart(fig, use_container_width=True)
-    
     with tab2:
         source_counts = df['Source'].value_counts().reset_index()
         source_counts.columns = ['Source', 'count']
