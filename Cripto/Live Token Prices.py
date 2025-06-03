@@ -309,17 +309,22 @@ def main():
         st.plotly_chart(fig, use_container_width=True)
     
     with tab3:
-        fig = px.scatter(
-            df,
-            x='24h Change',
-            y='Volume',
-            size='Price',
-            color='Symbol',
-            hover_name='Project',
-            log_y=True,
-            title="Volume vs Price Change"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        # Drop rows with missing or invalid data for plotting
+        scatter_df = df.dropna(subset=['24h Change', 'Volume', 'Price'])
+        if not scatter_df.empty:
+            fig = px.scatter(
+                scatter_df,
+                x='24h Change',
+                y='Volume',
+                size='Price',
+                color='Symbol',
+                hover_name='Project',
+                log_y=True,
+                title="Volume vs Price Change"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Not enough data available for volume analysis.")
     
     # News section
     st.markdown("---")
