@@ -19,59 +19,6 @@ import requests
 from pytz import timezone
 from streamlit_autorefresh import st_autorefresh
 
-# ---- Institutional Adoption Data ----
-institutional_adoption = [
-    {
-        "Institution": "Franklin Templeton",
-        "Project/Token": "BENJI",
-        "Initiative": "Tokenized US Govt. Money Fund (Stellar/Polygon)",
-        "Summary": "First major asset manager to issue a regulated US fund as blockchain tokens."
-    },
-    {
-        "Institution": "BlackRock",
-        "Project/Token": "ONDO (partner)",
-        "Initiative": "Tokenized Treasuries & Partnerships",
-        "Summary": "Partners with Ondo to bring tokenized treasuries to institutions and DeFi."
-    },
-    {
-        "Institution": "Ondo Finance",
-        "Project/Token": "ONDO",
-        "Initiative": "Tokenized Treasuries",
-        "Summary": "Institutional partnerships with BlackRock, Morgan Stanley, and others."
-    },
-    {
-        "Institution": "Backed Finance",
-        "Project/Token": "bCSPX",
-        "Initiative": "Tokenized ETFs/Stocks",
-        "Summary": "Swiss-regulated tokenization of ETFs like iShares S&P 500."
-    },
-    {
-        "Institution": "Maple Finance",
-        "Project/Token": "MPL",
-        "Initiative": "On-chain Institutional Lending",
-        "Summary": "Lends to hedge funds, market makers, and now RWA borrowers."
-    },
-    {
-        "Institution": "Centrifuge",
-        "Project/Token": "CFG",
-        "Initiative": "RWA Lending Pools",
-        "Summary": "Works with fintechs and institutions to onboard real-world assets."
-    },
-    {
-        "Institution": "Aave/Maker/Compound/Synthetix/Curve",
-        "Project/Token": "AAVE, MKR, COMP, SNX, CRV",
-        "Initiative": "DeFi Blue Chip RWA Integration",
-        "Summary": "Protocols integrating RWA as collateral or lending assets."
-    },
-    {
-        "Institution": "Polymesh",
-        "Project/Token": "POLYX",
-        "Initiative": "Regulated Digital Securities",
-        "Summary": "Adopted by broker-dealers and banks for compliant digital assets."
-    },
-]
-institutional_df = pd.DataFrame(institutional_adoption)
-
 st.set_page_config(page_title="Multi-Source Crypto Dashboard", page_icon="₿", layout="wide")
 TIMEZONE = timezone('UTC')
 REFRESH_INTERVAL = 300  # seconds
@@ -185,6 +132,111 @@ def get_df_filtered(df, category, source, symbol, token_type, min_volume=None):
         df_filtered = df_filtered[df_filtered["Volume"].apply(lambda x: (isinstance(x, (int, float, np.floating, np.integer)) and x >= min_volume))]
     return df_filtered
 
+# --- Institutional Adoption Table (your preferred format) ---
+institutional_adoption = [
+    {
+        "Token": "BENJI",
+        "Project": "Franklin Templeton",
+        "Type": "Asset-backed",
+        "Adopted By": "Franklin Templeton",
+        "Price Feed": "N/A",
+        "Volume": "N/A",
+        "Notes/Links": "[Official site](https://www.franklintempleton.com/)"
+    },
+    {
+        "Token": "ONDO",
+        "Project": "Ondo Finance",
+        "Type": "Governance",
+        "Adopted By": "BlackRock, Morgan Stanley",
+        "Price Feed": "Yes",
+        "Volume": "High",
+        "Notes/Links": "[Institutional news](https://www.ondo.finance/blog/ondo-blackrock-institutional-partners)"
+    },
+    {
+        "Token": "bCSPX",
+        "Project": "Backed Finance",
+        "Type": "Asset-backed",
+        "Adopted By": "Backed, iShares",
+        "Price Feed": "N/A",
+        "Volume": "Low",
+        "Notes/Links": "[Swiss regulatory](https://backed.fi/)"
+    },
+    {
+        "Token": "MPL",
+        "Project": "Maple Finance",
+        "Type": "Governance",
+        "Adopted By": "Maple, Wintermute",
+        "Price Feed": "Yes",
+        "Volume": "Medium",
+        "Notes/Links": "[Maple Finance](https://maple.finance/)"
+    },
+    {
+        "Token": "CFG",
+        "Project": "Centrifuge",
+        "Type": "Governance",
+        "Adopted By": "Centrifuge, fintechs",
+        "Price Feed": "Yes",
+        "Volume": "Medium",
+        "Notes/Links": "[Centrifuge](https://centrifuge.io/)"
+    },
+    {
+        "Token": "POLYX",
+        "Project": "Polymesh",
+        "Type": "Governance",
+        "Adopted By": "Broker-dealers, banks",
+        "Price Feed": "Yes",
+        "Volume": "Low",
+        "Notes/Links": "[Polymesh](https://polymesh.network/)"
+    },
+    {
+        "Token": "AAVE",
+        "Project": "Aave",
+        "Type": "Governance",
+        "Adopted By": "Indirect via RWA vaults",
+        "Price Feed": "Yes",
+        "Volume": "High",
+        "Notes/Links": "[Aave](https://aave.com/)"
+    },
+    {
+        "Token": "MKR",
+        "Project": "Maker",
+        "Type": "Governance",
+        "Adopted By": "Indirect via RWA onboarding",
+        "Price Feed": "Yes",
+        "Volume": "High",
+        "Notes/Links": "[MakerDAO](https://makerdao.com/)"
+    },
+    {
+        "Token": "COMP",
+        "Project": "Compound",
+        "Type": "Governance",
+        "Adopted By": "Indirect via DeFi lending",
+        "Price Feed": "Yes",
+        "Volume": "Medium",
+        "Notes/Links": "[Compound](https://compound.finance/)"
+    },
+    {
+        "Token": "SNX",
+        "Project": "Synthetix",
+        "Type": "Governance",
+        "Adopted By": "Indirect via DeFi collateral",
+        "Price Feed": "Yes",
+        "Volume": "Medium",
+        "Notes/Links": "[Synthetix](https://synthetix.io/)"
+    },
+    {
+        "Token": "CRV",
+        "Project": "Curve Finance",
+        "Type": "Governance",
+        "Adopted By": "Indirect via DeFi collateral",
+        "Price Feed": "Yes",
+        "Volume": "Medium",
+        "Notes/Links": "[Curve](https://curve.fi/)"
+    },
+    # Add more tokens as needed
+]
+institutional_df = pd.DataFrame(institutional_adoption)
+
 def main():
     st.title("🌐 Multi-Source Crypto Dashboard")
     now = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -291,30 +343,24 @@ def main():
         }
     )
 
-    # --- Cross-linked Institutional Adoption Panel ---
-    st.markdown("## 🏦 Institutional Adoption Cross-Link")
+    # --- Institutional Adoption Table, Cross-linked ---
+    st.markdown("## 🏦 Institutional Adoption Overview")
     sel_symbols = filtered_df["Symbol"].unique().tolist()
     if sel_symbols:
         selected_token = st.selectbox(
-            "Select a token to view institutional adoption details:",
+            "Select a token to view institutional adoption table:",
             options=sel_symbols,
             index=0
         )
-        related_institutions = institutional_df[
-            institutional_df['Project/Token'].str.contains(selected_token, case=False, na=False)
-        ]
-        st.markdown(f"### Institutional Adoption for **{selected_token}**")
-        if not related_institutions.empty:
+        filtered_institutional = institutional_df[institutional_df['Token'] == selected_token]
+        if not filtered_institutional.empty:
             st.dataframe(
-                related_institutions[["Institution", "Initiative", "Summary"]],
+                filtered_institutional[["Token", "Project", "Type", "Adopted By", "Price Feed", "Volume", "Notes/Links"]],
                 use_container_width=True,
                 hide_index=True
             )
-            for _, row in related_institutions.iterrows():
-                with st.expander(f"{row['Institution']} — {row['Initiative']}"):
-                    st.markdown(f"**Summary:** {row['Summary']}")
         else:
-            st.info("No direct institutional adoption data found for this token/project.")
+            st.info("No institutional adoption data found for this token.")
     else:
         st.info("No tokens in filtered list to cross-link.")
 
