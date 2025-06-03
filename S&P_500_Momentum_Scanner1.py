@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -118,7 +117,7 @@ def calculate_momentum(hist):
         momentum_score += 15
     if plus_di_last > minus_di_last:
         momentum_score += 10
-        
+            
     return {
         "EMA20": round(ema20, 2),
         "EMA50": round(ema50, 2),
@@ -287,7 +286,8 @@ if st.session_state.initial_results:
         (filtered["Momentum_Score"] >= min_score) &
         (filtered["Trend"].isin(selected_trends)) &
         (filtered["Price"].between(*price_range)) &
-        (filtered["Exchange"].isin(selected_exchanges))
+        (filtered["Exchange"].isin(selected_exchanges)) &
+        (filtered["ADX"] > 25)  # <--- ADX filter added here
     ].sort_values("Momentum_Score", ascending=False)
     
     st.session_state.filtered_results = filtered
