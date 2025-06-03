@@ -182,8 +182,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             
         # Calculate price changes
         current_price = hist['Close'].iloc[-1]
-        five_day_change = ((current_price/hist['Close'].iloc[-5]-1)*100 if len(hist) >= 5 else None
-        twenty_day_change = ((current_price/hist['Close'].iloc[-20]-1)*100 if len(hist) >= 20 else None
+        five_day_change = ((current_price/hist['Close'].iloc[-5]-1)*100) if len(hist) >= 5 else None
+        twenty_day_change = ((current_price/hist['Close'].iloc[-20]-1)*100) if len(hist) >= 20 else None
         
         return {
             "Symbol": _ticker,
