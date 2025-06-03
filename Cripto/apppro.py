@@ -7,6 +7,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder
 import requests
 from PIL import Image
 import io
+import base64  # Needed for logo encoding
 
 # App configuration
 st.set_page_config(
@@ -19,15 +20,9 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
 <style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    .st-b7 {
-        color: #2c3e50;
-    }
-    .header {
-        color: #3498db;
-    }
+    .main { background-color: #f8f9fa; }
+    .st-b7 { color: #2c3e50; }
+    .header { color: #3498db; }
     .metric-card {
         border-radius: 10px;
         padding: 15px;
@@ -35,12 +30,8 @@ st.markdown("""
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
     }
-    .positive {
-        color: #27ae60;
-    }
-    .negative {
-        color: #e74c3c;
-    }
+    .positive { color: #27ae60; }
+    .negative { color: #e74c3c; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,7 +50,7 @@ def load_company_data():
             "Asset mgmt, DeFi, app integration",
             "Super-app for banking + crypto"
         ],
-        "Market Cap (B)": [50.2, 12.8, 45.3, 1.8, 7.5]  # Example data
+        "Market Cap (B)": [50.2, 12.8, 45.3, 1.8, 7.5]
     })
 
 @st.cache_data(ttl=3600)
@@ -86,7 +77,6 @@ def load_token_data():
 def fetch_price_data(tickers, days=30):
     end_date = datetime.now()
     start_date = end_date - timedelta(days=days)
-    
     try:
         data = yf.download(
             " ".join(tickers),
@@ -107,6 +97,14 @@ def fetch_token_logo(token_symbol):
         return Image.open(io.BytesIO(response.content))
     except:
         return None
+
+# Helper function for image handling
+def logo_to_base64(image):
+    if image:
+        buffered = io.BytesIO()
+        image.save(buffered, format="PNG")
+        return base64.b64encode(buffered.getvalue()).decode()
+    return ""
 
 # Load data
 companies_df = load_company_data()
@@ -144,9 +142,7 @@ selected_tokens = st.sidebar.multiselect(
 
 # Main content
 st.title("🚀 App-Layer Investment Dashboard")
-st.markdown("""
-    <p class="header">Track publicly traded companies and tokens with strong app-layer network effects</p>
-""", unsafe_allow_html=True)
+st.markdown('<p class="header">Track publicly traded companies and tokens with strong app-layer network effects</p>', unsafe_allow_html=True)
 
 # Metrics row
 col1, col2, col3 = st.columns(3)
@@ -188,7 +184,6 @@ if not filtered_companies.empty:
     gb.configure_side_bar()
     gb.configure_default_column(groupable=True, value=True, enableRowGroup=True, aggFunc="sum", editable=False)
     grid_options = gb.build()
-    
     AgGrid(
         filtered_companies,
         gridOptions=grid_options,
@@ -197,14 +192,11 @@ if not filtered_companies.empty:
         width="100%",
         theme="streamlit"
     )
-    
     # Price charts
     st.subheader("Price Performance")
     price_data = fetch_price_data(filtered_companies["Ticker"].tolist(), selected_days)
-    
     if not price_data.empty:
         tab1, tab2 = st.tabs(["Individual Performance", "Comparative Analysis"])
-        
         with tab1:
             cols = st.columns(2)
             for i, (_, row) in enumerate(filtered_companies.iterrows()):
@@ -224,16 +216,13 @@ if not filtered_companies.empty:
                             margin=dict(l=20, r=20, t=40, b=20)
                         )
                         st.plotly_chart(fig, use_container_width=True)
-        
         with tab2:
             closing_prices = pd.DataFrame()
             for ticker in filtered_companies["Ticker"]:
                 if ticker in price_data:
                     closing_prices[ticker] = price_data[ticker]["Close"]
-            
             # Normalize to percentage change
             norm_prices = closing_prices.apply(lambda x: x / x.iloc[0] * 100)
-            
             fig = px.line(
                 norm_prices,
                 title="Normalized Price Comparison (Base 100)",
@@ -245,7 +234,6 @@ if not filtered_companies.empty:
                 margin=dict(l=20, r=20, t=40, b=20)
             )
             st.plotly_chart(fig, use_container_width=True)
-            
             # Performance metrics
             st.subheader("Performance Metrics")
             metrics = []
@@ -258,7 +246,6 @@ if not filtered_companies.empty:
                     high = df["Close"].max()
                     low = df["Close"].min()
                     vol = df["Volume"].mean()
-                    
                     metrics.append({
                         "Ticker": ticker,
                         "Start Price": f"${first:.2f}",
@@ -268,7 +255,6 @@ if not filtered_companies.empty:
                         "Low": f"${low:.2f}",
                         "Avg Vol": f"{vol:,.0f}"
                     })
-            
             st.dataframe(pd.DataFrame(metrics), hide_index=True)
 else:
     st.warning("No companies match your selected filters.")
@@ -278,7 +264,7 @@ st.header("Token Analysis")
 filtered_tokens = tokens_df[tokens_df["Token"].isin(selected_tokens)]
 
 if not filtered_tokens.empty:
-    # Token cards
+    # Token cards (retain only necessary HTML for layout)
     cols = st.columns(3)
     for i, (_, row) in enumerate(filtered_tokens.iterrows()):
         with cols[i % 3]:
@@ -298,7 +284,6 @@ if not filtered_tokens.empty:
                     <p><strong>Composability:</strong> {row['Composability']}</p>
                 </div>
             """, unsafe_allow_html=True)
-    
     # Token metrics table
     st.subheader("Token Metrics Comparison")
     st.dataframe(
@@ -313,52 +298,5 @@ else:
 st.header("Research & Insights")
 with st.expander("Investment Thesis"):
     st.markdown("""
-    ### App-Layer Investment Framework
-    
-    **Key Characteristics to Evaluate:**
-    
-    1. **Network Effects** - Does usage by one user increase value for other users?
-    2. **Revenue Generation** - Does the protocol generate real fees from users?
-    3. **Composability** - Can the protocol be easily integrated with other systems?
-    4. **User Growth** - Is adoption increasing over time?
-    5. **Token Utility** - Does the token have clear utility beyond speculation?
-    
-    **Metrics to Track:**
-    - For Companies: Revenue growth, user growth, profit margins
-    - For Tokens: TVL, transaction volume, active addresses, fee generation
-    """)
-
-with st.expander("Sector Analysis"):
-    st.markdown("""
-    ### App-Layer Sector Breakdown
-    
-    **1. Decentralized Exchanges (DEXs)**
-    - Provide non-custodial trading
-    - Revenue from trading fees
-    - Example: Uniswap (UNI)
-    
-    **2. Lending Protocols**
-    - Enable permissionless borrowing/lending
-    - Revenue from interest spreads
-    - Example: Aave (AAVE)
-    
-    **3. Asset Management**
-    - Yield aggregation and optimization
-    - Revenue from performance fees
-    - Example: Yearn Finance (YFI)
-    
-    **4. Infrastructure**
-    - Core protocols enabling app-layer functionality
-    - Example: Lido (LDO) for liquid staking
-    """)
-
-# Helper function for image handling
-def logo_to_base64(image):
-    if image:
-        buffered = io.BytesIO()
-        image.save(buffered, format="PNG")
-        return base64.b64encode(buffered.getvalue()).decode()
-    return ""
-
-# Add some base64 encoding imports at the top if using the logo function
-import base64
+    ### App*
+
