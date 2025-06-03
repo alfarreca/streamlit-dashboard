@@ -1,14 +1,14 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
 from bs4 import BeautifulSoup
 from pytz import timezone
 import numpy as np
+from streamlit_autorefresh import st_autorefresh  # <-- NEW IMPORT
 
 # Configure page
 st.set_page_config(
@@ -42,7 +42,7 @@ st.markdown("""
 
 # Constants
 TIMEZONE = timezone('UTC')
-REFRESH_INTERVAL = 300
+REFRESH_INTERVAL = 300  # seconds
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
 # Initialize session state for API source tracking
@@ -144,6 +144,10 @@ def main():
         st.header("Configuration")
         auto_refresh = st.checkbox("Enable auto-refresh", value=True)
     
+    # Auto-refresh using streamlit-autorefresh
+    if auto_refresh:
+        st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
+    
     # Crypto data configuration
     crypto_data = [
         {"Token ID": "UNI-USD", "Symbol": "UNI", "Project": "Uniswap"},
@@ -229,6 +233,7 @@ def main():
     
     with tab2:
         source_counts = df['Source'].value_counts().reset_index()
+        source_counts.columns = ['Source', 'count']
         fig = px.pie(
             source_counts,
             names='Source',
@@ -241,11 +246,6 @@ def main():
             title="Data Source Distribution"
         )
         st.plotly_chart(fig, use_container_width=True)
-    
-    # Auto-refresh logic
-    if auto_refresh:
-        time.sleep(REFRESH_INTERVAL)
-        st.rerun()
 
 if __name__ == "__main__":
     main()
