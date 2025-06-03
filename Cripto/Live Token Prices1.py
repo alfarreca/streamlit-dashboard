@@ -14,7 +14,6 @@ TIMEZONE = timezone('UTC')
 REFRESH_INTERVAL = 300  # seconds
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
-# --- SESSION STATE ---
 if 'data_sources' not in st.session_state:
     st.session_state.data_sources = {}
 if 'last_updated' not in st.session_state:
@@ -44,7 +43,7 @@ def get_coingecko_data(ticker_id):
             'Volume': [v[1] for v in hist_data['total_volumes']]
         }).set_index('Date')
         return current_price, daily_change, weekly_change, hist_df
-    except Exception as e:
+    except Exception:
         return None, None, None, None
 
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner=False)
@@ -62,7 +61,7 @@ def get_yahoo_crypto_data(ticker):
         daily_change = ((current_price - prev_price) / prev_price) * 100 if prev_price else 0
         weekly_change = ((current_price - week_ago_price) / week_ago_price) * 100 if week_ago_price else 0
         return current_price, daily_change, weekly_change, hist
-    except Exception as e:
+    except Exception:
         return None, None, None, None
 
 def get_crypto_data(ticker, symbol):
@@ -85,10 +84,8 @@ def get_crypto_data(ticker, symbol):
 
 def format_percent(x):
     if isinstance(x, (float, int, np.floating, np.integer)):
-        color = "green" if x > 0 else ("red" if x < 0 else "gray")
-        emoji = "🟢" if x > 0 else ("🔴" if x < 0 else "⚪")
-        return f"{emoji} <span style='color:{color}'>{x:+.2f}%</span>"
-    return x  # leaves "N/A" or other strings untouched
+        return f"{x:+.2f}%"
+    return x
 
 def format_currency(val):
     if isinstance(val, (float, int, np.floating, np.integer)):
@@ -120,12 +117,10 @@ def get_df_filtered(df, category, source, symbol):
 # --- MAIN APP ---
 def main():
     st.title("🌐 Multi-Source Crypto Dashboard")
-    # Show last updated time
     now = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S UTC")
     st.session_state.last_updated = now
     st.markdown(f"**Last Updated:** {now}")
 
-    # --- SIDEBAR ---
     with st.sidebar:
         st.header("Filters & Controls")
         auto_refresh = st.checkbox("Enable auto-refresh", value=True)
@@ -244,7 +239,7 @@ def main():
         symbol_filter = st.selectbox("Symbol", symbols)
         st.markdown("---")
         st.write("**Table Legend:**")
-        st.help("🟢 Green: Positive change\n🔴 Red: Negative change\n⚪ Gray: No change\nN/A: Not available")
+        st.info("+5.37% = gain, -2.12% = loss, N/A = Not available.")
 
     # --- Table Formatting ---
     df_display = df.copy()
@@ -258,7 +253,6 @@ def main():
 
     # --- Table Display ---
     st.markdown("### Token Market Data")
-    st.markdown("_Click a row for more details and a 7-day chart (where available)._")
     st.dataframe(
         filtered_df[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
         use_container_width=True,
