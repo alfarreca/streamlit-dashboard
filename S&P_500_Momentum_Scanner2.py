@@ -432,8 +432,8 @@ def display_symbol_details(selected_symbol):
                 
                 # Progress bars
                 st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
-                st.progress(min(100, symbol_data["RSI"]), text="RSI")
-                st.progress(min(100, symbol_data["ADX"]/50*100), text="ADX Trend Strength")
+                st.progress(symbol_data["RSI"]/100, text="RSI")
+                st.progress(min(symbol_data["ADX"]/50, 1.0), text="ADX Trend Strength")
             
             with tab3:
                 try:
