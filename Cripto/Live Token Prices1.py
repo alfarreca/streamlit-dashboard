@@ -148,16 +148,56 @@ def main():
     if auto_refresh:
         st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
     
-    # Crypto data configuration
+    # Crypto data configuration (now with 'Purpose')
     crypto_data = [
-        {"Token ID": "UNI-USD", "Symbol": "UNI", "Project": "Uniswap"},
-        {"Token ID": "AAVE-USD", "Symbol": "AAVE", "Project": "Aave"},
-        {"Token ID": "DYDX", "Symbol": "DYDX", "Project": "dYdX"},
-        {"Token ID": "CRV", "Symbol": "CRV", "Project": "Curve Finance"},
-        {"Token ID": "ONDO", "Symbol": "ONDO", "Project": "Ondo Finance"},
-        {"Token ID": "MPL", "Symbol": "MPL", "Project": "Maple Finance"},
-        {"Token ID": "CFG", "Symbol": "CFG", "Project": "Centrifuge"},
-        {"Token ID": "POLYX", "Symbol": "POLYX", "Project": "Polymesh"},
+        {
+            "Token ID": "UNI-USD",
+            "Symbol": "UNI",
+            "Project": "Uniswap",
+            "Purpose": "Uniswap is a decentralized exchange (DEX) protocol that allows users to swap various cryptocurrencies directly from their wallets. The UNI token is used for governance of the Uniswap protocol."
+        },
+        {
+            "Token ID": "AAVE-USD",
+            "Symbol": "AAVE",
+            "Project": "Aave",
+            "Purpose": "Aave is a decentralized finance (DeFi) protocol for lending and borrowing crypto assets. The AAVE token is used for governance and staking within the protocol."
+        },
+        {
+            "Token ID": "DYDX",
+            "Symbol": "DYDX",
+            "Project": "dYdX",
+            "Purpose": "dYdX is a decentralized derivatives exchange. The DYDX token is used for governance and as a reward within the platform."
+        },
+        {
+            "Token ID": "CRV",
+            "Symbol": "CRV",
+            "Project": "Curve Finance",
+            "Purpose": "Curve Finance is a decentralized exchange optimized for stablecoin trading. The CRV token is used for governance and incentivizing liquidity providers."
+        },
+        {
+            "Token ID": "ONDO",
+            "Symbol": "ONDO",
+            "Project": "Ondo Finance",
+            "Purpose": "Ondo Finance is a DeFi protocol focused on institutional-grade investment products. The ONDO token is used for governance and utility within the platform."
+        },
+        {
+            "Token ID": "MPL",
+            "Symbol": "MPL",
+            "Project": "Maple Finance",
+            "Purpose": "Maple Finance is a decentralized corporate credit marketplace. The MPL token is used for governance and staking."
+        },
+        {
+            "Token ID": "CFG",
+            "Symbol": "CFG",
+            "Project": "Centrifuge",
+            "Purpose": "Centrifuge is a protocol for financing real-world assets on-chain. The CFG token is used for staking, paying transaction fees, and governance."
+        },
+        {
+            "Token ID": "POLYX",
+            "Symbol": "POLYX",
+            "Project": "Polymesh",
+            "Purpose": "Polymesh is a blockchain built for regulated assets. The POLYX token is used for paying transaction fees and governance."
+        },
     ]
     
     df = pd.DataFrame(crypto_data)
@@ -194,16 +234,7 @@ def main():
             return '<span class="data-source-tag yahoo-tag">Yahoo</span>'
     
     st.dataframe(
-        df.style.format({
-            "Price": "${:.4f}",
-            "24h Change": "{:.2f}%",
-            "7d Trend": "{:.2f}%",
-            "Volume": "{:,.0f}",
-            "Source": format_source
-        }).applymap(
-            lambda x: "color: #00D1B2" if isinstance(x, (int, float)) and x >= 0 else "color: #FF4B4B", 
-            subset=["24h Change", "7d Trend"]
-        ),
+        df[["Symbol", "Project", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
         use_container_width=True,
         height=500,
         column_config={
@@ -211,6 +242,13 @@ def main():
         }
     )
     
+    st.markdown("---")
+    st.markdown("### Token Explanations")
+
+    for i, row in df.iterrows():
+        with st.expander(f"{row['Symbol']} ({row['Project']})"):
+            st.info(row["Purpose"])
+
     # Visualization section
     st.markdown("---")
     st.subheader("Multi-Source Performance")
