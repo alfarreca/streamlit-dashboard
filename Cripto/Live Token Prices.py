@@ -77,15 +77,15 @@ def get_yahoo_crypto_data(ticker, days=7):
         hist = data.history(period=f"{days}d", interval="1d")
         
         if hist.empty:
-            return None, None, None
+            return None, None, None, None   # Always return 4 values
         
         # Calculate metrics
         current_price = hist['Close'].iloc[-1]
         prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
         week_ago_price = hist['Close'].iloc[0] if len(hist) > 1 else current_price
         
-        daily_change = ((current_price - prev_price) / prev_price) * 100
-        weekly_change = ((current_price - week_ago_price) / week_ago_price) * 100
+        daily_change = ((current_price - prev_price) / prev_price) * 100 if prev_price else 0
+        weekly_change = ((current_price - week_ago_price) / week_ago_price) * 100 if week_ago_price else 0
         
         return current_price, daily_change, weekly_change, hist
     
@@ -237,6 +237,11 @@ def main():
                 df.at[i, '24h Change'] = daily_change
                 df.at[i, '7d Trend'] = weekly_change
                 df.at[i, 'Volume'] = hist['Volume'].iloc[-1] if hist is not None else 0
+            else:
+                df.at[i, 'Price'] = np.nan
+                df.at[i, '24h Change'] = np.nan
+                df.at[i, '7d Trend'] = np.nan
+                df.at[i, 'Volume'] = np.nan
             
             progress_bar.progress((i + 1) / len(df))
     
