@@ -203,8 +203,8 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
             "Symbol": _ticker,
             "Exchange": exchange,
             "Price": round(current_price, 2),
-            "5D_Change": round(five_day_change, 1) if five_day_change else None,
-            "20D_Change": round(twenty_day_change, 1) if twenty_day_change else None,
+            "5D_Change": round(five_day_change, 1) if five_day_change is not None else None,
+            "20D_Change": round(twenty_day_change, 1) if twenty_day_change is not None else None,
             **momentum_data,
             "Last_Updated": datetime.now(pytz.timezone(TIMEZONE)).strftime("%Y-%m-%d %H:%M"),
             "YF_Symbol": yf_symbol
@@ -213,4 +213,4 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         st.warning(f"Error processing {_ticker}: {str(e)}")
         return None
 
-# The rest of the code (sidebar, filtering, UI, etc.) is as in your file above—if you need the rest, let me know!
+# ... rest of your script remains unchanged ...
