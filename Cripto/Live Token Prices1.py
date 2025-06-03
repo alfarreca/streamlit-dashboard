@@ -3,11 +3,9 @@ import pandas as pd
 import yfinance as yf
 from datetime import datetime
 import plotly.express as px
-import plotly.graph_objects as go
-import requests
-from bs4 import BeautifulSoup
-from pytz import timezone
 import numpy as np
+import requests
+from pytz import timezone
 from streamlit_autorefresh import st_autorefresh
 
 # Configure page
@@ -52,31 +50,23 @@ def get_coingecko_data(ticker_id):
         price_url = f"{COINGECKO_API_URL}/simple/price?ids={ticker_id}&vs_currencies=usd&include_24hr_change=true"
         price_response = requests.get(price_url, timeout=10)
         price_data = price_response.json().get(ticker_id, {})
-
         if not price_data:
             return None, None, None, None
-
         current_price = price_data.get('usd')
         daily_change = price_data.get('usd_24h_change', 0)
-
         hist_url = f"{COINGECKO_API_URL}/coins/{ticker_id}/market_chart?vs_currency=usd&days=7"
         hist_response = requests.get(hist_url, timeout=10)
         hist_data = hist_response.json()
-
         if not hist_data.get('prices'):
             return current_price, daily_change, 0, None
-
         prices = [p[1] for p in hist_data['prices']]
         weekly_change = ((prices[-1] - prices[0]) / prices[0]) * 100 if prices[0] else 0
-
         hist_df = pd.DataFrame({
             'Date': [datetime.fromtimestamp(p[0]/1000) for p in hist_data['prices']],
             'Close': [p[1] for p in hist_data['prices']],
             'Volume': [v[1] for v in hist_data['total_volumes']]
         }).set_index('Date')
-
         return current_price, daily_change, weekly_change, hist_df
-
     except Exception as e:
         st.error(f"CoinGecko API error for {ticker_id}: {str(e)}")
         return None, None, None, None
@@ -88,25 +78,19 @@ def get_yahoo_crypto_data(ticker):
         yahoo_ticker = f"{base_ticker}-USD"
         data = yf.Ticker(yahoo_ticker)
         hist = data.history(period="7d", interval="1d")
-
         if hist.empty:
             return None, None, None, None
-
         current_price = hist['Close'].iloc[-1]
         prev_price = hist['Close'].iloc[-2] if len(hist) > 1 else current_price
         week_ago_price = hist['Close'].iloc[0] if len(hist) > 1 else current_price
-
         daily_change = ((current_price - prev_price) / prev_price) * 100 if prev_price else 0
         weekly_change = ((current_price - week_ago_price) / week_ago_price) * 100 if week_ago_price else 0
-
         return current_price, daily_change, weekly_change, hist
-
     except Exception as e:
         st.error(f"Yahoo Finance error for {ticker}: {str(e)}")
         return None, None, None, None
 
 def get_crypto_data(ticker, symbol):
-    # For tokens without public price feeds, return None (will show as N/A)
     tokens_without_price = ['Various', 'bCSPX', 'REALTOKEN']
     coingecko_mapping = {
         "UNI": "uniswap",
@@ -114,7 +98,6 @@ def get_crypto_data(ticker, symbol):
         "CFG": "centrifuge",
         "ONDO": "ondo-finance"
     }
-
     if symbol in tokens_without_price or ticker in tokens_without_price:
         st.session_state.data_sources[symbol] = "N/A"
         return None, None, None, None
@@ -125,10 +108,14 @@ def get_crypto_data(ticker, symbol):
         st.session_state.data_sources[symbol] = "Yahoo Finance"
         return get_yahoo_crypto_data(ticker)
 
+def format_percent(x):
+    if isinstance(x, (float, int, np.floating, np.integer)):
+        return f"{x:+.2f}%"
+    return x  # leaves "N/A" or other strings untouched
+
 def main():
     st.title("🌐 Multi-Source Crypto Dashboard")
     st.markdown("---")
-
     with st.sidebar:
         st.header("Data Sources")
         st.info("""
@@ -139,12 +126,10 @@ def main():
         st.markdown("---")
         st.header("Configuration")
         auto_refresh = st.checkbox("Enable auto-refresh", value=True)
-
     if auto_refresh:
         st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
 
     crypto_data = [
-        # DeFi and RWA tokens
         {
             "Category": "DeFi",
             "Project": "Uniswap",
@@ -218,7 +203,6 @@ def main():
     ]
 
     df = pd.DataFrame(crypto_data)
-
     for col in ["Price", "24h Change", "7d Trend", "Volume", "Source"]:
         if col not in df.columns:
             df[col] = np.nan
@@ -243,8 +227,13 @@ def main():
                 df.at[i, 'Source'] = st.session_state.data_sources.get(symbol, "N/A")
             progress_bar.progress((i + 1) / len(df))
 
+    # Format percent change columns for display
+    df_display = df.copy()
+    for col in ["24h Change", "7d Trend"]:
+        df_display[col] = df_display[col].apply(format_percent)
+
     st.dataframe(
-        df[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
+        df_display[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
         use_container_width=True,
         height=500,
         column_config={
