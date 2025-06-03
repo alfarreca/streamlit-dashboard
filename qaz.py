@@ -47,7 +47,7 @@ with st.sidebar:
     price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
     exchange_options = df["Exchange"].unique()
     selected_exchanges = st.multiselect("Exchanges", options=exchange_options, default=list(exchange_options))
-    adx_filter = st.checkbox("Only show ADX > 25 (Strong Trends)", value=False)
+    # ADX filter is now always applied, so no checkbox needed
 
 # ========== DATA PROCESSING ==========
 if not df.empty:
@@ -56,7 +56,7 @@ if not df.empty:
         (df["Trend"].isin(selected_trends)) &
         (df["Price"].between(*price_range)) &
         (df["Exchange"].isin(selected_exchanges)) &
-        ((df["ADX"] > 25) if adx_filter else True)
+        (df["ADX"] > 25)   # ADX filter for tradable trends
     ].sort_values("Momentum_Score", ascending=False)
     st.session_state.filtered_results = filtered
     st.subheader("Filtered Results")
