@@ -8,42 +8,19 @@ import requests
 from pytz import timezone
 from streamlit_autorefresh import st_autorefresh
 
-# Configure page
-st.set_page_config(
-    page_title="Multi-Source Crypto Dashboard",
-    page_icon="₿",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.markdown("""
-<style>
-    .main {
-        background-color: #0E1117;
-    }
-    .data-source-tag {
-        font-size: 0.8rem;
-        padding: 2px 6px;
-        border-radius: 4px;
-        background: #333;
-        color: white;
-    }
-    .coingecko-tag {
-        background: #8CC63F;
-    }
-    .yahoo-tag {
-        background: #720E9E;
-    }
-</style>
-""", unsafe_allow_html=True)
-
+# --- CONFIG ---
+st.set_page_config(page_title="Multi-Source Crypto Dashboard", page_icon="₿", layout="wide")
 TIMEZONE = timezone('UTC')
 REFRESH_INTERVAL = 300  # seconds
 COINGECKO_API_URL = "https://api.coingecko.com/api/v3"
 
+# --- SESSION STATE ---
 if 'data_sources' not in st.session_state:
     st.session_state.data_sources = {}
+if 'last_updated' not in st.session_state:
+    st.session_state.last_updated = None
 
+# --- DATA FETCHING HELPERS ---
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner=False)
 def get_coingecko_data(ticker_id):
     try:
@@ -68,7 +45,6 @@ def get_coingecko_data(ticker_id):
         }).set_index('Date')
         return current_price, daily_change, weekly_change, hist_df
     except Exception as e:
-        st.error(f"CoinGecko API error for {ticker_id}: {str(e)}")
         return None, None, None, None
 
 @st.cache_data(ttl=REFRESH_INTERVAL, show_spinner=False)
@@ -87,7 +63,6 @@ def get_yahoo_crypto_data(ticker):
         weekly_change = ((current_price - week_ago_price) / week_ago_price) * 100 if week_ago_price else 0
         return current_price, daily_change, weekly_change, hist
     except Exception as e:
-        st.error(f"Yahoo Finance error for {ticker}: {str(e)}")
         return None, None, None, None
 
 def get_crypto_data(ticker, symbol):
@@ -110,25 +85,55 @@ def get_crypto_data(ticker, symbol):
 
 def format_percent(x):
     if isinstance(x, (float, int, np.floating, np.integer)):
-        return f"{x:+.2f}%"
+        color = "green" if x > 0 else ("red" if x < 0 else "gray")
+        emoji = "🟢" if x > 0 else ("🔴" if x < 0 else "⚪")
+        return f"{emoji} <span style='color:{color}'>{x:+.2f}%</span>"
     return x  # leaves "N/A" or other strings untouched
 
+def format_currency(val):
+    if isinstance(val, (float, int, np.floating, np.integer)):
+        return f"${val:,.2f}"
+    return val
+
+def format_volume(val):
+    if isinstance(val, (float, int, np.floating, np.integer)):
+        if val >= 1e9:
+            return f"${val/1e9:.2f}B"
+        elif val >= 1e6:
+            return f"${val/1e6:.2f}M"
+        elif val >= 1e3:
+            return f"${val/1e3:.2f}K"
+        else:
+            return f"${val:.0f}"
+    return val
+
+def get_df_filtered(df, category, source, symbol):
+    df_filtered = df.copy()
+    if category != "All":
+        df_filtered = df_filtered[df_filtered["Category"] == category]
+    if source != "All":
+        df_filtered = df_filtered[df_filtered["Source"] == source]
+    if symbol != "All":
+        df_filtered = df_filtered[df_filtered["Symbol"] == symbol]
+    return df_filtered
+
+# --- MAIN APP ---
 def main():
     st.title("🌐 Multi-Source Crypto Dashboard")
-    st.markdown("---")
-    with st.sidebar:
-        st.header("Data Sources")
-        st.info("""
-        - UNI, MPL, CFG, ONDO: CoinGecko API
-        - Others: Yahoo Finance
-        - Some RWA tokens have no public price feed and show as N/A
-        """)
-        st.markdown("---")
-        st.header("Configuration")
-        auto_refresh = st.checkbox("Enable auto-refresh", value=True)
-    if auto_refresh:
-        st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
+    # Show last updated time
+    now = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S UTC")
+    st.session_state.last_updated = now
+    st.markdown(f"**Last Updated:** {now}")
 
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.header("Filters & Controls")
+        auto_refresh = st.checkbox("Enable auto-refresh", value=True)
+        if auto_refresh:
+            st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="datarefresh")
+        st.markdown("---")
+        st.header("Filter Tokens")
+    
     crypto_data = [
         {
             "Category": "DeFi",
@@ -203,7 +208,7 @@ def main():
     ]
 
     df = pd.DataFrame(crypto_data)
-    for col in ["Price", "24h Change", "7d Trend", "Volume", "Source"]:
+    for col in ["Price", "24h Change", "7d Trend", "Volume", "Source", "Hist"]:
         if col not in df.columns:
             df[col] = np.nan
 
@@ -219,39 +224,73 @@ def main():
                 df.at[i, '7d Trend'] = weekly_change
                 df.at[i, 'Volume'] = hist['Volume'].iloc[-1] if hist is not None and 'Volume' in hist.columns else 0
                 df.at[i, 'Source'] = st.session_state.data_sources.get(symbol, "Unknown")
+                df.at[i, 'Hist'] = hist
             else:
                 df.at[i, 'Price'] = "N/A"
                 df.at[i, '24h Change'] = "N/A"
                 df.at[i, '7d Trend'] = "N/A"
                 df.at[i, 'Volume'] = "N/A"
                 df.at[i, 'Source'] = st.session_state.data_sources.get(symbol, "N/A")
+                df.at[i, 'Hist'] = None
             progress_bar.progress((i + 1) / len(df))
 
-    # Format percent change columns for display
+    # --- Sidebar Filtering ---
+    categories = ["All"] + sorted(df["Category"].unique())
+    data_sources = ["All"] + sorted(df["Source"].unique())
+    symbols = ["All"] + sorted(df["Symbol"].unique())
+    with st.sidebar:
+        category_filter = st.selectbox("Category", categories)
+        source_filter = st.selectbox("Data Source", data_sources)
+        symbol_filter = st.selectbox("Symbol", symbols)
+        st.markdown("---")
+        st.write("**Table Legend:**")
+        st.help("🟢 Green: Positive change\n🔴 Red: Negative change\n⚪ Gray: No change\nN/A: Not available")
+
+    # --- Table Formatting ---
     df_display = df.copy()
+    df_display["Price"] = df_display["Price"].apply(format_currency)
+    df_display["Volume"] = df_display["Volume"].apply(format_volume)
     for col in ["24h Change", "7d Trend"]:
         df_display[col] = df_display[col].apply(format_percent)
 
+    # --- Filtering ---
+    filtered_df = get_df_filtered(df_display, category_filter, source_filter, symbol_filter)
+
+    # --- Table Display ---
+    st.markdown("### Token Market Data")
+    st.markdown("_Click a row for more details and a 7-day chart (where available)._")
     st.dataframe(
-        df_display[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
+        filtered_df[["Category", "Project", "Symbol", "Price", "24h Change", "7d Trend", "Volume", "Source"]],
         use_container_width=True,
         height=500,
+        hide_index=True,
         column_config={
             "Source": st.column_config.TextColumn("Data Source")
         }
     )
 
+    # --- Expandable Detail Section ---
     st.markdown("---")
-    st.markdown("### Token Explanations")
-    for i, row in df.iterrows():
+    st.markdown("### Token Explanations & Charts")
+    for i, row in filtered_df.iterrows():
         with st.expander(f"{row['Symbol']} ({row['Project']})"):
-            st.info(row["Purpose"])
+            st.markdown(f"**Purpose:** {row['Purpose']}")
+            st.markdown(f"**Category:** {row['Category']}")
+            st.markdown(f"**Source:** {row['Source']}")
+            if isinstance(row["Price"], str) and row["Price"] == "N/A":
+                st.info("No public price feed available for this token.")
+            elif isinstance(df.loc[df_display.index[i], "Hist"], pd.DataFrame):
+                hist = df.loc[df_display.index[i], "Hist"]
+                fig = px.line(hist, y="Close", title=f"{row['Symbol']} 7-day Price Trend (USD)")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No historical chart data available.")
 
+    # --- Visualization ---
     st.markdown("---")
     st.subheader("Multi-Source Performance")
     tab1, tab2 = st.tabs(["Price Comparison", "Source Distribution"])
     with tab1:
-        # Only plot rows with numeric price data for bar chart
         display_df = df[df["24h Change"].apply(lambda x: isinstance(x, (int, float, np.floating, np.integer)))]
         if not display_df.empty:
             fig = px.bar(
