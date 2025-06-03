@@ -185,6 +185,7 @@ with st.sidebar:
     price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
     exchange_options = df["Exchange"].unique()
     selected_exchanges = st.multiselect("Exchanges", options=exchange_options, default=["NASDAQ", "NYSE"])
+    adx_threshold = st.slider("Minimum ADX (Trend Strength)", 10, 50, 25, 1)  # <--- ADX filter slider
 
 # ========== DATA PROCESSING ==========
 if not st.session_state.initial_results:
@@ -287,7 +288,7 @@ if st.session_state.initial_results:
         (filtered["Trend"].isin(selected_trends)) &
         (filtered["Price"].between(*price_range)) &
         (filtered["Exchange"].isin(selected_exchanges)) &
-        (filtered["ADX"] > 25)  # <--- ADX filter added here
+        (filtered["ADX"] > adx_threshold)  # <--- Use the slider value
     ].sort_values("Momentum_Score", ascending=False)
     
     st.session_state.filtered_results = filtered
