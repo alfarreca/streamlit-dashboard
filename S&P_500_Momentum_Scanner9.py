@@ -1,35 +1,21 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-
-# --- Try import external libraries and handle errors gracefully ---
-try:
-    import yfinance as yf
-except ImportError:
-    st.error("yfinance is not installed. Please run: pip install yfinance")
-    st.stop()
-try:
-    import gspread
-except ImportError:
-    st.error("gspread is not installed. Please run: pip install gspread")
-    st.stop()
+import yfinance as yf
 
 # --- Google Sheets Ticker Fetch ---
 def get_tickers_from_google_sheet():
     try:
-        # For Streamlit Cloud: use secrets
-        if "gcp_service_account" in st.secrets:
-            gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
-        else:
-            # For local: set your actual path below
-            gc = gspread.service_account(filename="your/path/to/service_account.json")
+        import gspread
+        # Streamlit Cloud: use secrets
+        gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
         sheet = gc.open_by_key('1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg')
-        worksheet = sheet.sheet1  # Or .worksheet('Sheet Name') if your sheet has a name
+        worksheet = sheet.sheet1  # Or use .worksheet('Sheet Name') for a named sheet
         tickers = worksheet.col_values(1)
         # Optionally skip header if present
         if tickers and tickers[0].strip().upper() in {"TICKER", "SYMBOL"}:
             tickers = tickers[1:]
-        return [t for t in tickers if t]  # filter empty entries
+        return [t for t in tickers if t]
     except Exception as e:
         st.warning(f"Could not fetch tickers from Google Sheet: {e}")
         return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]  # fallback
