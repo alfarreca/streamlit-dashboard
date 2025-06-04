@@ -3,11 +3,11 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Utility: Safe yfinance fetch ---
+# --- Utility: Safe yfinance fetch with underscore argument for Streamlit caching ---
 @st.cache_data(show_spinner=False)
-def safe_yfinance_fetch(ticker_obj, period="6mo", interval="1d"):
+def safe_yfinance_fetch(_ticker_obj, period="6mo", interval="1d"):
     try:
-        hist = ticker_obj.history(period=period, interval=interval)
+        hist = _ticker_obj.history(period=period, interval=interval)
         if isinstance(hist, pd.DataFrame) and not hist.empty:
             return hist
         return pd.DataFrame()
@@ -118,10 +118,10 @@ def display_symbol_details(selected_symbol, yf_symbol=None):
                     st.plotly_chart(create_dmi_chart(hist, selected_symbol), use_container_width=True)
                     with st.expander("DMI Indicators Interpretation"):
                         st.markdown("""
-                        - **+DI (Green)**: Measures upward movement strength
-                        - **-DI (Red)**: Measures downward movement strength
-                        - **ADX (Blue)**: Measures trend strength (values > 25 suggest strong trend)
-                        - **Bullish Signal**: +DI crosses above -DI
+                        - **+DI (Green)**: Measures upward movement strength  
+                        - **-DI (Red)**: Measures downward movement strength  
+                        - **ADX (Blue)**: Measures trend strength (values > 25 suggest strong trend)  
+                        - **Bullish Signal**: +DI crosses above -DI  
                         - **Bearish Signal**: -DI crosses above +DI
                         """)
                 else:
