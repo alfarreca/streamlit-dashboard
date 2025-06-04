@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go
 
 # --- Google Sheet ticker fetch ---
-GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg/export?format=csv"
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg/export?format=csv&gid=339688377"
 
 @st.cache_data(show_spinner=False)
 def get_tickers_from_google_sheet():
