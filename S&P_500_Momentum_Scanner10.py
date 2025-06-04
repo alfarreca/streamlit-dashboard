@@ -10,7 +10,7 @@ import numpy as np
 # ========== CONFIGURATION ==========
 MAX_WORKERS = 8
 CACHE_TTL = 3600 * 12  # 12 hours
-PRELOAD_SYMBOLS = 50
+PRELOAD_SYMBOLS = 510   # <--- CHANGED FROM 50 TO 510
 BATCH_SIZE = 100
 TIMEZONE = 'America/New_York'
 
