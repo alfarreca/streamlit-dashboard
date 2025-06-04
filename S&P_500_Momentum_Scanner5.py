@@ -2,10 +2,10 @@ import streamlit as st
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ---- Configurable constant ----
+# --- Configurable constant ---
 MAX_WORKERS = 8  # Adjust as needed
 
-# ---- PLACEHOLDER: Replace with your actual implementation ----
+# --- PLACEHOLDER FUNCTION DEFINITIONS ---
 def get_google_sheet_data():
     # TODO: Replace with your code to fetch data from Google Sheets.
     # Must return a pandas DataFrame with columns: Symbol, Exchange, etc.
@@ -20,7 +20,7 @@ def map_to_yfinance_symbol(symbol, exchange):
     return symbol
 
 def get_ticker_data(symbol, exchange, yf_symbol):
-    # TODO: Replace with your data fetching logic
+    # TODO: Replace with your actual data fetching logic
     # Must return a dictionary with at least Symbol, Exchange, Momentum_Score
     return {"Symbol": symbol, "Exchange": exchange, "Momentum_Score": 75}
 
@@ -32,7 +32,7 @@ def display_symbol_details(symbol):
     st.subheader(f"Details for: {symbol}")
     st.write("...")  # Replace with your custom details
 
-# ---- MAIN APP LOGIC ----
+# --- MAIN APP LOGIC ---
 def main():
     st.set_page_config(page_title="S&P 500 Momentum Scanner", layout="wide")
     st.title("S&P 500 Momentum Scanner")
@@ -119,6 +119,6 @@ def main():
         if st.session_state.selected_symbol:
             display_symbol_details(st.session_state.selected_symbol)
 
-# ---- ENSURE THE APP RUNS ----
+# --- ENSURE THE APP RUNS ---
 if __name__ == "__main__":
     main()
