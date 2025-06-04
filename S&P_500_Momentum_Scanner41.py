@@ -302,8 +302,13 @@ def main():
 
     if not filtered.empty:
         symbol_options = ["— Select a symbol —"] + filtered["Symbol"].tolist()
-        selected = st.selectbox("Select a symbol for details", symbol_options)
-        if selected and selected != "— Select a symbol —":
+        selected = st.selectbox(
+            "Select a symbol for details",
+            symbol_options,
+            index=0,  # Ensures placeholder is default
+            key="symbol_select"
+        )
+        if selected != "— Select a symbol —":
             display_symbol_details(selected)
 
 if __name__ == "__main__":
