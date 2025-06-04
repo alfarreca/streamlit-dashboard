@@ -1,25 +1,35 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
+
+# --- Try import external libraries and handle errors gracefully ---
+try:
+    import yfinance as yf
+except ImportError:
+    st.error("yfinance is not installed. Please run: pip install yfinance")
+    st.stop()
+try:
+    import gspread
+except ImportError:
+    st.error("gspread is not installed. Please run: pip install gspread")
+    st.stop()
 
 # --- Google Sheets Ticker Fetch ---
 def get_tickers_from_google_sheet():
     try:
-        import gspread
         # For Streamlit Cloud: use secrets
         if "gcp_service_account" in st.secrets:
             gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
         else:
-            # For local: replace with your local path
-            gc = gspread.service_account(filename="path/to/your/service_account.json")
+            # For local: set your actual path below
+            gc = gspread.service_account(filename="your/path/to/service_account.json")
         sheet = gc.open_by_key('1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg')
         worksheet = sheet.sheet1  # Or .worksheet('Sheet Name') if your sheet has a name
         tickers = worksheet.col_values(1)
         # Optionally skip header if present
         if tickers and tickers[0].strip().upper() in {"TICKER", "SYMBOL"}:
             tickers = tickers[1:]
-        return [t for t in tickers if t]  # filter empty
+        return [t for t in tickers if t]  # filter empty entries
     except Exception as e:
         st.warning(f"Could not fetch tickers from Google Sheet: {e}")
         return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]  # fallback
@@ -38,6 +48,8 @@ def fetch_history(symbol, period="6mo", interval="1d"):
 
 # --- DMI/ADX chart ---
 def create_dmi_chart(hist, symbol):
+    if hist.empty or not all(col in hist.columns for col in ['High', 'Low', 'Close']):
+        return go.Figure()
     high = hist['High']
     low = hist['Low']
     close = hist['Close']
@@ -73,7 +85,7 @@ def create_dmi_chart(hist, symbol):
             title='DMI Values',
             overlaying='y',
             side='right',
-            range=[0, max(plus_di.max(), minus_di.max(), adx.max()) * 1.1]
+            range=[0, max(plus_di.max(), minus_di.max(), adx.max()) * 1.1 if not pd.isna(adx.max()) else 30]
         ),
         hovermode='x unified',
         height=400,
@@ -84,6 +96,8 @@ def create_dmi_chart(hist, symbol):
 
 # --- Price & Volume chart ---
 def create_price_chart(hist, symbol):
+    if hist.empty or not all(col in hist.columns for col in ['Open', 'High', 'Low', 'Close', 'Volume']):
+        return go.Figure()
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
         x=hist.index,
