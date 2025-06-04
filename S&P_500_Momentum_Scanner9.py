@@ -10,7 +10,6 @@ GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1sNYUiP4Pl8GVYQ1S
 def get_tickers_from_google_sheet():
     try:
         df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
-        # Adjust 'Symbol' if your column header is different
         col = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
         tickers = df[col].dropna().unique().tolist()
         return tickers
@@ -18,11 +17,12 @@ def get_tickers_from_google_sheet():
         st.error(f"Error loading ticker list: {e}")
         return []
 
-# --- yfinance data fetch (cached, _ticker_obj is not hashed) ---
+# --- yfinance data fetch (cache only DataFrame) ---
 @st.cache_data(show_spinner=False)
-def safe_yfinance_fetch(_ticker_obj, period="6mo", interval="1d"):
+def fetch_history(symbol, period="6mo", interval="1d"):
     try:
-        hist = _ticker_obj.history(period=period, interval=interval)
+        ticker_obj = yf.Ticker(symbol)
+        hist = ticker_obj.history(period=period, interval=interval)
         if isinstance(hist, pd.DataFrame) and not hist.empty:
             return hist
         return pd.DataFrame()
@@ -113,31 +113,23 @@ def display_symbol_details(selected_symbol):
     with st.spinner(f'Loading {selected_symbol} analysis...'):
         try:
             st.subheader(f"{selected_symbol} Detailed Analysis")
+            hist = fetch_history(selected_symbol)
+            if hist.empty:
+                st.warning("Could not load price history for chart or indicators")
+                return
             tab1, tab2 = st.tabs(["Price Chart", "DMI Indicators"])
-
-            ticker_obj = yf.Ticker(selected_symbol)
-
             with tab1:
-                hist = safe_yfinance_fetch(ticker_obj)
-                if not hist.empty:
-                    st.plotly_chart(create_price_chart(hist, selected_symbol), use_container_width=True)
-                else:
-                    st.warning("Could not load price history for chart")
-
+                st.plotly_chart(create_price_chart(hist, selected_symbol), use_container_width=True)
             with tab2:
-                hist = safe_yfinance_fetch(ticker_obj)
-                if not hist.empty:
-                    st.plotly_chart(create_dmi_chart(hist, selected_symbol), use_container_width=True)
-                    with st.expander("DMI Indicators Interpretation"):
-                        st.markdown("""
-                        - **+DI (Green)**: Measures upward movement strength  
-                        - **-DI (Red)**: Measures downward movement strength  
-                        - **ADX (Blue)**: Measures trend strength (values > 25 suggest strong trend)  
-                        - **Bullish Signal**: +DI crosses above -DI  
-                        - **Bearish Signal**: -DI crosses above +DI
-                        """)
-                else:
-                    st.warning("Could not load price history for DMI chart")
+                st.plotly_chart(create_dmi_chart(hist, selected_symbol), use_container_width=True)
+                with st.expander("DMI Indicators Interpretation"):
+                    st.markdown("""
+                    - **+DI (Green)**: Measures upward movement strength  
+                    - **-DI (Red)**: Measures downward movement strength  
+                    - **ADX (Blue)**: Measures trend strength (values > 25 suggest strong trend)  
+                    - **Bullish Signal**: +DI crosses above -DI  
+                    - **Bearish Signal**: -DI crosses above +DI
+                    """)
         except Exception as e:
             st.error(f"Error loading {selected_symbol}: {str(e)}")
 
