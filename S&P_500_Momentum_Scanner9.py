@@ -3,19 +3,10 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Google Sheet ticker fetch ---
-GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg/export?format=csv&gid=339688377"
-
-@st.cache_data(show_spinner=False)
+# --- Static ticker list fallback ---
 def get_tickers_from_google_sheet():
-    try:
-        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
-        col = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
-        tickers = df[col].dropna().unique().tolist()
-        return tickers
-    except Exception as e:
-        st.error(f"Error loading ticker list: {e}")
-        return []
+    # Use your preferred list of tickers here.
+    return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
 
 # --- yfinance data fetch (cache only DataFrame) ---
 @st.cache_data(show_spinner=False)
@@ -53,7 +44,8 @@ def create_dmi_chart(hist, symbol):
     adx = dx.rolling(14).mean()
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name='Price', line=dict(color='#1f77b4'), yaxis='y1'))
+    # Price line is now yellow!
+    fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name='Price', line=dict(color='yellow'), yaxis='y1'))
     fig.add_trace(go.Scatter(x=hist.index, y=plus_di, name='+DI', line=dict(color='green'), yaxis='y2'))
     fig.add_trace(go.Scatter(x=hist.index, y=minus_di, name='-DI', line=dict(color='red'), yaxis='y2'))
     fig.add_trace(go.Scatter(x=hist.index, y=adx, name='ADX', line=dict(color='blue', width=2), yaxis='y2'))
