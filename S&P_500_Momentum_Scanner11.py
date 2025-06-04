@@ -174,3 +174,11 @@ def create_dmi_chart(hist, symbol):
         yaxis2=dict(
             title='DMI Values',
             overlaying='y',
+            side='right'
+        ),
+        legend=dict(x=0, y=1.1, orientation='h'),
+        template='plotly_dark'
+    )
+    return fig
+
+# The rest of your Streamlit app logic should follow here...
