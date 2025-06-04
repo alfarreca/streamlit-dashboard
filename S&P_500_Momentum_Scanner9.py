@@ -3,7 +3,22 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Utility: Safe yfinance fetch with underscore argument for Streamlit caching ---
+# --- Google Sheet ticker fetch ---
+GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg2/export?format=csv"
+
+@st.cache_data(show_spinner=False)
+def get_tickers_from_google_sheet():
+    try:
+        df = pd.read_csv(GOOGLE_SHEET_CSV_URL)
+        # Adjust 'Symbol' if your column header is different
+        col = 'Symbol' if 'Symbol' in df.columns else df.columns[0]
+        tickers = df[col].dropna().unique().tolist()
+        return tickers
+    except Exception as e:
+        st.error(f"Error loading ticker list: {e}")
+        return []
+
+# --- yfinance data fetch (cached, _ticker_obj is not hashed) ---
 @st.cache_data(show_spinner=False)
 def safe_yfinance_fetch(_ticker_obj, period="6mo", interval="1d"):
     try:
@@ -14,7 +29,7 @@ def safe_yfinance_fetch(_ticker_obj, period="6mo", interval="1d"):
     except Exception:
         return pd.DataFrame()
 
-# --- Chart: DMI/ADX ---
+# --- DMI/ADX chart ---
 def create_dmi_chart(hist, symbol):
     high = hist['High']
     low = hist['Low']
@@ -60,7 +75,7 @@ def create_dmi_chart(hist, symbol):
     )
     return fig
 
-# --- Chart: Price with Volume (example) ---
+# --- Price & Volume chart ---
 def create_price_chart(hist, symbol):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -91,7 +106,7 @@ def create_price_chart(hist, symbol):
     return fig
 
 # --- Symbol Details Display ---
-def display_symbol_details(selected_symbol, yf_symbol=None):
+def display_symbol_details(selected_symbol):
     if not selected_symbol:
         st.info("Please select a symbol.")
         return
@@ -100,11 +115,9 @@ def display_symbol_details(selected_symbol, yf_symbol=None):
             st.subheader(f"{selected_symbol} Detailed Analysis")
             tab1, tab2 = st.tabs(["Price Chart", "DMI Indicators"])
 
-            if yf_symbol is None:
-                yf_symbol = selected_symbol
+            ticker_obj = yf.Ticker(selected_symbol)
 
             with tab1:
-                ticker_obj = yf.Ticker(yf_symbol)
                 hist = safe_yfinance_fetch(ticker_obj)
                 if not hist.empty:
                     st.plotly_chart(create_price_chart(hist, selected_symbol), use_container_width=True)
@@ -112,7 +125,6 @@ def display_symbol_details(selected_symbol, yf_symbol=None):
                     st.warning("Could not load price history for chart")
 
             with tab2:
-                ticker_obj = yf.Ticker(yf_symbol)
                 hist = safe_yfinance_fetch(ticker_obj)
                 if not hist.empty:
                     st.plotly_chart(create_dmi_chart(hist, selected_symbol), use_container_width=True)
@@ -133,11 +145,12 @@ def display_symbol_details(selected_symbol, yf_symbol=None):
 def main():
     st.title("S&P 500 Momentum Scanner")
     st.sidebar.header("Select Stock Symbol")
-    # --- Example: static list, replace with your logic/dynamic loading as needed
-    symbols = ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'TSLA']
+    symbols = get_tickers_from_google_sheet()
+    if not symbols:
+        st.error("No symbols loaded from Google Sheet.")
+        return
     selected = st.sidebar.selectbox("Symbol", symbols)
-    yf_symbol = selected  # Adjust if your yfinance symbol differs
-    display_symbol_details(selected, yf_symbol)
+    display_symbol_details(selected)
 
 if __name__ == "__main__":
     main()
