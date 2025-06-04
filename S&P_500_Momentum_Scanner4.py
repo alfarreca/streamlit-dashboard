@@ -238,7 +238,6 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
         return None
 
 # ========== STREAMLIT UI ==========
-
 def display_results(filtered_df):
     """Display the filtered results in a professional table"""
     if filtered_df.empty:
@@ -314,4 +313,137 @@ def display_symbol_details(selected_symbol):
                 ))
                 fig.add_trace(go.Scatter(
                     x=hist.index, y=hist['Close'].ewm(span=50).mean(),
-                    name='50 EMA', line=dict
+                    name='50 EMA', line=dict(color='red', width=2)
+                ))
+                fig.add_trace(go.Scatter(
+                    x=hist.index, y=hist['Close'].ewm(span=200).mean(),
+                    name='200 EMA', line=dict(color='purple', width=2)
+                ))
+                fig.update_layout(
+                    title=f"{selected_symbol} Price Chart",
+                    height=500,
+                    showlegend=True,
+                    xaxis_rangeslider_visible=False
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            with tab2:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Current Price", f"${symbol_data['Price']:,.2f}")
+                    st.metric("5-Day Change", f"{symbol_data['5D_Change']:.1f}%")
+                    st.metric("20-Day Change", f"{symbol_data['20D_Change']:.1f}%")
+                with col2:
+                    st.metric("Momentum Score", symbol_data["Momentum_Score"])
+                    st.metric("Trend Strength", symbol_data["Trend"])
+                    st.metric("ADX", symbol_data["ADX"])
+                with col3:
+                    st.metric("RSI", symbol_data["RSI"])
+                    st.metric("MACD Histogram", f"{symbol_data['MACD_Hist']:.3f}")
+                    st.metric("Volume Ratio", f"{symbol_data['Volume_Ratio']:.2f}x")
+                st.progress(symbol_data["Momentum_Score"]/100, text="Momentum Strength")
+                st.progress(symbol_data["RSI"]/100, text="RSI")
+                st.progress(min(symbol_data["ADX"]/50, 1.0), text="ADX Trend Strength")
+
+            # === DI CROSSOVER SECTION: chart with crossovers for selected symbol
+            with tab3:
+                ticker = yf.Ticker(symbol_data["YF_Symbol"])
+                hist = safe_yfinance_fetch(ticker, "6mo")
+                plus_di, minus_di, bull_cross, bear_cross = calculate_di_crossovers(hist)
+                st.write("Recent +DI/-DI Crossovers:")
+                cross_df = pd.DataFrame({
+                    "Date": hist.index,
+                    "+DI": plus_di,
+                    "-DI": minus_di,
+                    "Bullish_Crossover": bull_cross,
+                    "Bearish_Crossover": bear_cross
+                }).set_index("Date")
+                st.dataframe(cross_df.tail(20)[["+DI", "-DI", "Bullish_Crossover", "Bearish_Crossover"]])
+
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots()
+                plus_di.plot(ax=ax, label="+DI", color='green')
+                minus_di.plot(ax=ax, label="-DI", color='red')
+                ax.scatter(
+                    cross_df.index[cross_df["Bullish_Crossover"]],
+                    plus_di[cross_df["Bullish_Crossover"]],
+                    marker='^', color='blue', label='Bullish Crossover'
+                )
+                ax.scatter(
+                    cross_df.index[cross_df["Bearish_Crossover"]],
+                    minus_di[cross_df["Bearish_Crossover"]],
+                    marker='v', color='black', label='Bearish Crossover'
+                )
+                ax.legend()
+                ax.set_title(f"{selected_symbol} +DI/-DI and Crossovers")
+                st.pyplot(fig)
+
+            with tab4:
+                try:
+                    info = ticker.info
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Market Cap", f"${info.get('marketCap', 'N/A')/1e9:,.2f}B" if info.get('marketCap') else "N/A")
+                        st.metric("P/E Ratio", info.get('trailingPE', 'N/A'))
+                        st.metric("EPS", info.get('trailingEps', 'N/A'))
+                        st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%" if info.get('dividendYield') else "0%")
+                    with col2:
+                        st.metric("52 Week High", f"${info.get('fiftyTwoWeekHigh', 'N/A'):,.2f}")
+                        st.metric("52 Week Low", f"${info.get('fiftyTwoWeekLow', 'N/A'):,.2f}")
+                        st.metric("Beta", info.get('beta', 'N/A'))
+                        st.metric("Average Volume", f"{info.get('averageVolume', 'N/A'):,.0f}")
+                except:
+                    st.warning("Could not load fundamental data for this stock")
+
+        except Exception as e:
+            st.error(f"Error loading {selected_symbol}: {str(e)}")
+
+def main():
+    st.set_page_config(page_title="S&P 500 Momentum Scanner", layout="wide")
+    st.title("S&P 500 Momentum Scanner")
+
+    # Load data from Google Sheets
+    df = get_google_sheet_data()
+    if df.empty:
+        st.warning("No data loaded from Google Sheets.")
+        return
+
+    # Map symbols to Yahoo Finance format
+    df["YF_Symbol"] = df.apply(
+        lambda row: map_to_yfinance_symbol(row["Symbol"], row["Exchange"]), axis=1
+    )
+
+    # User filters
+    exchanges = df["Exchange"].unique().tolist()
+    selected_exchange = st.sidebar.selectbox("Exchange", ["All"] + exchanges)
+    min_score = st.sidebar.slider("Min Momentum Score", 0, 100, 50)
+
+    # Preload ticker data (limit for demo speed, adjust as needed)
+    ticker_data = []
+    for idx, row in df.iterrows():
+        data = get_ticker_data(row["Symbol"], row["Exchange"], row["YF_Symbol"])
+        if data:
+            ticker_data.append(data)
+    results_df = pd.DataFrame(ticker_data)
+
+    # Apply filters
+    if selected_exchange != "All":
+        filtered = results_df[
+            (results_df["Momentum_Score"] >= min_score) &
+            (results_df["Exchange"] == selected_exchange)
+        ]
+    else:
+        filtered = results_df[results_df["Momentum_Score"] >= min_score]
+
+    st.session_state.filtered_results = filtered
+
+    # Show results table
+    display_results(filtered)
+
+    # Details for selected stock
+    if not filtered.empty:
+        selected = st.selectbox("Select a symbol for details", filtered["Symbol"])
+        display_symbol_details(selected)
+
+if __name__ == "__main__":
+    main()
