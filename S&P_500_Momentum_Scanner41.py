@@ -304,26 +304,23 @@ def main():
     if not filtered.empty:
         symbol_options = ["— Select a symbol —"] + filtered["Symbol"].tolist()
         placeholder = symbol_options[0]
+
+        # Always set or revalidate the session state value
         if "symbol_select" not in st.session_state or st.session_state["symbol_select"] not in symbol_options:
             st.session_state["symbol_select"] = placeholder
-
-        try:
-            current_index = symbol_options.index(st.session_state["symbol_select"])
-        except ValueError:
-            current_index = 0
 
         selected = st.selectbox(
             "Select a symbol for details",
             symbol_options,
-            index=current_index,
+            index=symbol_options.index(st.session_state["symbol_select"]),
             key="symbol_select_box"
         )
 
         if selected != st.session_state["symbol_select"]:
             st.session_state["symbol_select"] = selected
 
-        if selected != placeholder:
-            display_symbol_details(selected)
+        if st.session_state["symbol_select"] != placeholder:
+            display_symbol_details(st.session_state["symbol_select"])
 
 if __name__ == "__main__":
     main()
