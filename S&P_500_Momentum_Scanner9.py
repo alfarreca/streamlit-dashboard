@@ -3,10 +3,26 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 
-# --- Static ticker list fallback ---
+# --- Google Sheets Ticker Fetch ---
 def get_tickers_from_google_sheet():
-    # Use your preferred list of tickers here.
-    return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+    try:
+        import gspread
+        # For Streamlit Cloud: use secrets
+        if "gcp_service_account" in st.secrets:
+            gc = gspread.service_account_from_dict(dict(st.secrets["gcp_service_account"]))
+        else:
+            # For local: replace with your local path
+            gc = gspread.service_account(filename="path/to/your/service_account.json")
+        sheet = gc.open_by_key('1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg')
+        worksheet = sheet.sheet1  # Or .worksheet('Sheet Name') if your sheet has a name
+        tickers = worksheet.col_values(1)
+        # Optionally skip header if present
+        if tickers and tickers[0].strip().upper() in {"TICKER", "SYMBOL"}:
+            tickers = tickers[1:]
+        return [t for t in tickers if t]  # filter empty
+    except Exception as e:
+        st.warning(f"Could not fetch tickers from Google Sheet: {e}")
+        return ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]  # fallback
 
 # --- yfinance data fetch (cache only DataFrame) ---
 @st.cache_data(show_spinner=False)
@@ -44,7 +60,6 @@ def create_dmi_chart(hist, symbol):
     adx = dx.rolling(14).mean()
 
     fig = go.Figure()
-    # Price line is now yellow!
     fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name='Price', line=dict(color='yellow'), yaxis='y1'))
     fig.add_trace(go.Scatter(x=hist.index, y=plus_di, name='+DI', line=dict(color='green'), yaxis='y2'))
     fig.add_trace(go.Scatter(x=hist.index, y=minus_di, name='-DI', line=dict(color='red'), yaxis='y2'))
