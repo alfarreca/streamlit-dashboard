@@ -418,12 +418,25 @@ def main():
     selected_exchange = st.sidebar.selectbox("Exchange", ["All"] + exchanges)
     min_score = st.sidebar.slider("Min Momentum Score", 0, 100, 50)
 
-    # Preload ticker data (limit for demo speed, adjust as needed)
+    # (Optional) For faster testing, limit the number of symbols fetched:
+    # df = df.head(10)
+
+    # Parallel ticker data loading with progress bar
     ticker_data = []
-    for idx, row in df.iterrows():
-        data = get_ticker_data(row["Symbol"], row["Exchange"], row["YF_Symbol"])
-        if data:
-            ticker_data.append(data)
+    progress = st.progress(0, text="Fetching ticker data...")
+    total = len(df)
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [
+            executor.submit(get_ticker_data, row["Symbol"], row["Exchange"], row["YF_Symbol"])
+            for idx, row in df.iterrows()
+        ]
+        for i, f in enumerate(as_completed(futures)):
+            data = f.result()
+            if data:
+                ticker_data.append(data)
+            progress.progress((i + 1) / total, text=f"Processed {i+1}/{total} tickers")
+    progress.empty()
+
     results_df = pd.DataFrame(ticker_data)
 
     # Apply filters
