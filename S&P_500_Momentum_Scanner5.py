@@ -2,12 +2,12 @@ import streamlit as st
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- Configurable constant ---
-MAX_WORKERS = 8  # You can adjust this for performance
+# ---- Configurable constant ----
+MAX_WORKERS = 8  # Adjust as needed
 
-# --- PLACEHOLDER: Replace with your actual implementation ---
+# ---- PLACEHOLDER: Replace with your actual implementation ----
 def get_google_sheet_data():
-    # TODO: Replace with your code to fetch data from Google Sheets
+    # TODO: Replace with your code to fetch data from Google Sheets.
     # Must return a pandas DataFrame with columns: Symbol, Exchange, etc.
     return pd.DataFrame([
         {"Symbol": "AAPL", "Exchange": "NASDAQ"},
@@ -32,7 +32,7 @@ def display_symbol_details(symbol):
     st.subheader(f"Details for: {symbol}")
     st.write("...")  # Replace with your custom details
 
-# --- MAIN APP LOGIC ---
+# ---- MAIN APP LOGIC ----
 def main():
     st.set_page_config(page_title="S&P 500 Momentum Scanner", layout="wide")
     st.title("S&P 500 Momentum Scanner")
@@ -81,6 +81,7 @@ def main():
     results_df = pd.DataFrame(ticker_data)
     st.session_state["raw_results_df"] = results_df.copy()
 
+    # --- Filtering logic ---
     if not results_df.empty:
         results_df = results_df.reset_index(drop=True)
         if selected_exchange != "All":
@@ -98,22 +99,26 @@ def main():
 
     # --- Symbol selection and details ---
     if not filtered.empty:
+        symbols = filtered["Symbol"].tolist()
+        # Only set the default before the widget, never after!
         if (
             "selected_symbol" not in st.session_state
-            or st.session_state.selected_symbol not in filtered["Symbol"].values
+            or st.session_state.selected_symbol not in symbols
         ):
-            st.session_state.selected_symbol = filtered["Symbol"].iloc[0]
+            st.session_state.selected_symbol = symbols[0] if symbols else None
 
         selected = st.selectbox(
             "Select a symbol for details",
-            filtered["Symbol"],
-            index=filtered["Symbol"].tolist().index(st.session_state.selected_symbol),
+            symbols,
+            index=symbols.index(st.session_state.selected_symbol) if st.session_state.selected_symbol in symbols else 0,
             key="selected_symbol"
         )
 
-        st.session_state.selected_symbol = selected
-        display_symbol_details(selected)
+        # Do NOT assign to st.session_state.selected_symbol after the selectbox!
+        # Use the value directly for downstream processing
+        if st.session_state.selected_symbol:
+            display_symbol_details(st.session_state.selected_symbol)
 
-# --- ENSURE THE APP RUNS ON STREAMLIT CLOUD ---
+# ---- ENSURE THE APP RUNS ----
 if __name__ == "__main__":
     main()
