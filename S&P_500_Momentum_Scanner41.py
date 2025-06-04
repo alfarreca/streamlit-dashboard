@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -302,8 +301,10 @@ def main():
     display_results(filtered)
 
     if not filtered.empty:
-        selected = st.selectbox("Select a symbol for details", filtered["Symbol"])
-        display_symbol_details(selected)
+        symbol_options = ["— Select a symbol —"] + filtered["Symbol"].tolist()
+        selected = st.selectbox("Select a symbol for details", symbol_options)
+        if selected and selected != "— Select a symbol —":
+            display_symbol_details(selected)
 
 if __name__ == "__main__":
     main()
