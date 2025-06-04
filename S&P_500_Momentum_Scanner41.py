@@ -303,21 +303,26 @@ def main():
     # --- Sticky selectbox for ticker selection ---
     if not filtered.empty:
         symbol_options = ["— Select a symbol —"] + filtered["Symbol"].tolist()
-        if "symbol_select" not in st.session_state:
-            st.session_state["symbol_select"] = symbol_options[0]
+        placeholder = symbol_options[0]
+        if "symbol_select" not in st.session_state or st.session_state["symbol_select"] not in symbol_options:
+            st.session_state["symbol_select"] = placeholder
+
+        try:
+            current_index = symbol_options.index(st.session_state["symbol_select"])
+        except ValueError:
+            current_index = 0
 
         selected = st.selectbox(
             "Select a symbol for details",
             symbol_options,
-            index=symbol_options.index(st.session_state["symbol_select"]),
+            index=current_index,
             key="symbol_select_box"
         )
 
-        # Make the selection stick
         if selected != st.session_state["symbol_select"]:
             st.session_state["symbol_select"] = selected
 
-        if selected != "— Select a symbol —":
+        if selected != placeholder:
             display_symbol_details(selected)
 
 if __name__ == "__main__":
