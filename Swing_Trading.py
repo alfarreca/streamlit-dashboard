@@ -3,16 +3,10 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 from stocknews import StockNews
 from ta import add_all_ta_features
-from ta.momentum import RSIIndicator, StochasticOscillator
-from ta.trend import MACD, ADXIndicator
-from ta.volatility import BollingerBands
-from ta.volume import VolumeWeightedAveragePrice
 import warnings
 warnings.filterwarnings('ignore')
-import io
 
 # App configuration
 st.set_page_config(
@@ -46,7 +40,16 @@ if uploaded_file is not None:
             ticker_col = col
             break
     if ticker_col:
-        excel_ticker_list = df_excel[ticker_col].dropna().astype(str).str.upper().unique().tolist()
+        excel_ticker_list = (
+            df_excel[ticker_col]
+            .dropna()
+            .astype(str)
+            .str.upper()
+            .str.replace(r'^"|"$', '', regex=True)    # Remove leading/trailing quotes
+            .str.strip()
+            .unique()
+            .tolist()
+        )
         st.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
     else:
         st.error("Could not find a 'Ticker' or 'Symbol' column in your uploaded file.")
