@@ -48,7 +48,21 @@ st.sidebar.write(st.session_state.watchlist)
 
 def get_stock_data(ticker, period='6mo', interval='1d'):
     data = yf.download(ticker, period=period, interval=interval)
-    return add_all_ta_features(data, open="Open", high="High", low="Low", close="Close", volume="Volume") if not data.empty else pd.DataFrame()
+    if data.empty or len(data) < 2:
+        return pd.DataFrame()
+    try:
+        data = add_all_ta_features(
+            data,
+            open="Open",
+            high="High",
+            low="Low",
+            close="Close",
+            volume="Volume"
+        )
+    except Exception as e:
+        print(f"Technical analysis error for {ticker}: {e}")
+        return pd.DataFrame()
+    return data
 
 def scan_universe(universe, period='6mo'):
     results = []
