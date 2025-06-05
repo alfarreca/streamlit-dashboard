@@ -93,8 +93,11 @@ def display_results(results):
 
     tickers_list = filtered_df['ticker'].tolist()
     # Sticky selectbox logic
-    if 'selected_ticker' not in st.session_state or st.session_state.selected_ticker not in tickers_list:
-        st.session_state.selected_ticker = tickers_list[0] if len(tickers_list) > 0 else ""
+    if ('selected_ticker' not in st.session_state) or (st.session_state.selected_ticker not in tickers_list):
+        if tickers_list:
+            st.session_state.selected_ticker = tickers_list[0]
+        else:
+            st.session_state.selected_ticker = ""
 
     selected_ticker = st.selectbox(
         "Select stock for details",
@@ -115,20 +118,37 @@ def display_results(results):
 def main():
     st.set_page_config(page_title="Stock Analyzer", layout="wide")
     st.title("📈 S&P 500 Fundamental Analysis")
+
     uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
+
     if uploaded_file is not None:
-        tickers = get_tickers_from_excel(uploaded_file)
+        # Only load tickers if new file or not yet loaded
+        if "tickers" not in st.session_state or st.session_state.uploaded_file_name != uploaded_file.name:
+            tickers = get_tickers_from_excel(uploaded_file)
+            st.session_state.tickers = tickers
+            st.session_state.uploaded_file_name = uploaded_file.name
+            st.session_state.results = None  # Clear old results if new file
+        else:
+            tickers = st.session_state.tickers
+
         st.success(f"Loaded {len(tickers)} tickers from file")
+
         if st.button("Analyze Stocks"):
-            progress = st.progress(0)
-            data = []
-            for i, t in enumerate(tickers):
-                data.append(get_fundamentals(t))
-                progress.progress((i+1)/len(tickers))
-                time.sleep(0.1)
-            progress.empty()
-            results = calculate_scores(data)
-            display_results(results)
+            # Only calculate if not already done or new file uploaded
+            with st.spinner("Fetching data and calculating scores..."):
+                data = []
+                progress = st.progress(0)
+                for i, t in enumerate(tickers):
+                    data.append(get_fundamentals(t))
+                    progress.progress((i + 1) / len(tickers))
+                    time.sleep(0.1)
+                progress.empty()
+                results = calculate_scores(data)
+                st.session_state.results = results
+
+        # If results are in session_state, display them
+        if st.session_state.get("results") is not None:
+            display_results(st.session_state.results)
     else:
         st.info("Please upload an Excel file with tickers in the first column.")
 
