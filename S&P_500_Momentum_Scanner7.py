@@ -1,21 +1,29 @@
 import streamlit as st
 import yfinance as yf
+import plotly.graph_objs as go
+import pandas as pd
 
-# --- 1. Assume filtered_results is already in session_state ---
-# For demo purposes:
-# st.session_state.filtered_results = your_dataframe_with_symbol_column
+# --- 1. Dummy data for demonstration (REPLACE with your loader) ---
+# Remove/comment this and load your own DataFrame
+if "filtered_results" not in st.session_state:
+    # Demo DataFrame structure
+    st.session_state.filtered_results = pd.DataFrame([
+        {"Symbol": "AAPL", "YF_Symbol": "AAPL", "Price": 195.12, "5D_Change": 1.5, "20D_Change": 5.3, "Momentum_Score": 85, "Trend": "Strong", "ADX": 37, "RSI": 55, "MACD_Hist": 0.23, "Volume_Ratio": 1.8},
+        {"Symbol": "MSFT", "YF_Symbol": "MSFT", "Price": 400.54, "5D_Change": -0.8, "20D_Change": 3.2, "Momentum_Score": 73, "Trend": "Moderate", "ADX": 29, "RSI": 48, "MACD_Hist": -0.12, "Volume_Ratio": 0.95},
+    ])
 
-# --- 2. Setup Selectbox Options and Session State ---
-placeholder_option = "— Select a symbol —"
+df = st.session_state.filtered_results
 
-if "filtered_results" not in st.session_state or st.session_state.filtered_results.empty:
+if df.empty:
     st.warning("No stock data available. Please run your scan or load data.")
     st.stop()
 
-symbol_list = list(st.session_state.filtered_results["Symbol"].unique())
+# --- 2. Selectbox with sticky placeholder logic ---
+placeholder_option = "— Select a symbol —"
+symbol_list = list(df["Symbol"].unique())
 options = [placeholder_option] + symbol_list
 
-# Ensure selection persists
+# Ensure session_state is in sync
 if "selected_symbol" not in st.session_state or st.session_state.selected_symbol not in options:
     st.session_state.selected_symbol = placeholder_option
 
@@ -30,25 +38,22 @@ if selected_symbol == placeholder_option:
     st.info("Please select a symbol to view details.")
     st.stop()
 
-# --- 3. Defensive Check for DataFrame ---
-df = st.session_state.filtered_results[
-    st.session_state.filtered_results["Symbol"] == selected_symbol
-]
-if df.empty:
+# --- 3. Defensive Data Selection ---
+selected_df = df[df["Symbol"] == selected_symbol]
+if selected_df.empty:
     st.warning("No data found for this symbol.")
     st.stop()
-symbol_data = df.iloc[0]
+symbol_data = selected_df.iloc[0]
 
-# --- 4. Display Symbol Details (Modular) ---
+# --- 4. Utilities ---
 def safe_yfinance_fetch(ticker, period):
     try:
         return ticker.history(period=period)
     except Exception as e:
         st.error(f"Error fetching price data: {e}")
-        return None
+        return pd.DataFrame()
 
 def create_price_chart(hist, symbol):
-    import plotly.graph_objs as go
     fig = go.Figure(data=[go.Candlestick(
         x=hist.index,
         open=hist['Open'],
@@ -59,6 +64,7 @@ def create_price_chart(hist, symbol):
     fig.update_layout(title=f"{symbol} Price Chart")
     return fig
 
+# --- 5. Main Display ---
 def display_symbol_details(symbol_data):
     st.subheader(f"📊 {symbol_data['Symbol']} Detailed Analysis")
     tab1, tab2, tab3 = st.tabs(["Price Chart", "Technical Indicators", "Fundamentals"])
@@ -66,7 +72,7 @@ def display_symbol_details(symbol_data):
     with tab1:
         ticker = yf.Ticker(symbol_data["YF_Symbol"])
         hist = safe_yfinance_fetch(ticker, "6mo")
-        if hist is not None and not hist.empty:
+        if not hist.empty:
             st.plotly_chart(create_price_chart(hist, symbol_data['Symbol']), use_container_width=True)
         else:
             st.warning("Could not load price history for chart")
@@ -85,7 +91,6 @@ def display_symbol_details(symbol_data):
             st.metric("RSI", symbol_data["RSI"])
             st.metric("MACD Histogram", f"{symbol_data['MACD_Hist']:.3f}")
             st.metric("Volume Ratio", f"{symbol_data['Volume_Ratio']:.2f}x")
-
         st.progress(max(0, min(symbol_data["Momentum_Score"]/100, 1.0)), text="Momentum Strength")
         st.progress(max(0, min(symbol_data["RSI"]/100, 1.0)), text="RSI")
         st.progress(max(0, min(symbol_data["ADX"]/50, 1.0)), text="ADX Trend Strength")
