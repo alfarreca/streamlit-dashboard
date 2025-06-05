@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from ta import add_all_ta_features
+import time
 
 # --- Utilities ---
 def clean_tickers(ticker_list):
@@ -25,7 +26,7 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
             data, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
     except Exception as e:
-        print(f"TA error for {ticker}: {e}")
+        # Silently skip but could log: print(f"TA error for {ticker}: {e}")
         return pd.DataFrame()
     return data
 
@@ -43,7 +44,9 @@ st.set_page_config(
 )
 
 # --- Universe and Upload ---
-SCAN_UNIVERSE = ['AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX']
+SCAN_UNIVERSE = [
+    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
+]
 TIME_FRAMES = ['1d', '1wk']
 
 uploaded_file = st.file_uploader(
@@ -81,6 +84,7 @@ for ticker in st.session_state.watchlist:
 # --- Scanning Logic ---
 def scan_universe(universe, period='6mo', scan_type="Momentum Opportunities", min_score=0, max_results=10):
     results = []
+    failed = []
     progress_bar = st.progress(0)
     for i, ticker in enumerate(universe):
         ticker_clean = ticker.strip()
@@ -90,28 +94,34 @@ def scan_universe(universe, period='6mo', scan_type="Momentum Opportunities", mi
             if scan_type == "Momentum Opportunities":
                 score = score_momentum(data)
             else:
-                score = score_momentum(data)  # Placeholder: you can customize for each scan type
+                score = score_momentum(data)  # Placeholder: can customize for each scan type
             if score >= min_score:
                 results.append({'Ticker': ticker_clean, 'Score': score})
+        else:
+            failed.append(ticker_clean)
         progress_bar.progress((i + 1) / len(universe))
-    if results:
-        return pd.DataFrame(results).sort_values('Score', ascending=False).head(max_results)
-    else:
-        return pd.DataFrame()
+        time.sleep(0.08)  # tiny delay helps with Yahoo rate limits
+    df = pd.DataFrame(results).sort_values('Score', ascending=False).head(max_results) if results else pd.DataFrame()
+    return df, failed
 
 # --- Main Page ---
 if st.sidebar.button("Run Scan", type="primary"):
-    st.session_state.scanned_results = scan_universe(
+    results, failed = scan_universe(
         st.session_state.watchlist,
         period='6mo',
         scan_type=scan_type,
         min_score=min_score,
         max_results=max_results
     )
+    st.session_state.scanned_results = results
+    st.session_state.failed_tickers = failed
 
 if not st.session_state.get('scanned_results', pd.DataFrame()).empty:
     st.subheader("Scan Results")
     st.dataframe(st.session_state.scanned_results)
+    if 'failed_tickers' in st.session_state and st.session_state.failed_tickers:
+        st.warning(f"Failed to fetch data for {len(st.session_state.failed_tickers)} tickers. See list below:")
+        with st.expander("Show Failed Tickers"):
+            st.write(st.session_state.failed_tickers)
 else:
     st.info("Click 'Run Scan' to find swing trading opportunities")
-
