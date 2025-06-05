@@ -161,7 +161,7 @@ def get_ticker_data(_ticker, exchange, yf_symbol):
 
 # ========== STREAMLIT UI ==========
 st.set_page_config(layout="wide", page_title="Russell 2000 Momentum Scanner")
-st.title("🚀 Russell 2000 Momentum Scanner")
+st.title("ISHARES_Europe_Defence_Momentum_Scanner")
 
 # Initialize session state
 if 'full_data_loaded' not in st.session_state:
