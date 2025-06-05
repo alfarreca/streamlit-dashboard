@@ -1,13 +1,8 @@
 import streamlit as st
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
 import time
-
-# Configuration
-CREDENTIALS_FILE = 'credentials.json'
 
 SCORE_WEIGHTS = {
     'pe_ratio': 0.2,
@@ -19,14 +14,11 @@ SCORE_WEIGHTS = {
 }
 
 @st.cache_data(ttl=3600)
-def get_google_sheet_tickers(sheet_name, worksheet_name):
-    scope = ['https://spreadsheets.google.com/feeds',
-             'https://www.googleapis.com/auth/drive']
-    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open(sheet_name).worksheet(worksheet_name)
-    tickers = sheet.col_values(1)[1:]
-    return [ticker.strip() for ticker in tickers if ticker.strip()]
+def get_tickers_from_excel(uploaded_file):
+    df = pd.read_excel(uploaded_file)
+    # Assumes tickers are in first column
+    tickers = df.iloc[:, 0].dropna().astype(str).str.strip().tolist()
+    return tickers
 
 @st.cache_data(ttl=3600)
 def get_fundamentals(ticker):
@@ -60,54 +52,44 @@ def normalize_value(value, min_val, max_val, reverse=False):
 def calculate_scores(fundamentals_list):
     if not fundamentals_list:
         return []
-
     df = pd.DataFrame(fundamentals_list)
     metrics = {metric: {
         'min': df[metric].min(),
         'max': df[metric].max(),
         'reverse': metric in ['pe_ratio', 'peg_ratio', 'debt_to_equity']
     } for metric in SCORE_WEIGHTS}
-
     for metric, params in metrics.items():
         df[f'{metric}_score'] = df[metric].apply(
             lambda x: normalize_value(x, params['min'], params['max'], params['reverse']) * SCORE_WEIGHTS[metric]
         )
-
     df['total_score'] = df[[f'{m}_score' for m in SCORE_WEIGHTS]].sum(axis=1)
     min_score, max_score = df['total_score'].min(), df['total_score'].max()
     df['normalized_score'] = df['total_score'].apply(
         lambda x: ((x - min_score) / (max_score - min_score)) * 100 if max_score != min_score else 50
     )
-
     return df.to_dict('records')
 
 def display_results(results):
     if not results:
         st.warning("No results to display")
         return
-
     df = pd.DataFrame(results).sort_values('normalized_score', ascending=False)
-
     df['market_cap'] = df['market_cap'].apply(lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) else "N/A")
     df['price'] = df['price'].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
-
     st.columns(3)[0].metric("Total Stocks", len(df))
     st.columns(3)[1].metric("Highest Score", f"{df['normalized_score'].max():.1f}")
     st.columns(3)[2].metric("Average Score", f"{df['normalized_score'].mean():.1f}")
-
     min_score = st.slider("Minimum Score", 0, 100, 0)
     sectors = st.multiselect("Filter by Sector", df['sector'].unique(), df['sector'].unique())
-
     filtered_df = df[(df['normalized_score'] >= min_score) & (df['sector'].isin(sectors))]
-
     st.dataframe(filtered_df[['ticker', 'company_name', 'sector', 'normalized_score', 'price', 'market_cap']].rename(columns={
         'ticker': 'Ticker', 'company_name': 'Company', 'sector': 'Sector', 'normalized_score': 'Score',
         'price': 'Price', 'market_cap': 'Market Cap'
     }), use_container_width=True)
-
     csv = filtered_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, f"scores_{datetime.now().strftime('%Y%m%d')}.csv")
-
+    if len(filtered_df) == 0:
+        return
     selected_ticker = st.selectbox("Select stock for details", filtered_df['ticker'])
     selected_stock = df[df['ticker'] == selected_ticker].iloc[0]
     col1, col2 = st.columns(2)
@@ -121,18 +103,22 @@ def display_results(results):
 def main():
     st.set_page_config(page_title="Stock Analyzer", layout="wide")
     st.title("📈 S&P 500 Fundamental Analysis")
-
-    with st.expander("Settings"):
-        sheet_name = st.text_input("Google Sheet Name", "S&P 500 Tickers")
-        worksheet_name = st.text_input("Worksheet Name", "Tickers")
-
-    if st.button("Analyze Stocks"):
-        tickers = get_google_sheet_tickers(sheet_name, worksheet_name)
-        progress = st.progress(0)
-        data = [get_fundamentals(t) for t in tickers]
-        results = calculate_scores(data)
-        display_results(results)
-        progress.empty()
+    uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
+    if uploaded_file is not None:
+        tickers = get_tickers_from_excel(uploaded_file)
+        st.success(f"Loaded {len(tickers)} tickers from file")
+        if st.button("Analyze Stocks"):
+            progress = st.progress(0)
+            data = []
+            for i, t in enumerate(tickers):
+                data.append(get_fundamentals(t))
+                progress.progress((i+1)/len(tickers))
+                time.sleep(0.1)
+            progress.empty()
+            results = calculate_scores(data)
+            display_results(results)
+    else:
+        st.info("Please upload an Excel file with tickers in the first column.")
 
 if __name__ == '__main__':
     main()
