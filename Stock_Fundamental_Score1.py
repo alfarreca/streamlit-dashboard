@@ -1,4 +1,3 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
@@ -103,12 +102,14 @@ def display_results(results):
     df = pd.DataFrame(results).sort_values('normalized_score', ascending=False)
     df['market_cap'] = df['market_cap'].apply(lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) else "N/A")
     df['price'] = df['price'].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
+    # Display main table including extra metrics
     st.columns(3)[0].metric("Total Stocks", len(df))
     st.columns(3)[1].metric("Highest Score", f"{df['normalized_score'].max():.1f}")
     st.columns(3)[2].metric("Average Score", f"{df['normalized_score'].mean():.1f}")
     min_score = st.slider("Minimum Score", 0, 100, 0)
     sectors = st.multiselect("Filter by Sector", df['sector'].unique(), df['sector'].unique())
     filtered_df = df[(df['normalized_score'] >= min_score) & (df['sector'].isin(sectors))]
+    # Include extra metrics in the table
     st.dataframe(filtered_df[['ticker', 'company_name', 'sector', 'normalized_score', 'price', 'market_cap'] +
                              list(EXTRA_METRICS.keys())].rename(columns={
         'ticker': 'Ticker', 'company_name': 'Company', 'sector': 'Sector', 'normalized_score': 'Score',
