@@ -14,9 +14,9 @@ def clean_tickers(ticker_list):
         pd.Series(ticker_list)
         .dropna()
         .astype(str)
-        .str.upper()
         .str.replace(r'^"|"$', '', regex=True)
         .str.strip()
+        .str.upper()
         .unique()
         .tolist()
     )
@@ -29,11 +29,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Constants
+# Constants: Sample default universe (with some quotes for demo)
 SCAN_UNIVERSE = [
     '"AAPL"', '"MSFT"', '"GOOG"', '"AMZN"', '"META"', '"TSLA"', '"NVDA"', '"PYPL"', '"ADBE"', '"NFLX"',
-    '"JPM"', '"BAC"', '"WFC"', '"GS"', '"XOM"', '"CVX"', '"COP"', '"PFE"', '"MRK"', '"JNJ"',
-    '"WMT"', '"TGT"', '"HD"', '"LOW"', '"COST"', '"DIS"', '"NKE"', '"MCD"', '"SBUX"', '"BA"'
+    '"AI.PA"', '"MT.AS"', '"BNP.PA"', '"SAN.PA"', '"MC.PA"', '"EN.PA"', '"ORA.PA"', '"ENGI.PA"', '"EL.PA"', '"CA.PA"'
 ]
 TIME_FRAMES = ['1d', '1wk']
 
@@ -53,14 +52,23 @@ if uploaded_file is not None:
             ticker_col = col
             break
     if ticker_col:
-        excel_ticker_list = df_excel[ticker_col].tolist()
+        excel_ticker_list = (
+            df_excel[ticker_col]
+            .dropna()
+            .astype(str)
+            .str.replace(r'^"|"$', '', regex=True)
+            .str.strip()
+            .str.upper()
+            .unique()
+            .tolist()
+        )
         st.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
     else:
         st.error("Could not find a 'Ticker' or 'Symbol' column in your uploaded file.")
 
 # Use the cleaned tickers for both Excel and default universe
 if excel_ticker_list:
-    st.session_state.watchlist = clean_tickers(excel_ticker_list)
+    st.session_state.watchlist = excel_ticker_list
 elif 'watchlist' not in st.session_state:
     st.session_state.watchlist = clean_tickers(SCAN_UNIVERSE[:10])
 if 'scanned_results' not in st.session_state:
@@ -130,13 +138,14 @@ def scan_universe(universe, period='6mo'):
     with st.spinner(f"Scanning {len(universe)} stocks..."):
         progress_bar = st.progress(0)
         for i, ticker in enumerate(universe):
+            ticker_clean = ticker.replace('"','').strip()
             try:
-                data = get_stock_data(ticker, period)
+                data = get_stock_data(ticker_clean, period)
                 if not data.empty:
                     score = calculate_opportunity_score(data)
                     strategy = generate_strategy(data)
                     results.append({
-                        'Ticker': ticker,
+                        'Ticker': ticker_clean,
                         'Score': score,
                         'Price': data['Close'].iloc[-1],
                         'Change %': (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1) * 100,
@@ -168,12 +177,12 @@ with st.sidebar.expander("Scan Settings", expanded=True):
         "All Opportunities"
     ])
     time_frame = st.selectbox("Time Frame", TIME_FRAMES)
-    min_score = st.slider("Minimum Quality Score", 0, 100, 70)
+    min_score = st.slider("Minimum Quality Score", 0, 100, 18)
     max_results = st.slider("Max Results", 5, 50, 15)
 
-# Show ticker list and let user review (from Excel or default)
+# Show ticker list and let user review (always cleaned for display)
 st.sidebar.markdown("#### Current Universe")
-st.sidebar.write(st.session_state.watchlist)
+st.sidebar.write([t.replace('"','').strip() for t in st.session_state.watchlist])
 
 st.title("Swing Trading Opportunity Scanner")
 
