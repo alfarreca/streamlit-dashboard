@@ -12,6 +12,7 @@ from ta.volatility import BollingerBands
 from ta.volume import VolumeWeightedAveragePrice
 import warnings
 warnings.filterwarnings('ignore')
+import io
 
 # App configuration
 st.set_page_config(
@@ -28,10 +29,32 @@ SCAN_UNIVERSE = [
     'WMT', 'TGT', 'HD', 'LOW', 'COST', 'DIS', 'NKE', 'MCD', 'SBUX', 'BA'
 ]
 TIME_FRAMES = ['1d', '1wk']
-SCAN_METRICS = ['RSI', 'MACD', 'Bollinger', 'Volume Spike', '52-Week High', 'Stochastic']
 
-# Session state initialization
-if 'watchlist' not in st.session_state:
+# Excel upload at the top of the app
+uploaded_file = st.file_uploader(
+    "Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", 
+    type=["xlsx"]
+)
+
+excel_ticker_list = None
+
+if uploaded_file is not None:
+    df_excel = pd.read_excel(uploaded_file)
+    ticker_col = None
+    for col in df_excel.columns:
+        if col.lower() in ['ticker', 'symbol']:
+            ticker_col = col
+            break
+    if ticker_col:
+        excel_ticker_list = df_excel[ticker_col].dropna().astype(str).str.upper().unique().tolist()
+        st.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
+    else:
+        st.error("Could not find a 'Ticker' or 'Symbol' column in your uploaded file.")
+
+# Use the Excel list if available, otherwise fall back to default universe
+if excel_ticker_list:
+    st.session_state.watchlist = excel_ticker_list
+elif 'watchlist' not in st.session_state:
     st.session_state.watchlist = SCAN_UNIVERSE[:10]
 if 'scanned_results' not in st.session_state:
     st.session_state.scanned_results = pd.DataFrame()
@@ -46,27 +69,20 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
 def calculate_opportunity_score(data):
     if data.empty:
         return 0
-    
-    # Calculate individual metrics
     rsi = data['momentum_rsi'].iloc[-1]
     macd_diff = data['trend_macd_diff'].iloc[-1]
     bb_percent = data['volatility_bbp'].iloc[-1]
     volume_change = data['volume_volume_adi'].pct_change().iloc[-1]
     stoch = data['momentum_stoch'].iloc[-1]
     price_52w_high = data['Close'].iloc[-1] / data['Close'].rolling(252).max().iloc[-1]
-    
-    # Score components (0-100)
-    rsi_score = 100 - abs(rsi - 50)  # Best when RSI is near 50 (neutral)
-    macd_score = 50 + (macd_diff * 1000)  # Positive MACD diff is better
-    bb_score = 100 - abs(bb_percent - 0.5) * 200  # Best when between bands
-    volume_score = min(100, max(0, volume_change * 1000 + 50))  # Higher volume better
-    stoch_score = 100 - abs(stoch - 50)  # Neutral is best
-    high_score = price_52w_high * 100  # Closer to high is better
-    
-    # Weighted composite score
+    rsi_score = 100 - abs(rsi - 50)
+    macd_score = 50 + (macd_diff * 1000)
+    bb_score = 100 - abs(bb_percent - 0.5) * 200
+    volume_score = min(100, max(0, volume_change * 1000 + 50))
+    stoch_score = 100 - abs(stoch - 50)
+    high_score = price_52w_high * 100
     composite = (rsi_score * 0.2 + macd_score * 0.25 + bb_score * 0.15 + 
                 volume_score * 0.1 + stoch_score * 0.1 + high_score * 0.2)
-    
     return round(composite, 1)
 
 def generate_strategy(data):
@@ -76,58 +92,42 @@ def generate_strategy(data):
         'stop_loss': None,
         'take_profit': None
     }
-    
     if data.empty:
         return strategy
-    
-    # Current indicator values
     current_rsi = data['momentum_rsi'].iloc[-1]
     current_macd = data['trend_macd_diff'].iloc[-1]
     current_bb = data['volatility_bbp'].iloc[-1]
     current_close = data['Close'].iloc[-1]
-    
-    # Generate entry rules
     if current_rsi < 35:
         strategy['entry_rules'].append(f"RSI ({current_rsi:.1f}) < 35 (Oversold)")
     elif current_rsi > 65:
         strategy['entry_rules'].append(f"RSI ({current_rsi:.1f}) > 65 (Overbought)")
-    
     if current_macd > 0:
         strategy['entry_rules'].append("MACD Histogram positive")
     else:
         strategy['entry_rules'].append("MACD Histogram negative")
-    
     if current_bb < 0.2:
         strategy['entry_rules'].append("Price near lower Bollinger Band")
     elif current_bb > 0.8:
         strategy['entry_rules'].append("Price near upper Bollinger Band")
-    
-    # Generate exit rules
     if current_rsi < 30 or current_rsi > 70:
         strategy['exit_rules'].append(f"RSI crosses {40 if current_rsi<30 else 60}")
-    
     strategy['exit_rules'].append("MACD crosses signal line opposite direction")
-    
-    # Risk management
     atr = data['volatility_atr'].iloc[-1]
     strategy['stop_loss'] = f"{current_close - atr * 1.5:.2f} (1.5x ATR)"
     strategy['take_profit'] = f"{current_close + atr * 3:.2f} (3x ATR)"
-    
     return strategy
 
 def scan_universe(universe, period='6mo'):
     results = []
-    
     with st.spinner(f"Scanning {len(universe)} stocks..."):
         progress_bar = st.progress(0)
-        
         for i, ticker in enumerate(universe):
             try:
                 data = get_stock_data(ticker, period)
                 if not data.empty:
                     score = calculate_opportunity_score(data)
                     strategy = generate_strategy(data)
-                    
                     results.append({
                         'Ticker': ticker,
                         'Score': score,
@@ -139,18 +139,20 @@ def scan_universe(universe, period='6mo'):
                         'BB %': data['volatility_bbp'].iloc[-1] * 100,
                         'Strategy': strategy
                     })
-            except:
+            except Exception as e:
                 continue
-            
             progress_bar.progress((i + 1) / len(universe))
-    
-    return pd.DataFrame(results).sort_values('Score', ascending=False)
+    df_results = pd.DataFrame(results)
+    if not df_results.empty and 'Score' in df_results.columns:
+        return df_results.sort_values('Score', ascending=False)
+    else:
+        return pd.DataFrame(columns=[
+            'Ticker', 'Score', 'Price', 'Change %', 'Volume', 'RSI', 'MACD', 'BB %', 'Strategy'
+        ])
 
-# UI Layout
+# Sidebar config
 st.sidebar.title("Swing Trading Scanner Pro")
 st.sidebar.subheader("Configuration")
-
-# Scan parameters
 with st.sidebar.expander("Scan Settings", expanded=True):
     scan_type = st.selectbox("Scan Type", [
         "Momentum Opportunities", 
@@ -158,32 +160,23 @@ with st.sidebar.expander("Scan Settings", expanded=True):
         "Breakouts", 
         "All Opportunities"
     ])
-    
     time_frame = st.selectbox("Time Frame", TIME_FRAMES)
     min_score = st.slider("Minimum Quality Score", 0, 100, 70)
     max_results = st.slider("Max Results", 5, 50, 15)
 
-# Custom universe
-with st.sidebar.expander("Stock Universe"):
-    custom_universe = st.text_area("Add tickers (comma separated)", ", ".join(SCAN_UNIVERSE))
-    if st.button("Update Universe"):
-        new_universe = [t.strip().upper() for t in custom_universe.split(",")]
-        st.session_state.watchlist = list(set(new_universe))[:50]
+# Show ticker list and let user review (from Excel or default)
+st.sidebar.markdown("#### Current Universe")
+st.sidebar.write(st.session_state.watchlist)
 
-# Main app
 st.title("Swing Trading Opportunity Scanner")
 
-# Run scan
 if st.sidebar.button("Run Scan", type="primary"):
     st.session_state.scanned_results = scan_universe(st.session_state.watchlist)
 
-# Display results
 if not st.session_state.scanned_results.empty:
     st.subheader(f"Top {max_results} Swing Trading Opportunities")
     filtered_results = st.session_state.scanned_results[st.session_state.scanned_results['Score'] >= min_score]
     filtered_results = filtered_results.head(max_results)
-    
-    # Summary table
     st.dataframe(
         filtered_results[['Ticker', 'Score', 'Price', 'Change %', 'RSI', 'MACD', 'BB %']].style
             .background_gradient(subset=['Score'], cmap='RdYlGn')
@@ -195,44 +188,30 @@ if not st.session_state.scanned_results.empty:
             }),
         use_container_width=True
     )
-    
-    # Detailed view
     selected_ticker = st.selectbox(
         "Select ticker for detailed analysis",
         filtered_results['Ticker']
     )
-    
     if selected_ticker:
         selected_data = get_stock_data(selected_ticker)
         selected_result = filtered_results[filtered_results['Ticker'] == selected_ticker].iloc[0]
         strategy = selected_result['Strategy']
-        
-        # Strategy card
         st.subheader(f"Recommended Strategy for {selected_ticker}")
-        
         cols = st.columns([1, 1, 1])
         with cols[0]:
             st.markdown("**Entry Rules**")
             for rule in strategy['entry_rules']:
                 st.markdown(f"- {rule}")
-        
         with cols[1]:
             st.markdown("**Exit Rules**")
             for rule in strategy['exit_rules']:
                 st.markdown(f"- {rule}")
-        
         with cols[2]:
             st.markdown("**Risk Management**")
             st.markdown(f"- Stop Loss: {strategy['stop_loss']}")
             st.markdown(f"- Take Profit: {strategy['take_profit']}")
-        
-        # Charts
         st.subheader("Technical Analysis")
-        
-        # Main price chart
         fig = go.Figure()
-        
-        # Candlesticks
         fig.add_trace(go.Candlestick(
             x=selected_data.index,
             open=selected_data['Open'],
@@ -243,15 +222,12 @@ if not st.session_state.scanned_results.empty:
             increasing_line_color='green',
             decreasing_line_color='red'
         ))
-        
-        # Bollinger Bands
         fig.add_trace(go.Scatter(
             x=selected_data.index,
             y=selected_data['volatility_bbh'],
             name='BB Upper',
             line=dict(color='rgba(128, 0, 128, 0.5)', width=1)
         ))
-        
         fig.add_trace(go.Scatter(
             x=selected_data.index,
             y=selected_data['volatility_bbl'],
@@ -259,20 +235,14 @@ if not st.session_state.scanned_results.empty:
             line=dict(color='rgba(128, 0, 128, 0.5)', width=1),
             fill='tonexty'
         ))
-        
         fig.update_layout(
             height=500,
             xaxis_rangeslider_visible=False,
             title=f"{selected_ticker} Price with Bollinger Bands"
         )
-        
         st.plotly_chart(fig, use_container_width=True)
-        
-        # Indicators
         cols = st.columns(2)
-        
         with cols[0]:
-            # RSI
             rsi_fig = go.Figure()
             rsi_fig.add_trace(go.Scatter(
                 x=selected_data.index,
@@ -284,9 +254,7 @@ if not st.session_state.scanned_results.empty:
             rsi_fig.add_hline(y=70, line_dash="dash", line_color="red")
             rsi_fig.update_layout(height=300, title="RSI (14)")
             st.plotly_chart(rsi_fig, use_container_width=True)
-        
         with cols[1]:
-            # MACD
             macd_fig = go.Figure()
             macd_fig.add_trace(go.Scatter(
                 x=selected_data.index,
@@ -308,13 +276,10 @@ if not st.session_state.scanned_results.empty:
             ))
             macd_fig.update_layout(height=300, title="MACD")
             st.plotly_chart(macd_fig, use_container_width=True)
-        
-        # News
         st.subheader(f"Latest News for {selected_ticker}")
         try:
             sn = StockNews(selected_ticker, save_news=False)
             df_news = sn.read_rss()
-            
             for i in range(min(3, len(df_news))):
                 st.markdown(f"""
                 <div style="
@@ -340,6 +305,7 @@ if not st.session_state.scanned_results.empty:
                 """, unsafe_allow_html=True)
         except Exception as e:
             st.warning(f"Could not fetch news: {e}")
-
+elif st.session_state.scanned_results.shape[0] == 0:
+    st.warning("Scan completed but no opportunities found. Try expanding your universe or lowering minimum score.")
 else:
     st.info("Click 'Run Scan' to find swing trading opportunities")
