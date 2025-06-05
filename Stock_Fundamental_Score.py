@@ -90,7 +90,19 @@ def display_results(results):
     st.download_button("Download CSV", csv, f"scores_{datetime.now().strftime('%Y%m%d')}.csv")
     if len(filtered_df) == 0:
         return
-    selected_ticker = st.selectbox("Select stock for details", filtered_df['ticker'])
+
+    tickers_list = filtered_df['ticker'].tolist()
+    # Sticky selectbox logic
+    if 'selected_ticker' not in st.session_state or st.session_state.selected_ticker not in tickers_list:
+        st.session_state.selected_ticker = tickers_list[0] if len(tickers_list) > 0 else ""
+
+    selected_ticker = st.selectbox(
+        "Select stock for details",
+        tickers_list,
+        index=tickers_list.index(st.session_state.selected_ticker) if st.session_state.selected_ticker in tickers_list else 0,
+        key="selected_ticker"
+    )
+
     selected_stock = df[df['ticker'] == selected_ticker].iloc[0]
     col1, col2 = st.columns(2)
     col1.metric("Company", selected_stock['company_name'])
