@@ -8,6 +8,19 @@ from ta import add_all_ta_features
 import warnings
 warnings.filterwarnings('ignore')
 
+# Utility: Always clean tickers (removes quotes, whitespace, ensures uppercase)
+def clean_tickers(ticker_list):
+    return (
+        pd.Series(ticker_list)
+        .dropna()
+        .astype(str)
+        .str.upper()
+        .str.replace(r'^"|"$', '', regex=True)
+        .str.strip()
+        .unique()
+        .tolist()
+    )
+
 # App configuration
 st.set_page_config(
     page_title="Swing Trading Scanner Pro",
@@ -18,9 +31,9 @@ st.set_page_config(
 
 # Constants
 SCAN_UNIVERSE = [
-    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX',
-    'JPM', 'BAC', 'WFC', 'GS', 'XOM', 'CVX', 'COP', 'PFE', 'MRK', 'JNJ',
-    'WMT', 'TGT', 'HD', 'LOW', 'COST', 'DIS', 'NKE', 'MCD', 'SBUX', 'BA'
+    '"AAPL"', '"MSFT"', '"GOOG"', '"AMZN"', '"META"', '"TSLA"', '"NVDA"', '"PYPL"', '"ADBE"', '"NFLX"',
+    '"JPM"', '"BAC"', '"WFC"', '"GS"', '"XOM"', '"CVX"', '"COP"', '"PFE"', '"MRK"', '"JNJ"',
+    '"WMT"', '"TGT"', '"HD"', '"LOW"', '"COST"', '"DIS"', '"NKE"', '"MCD"', '"SBUX"', '"BA"'
 ]
 TIME_FRAMES = ['1d', '1wk']
 
@@ -40,25 +53,16 @@ if uploaded_file is not None:
             ticker_col = col
             break
     if ticker_col:
-        excel_ticker_list = (
-            df_excel[ticker_col]
-            .dropna()
-            .astype(str)
-            .str.upper()
-            .str.replace(r'^"|"$', '', regex=True)    # Remove leading/trailing quotes
-            .str.strip()
-            .unique()
-            .tolist()
-        )
+        excel_ticker_list = df_excel[ticker_col].tolist()
         st.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
     else:
         st.error("Could not find a 'Ticker' or 'Symbol' column in your uploaded file.")
 
-# Use the Excel list if available, otherwise fall back to default universe
+# Use the cleaned tickers for both Excel and default universe
 if excel_ticker_list:
-    st.session_state.watchlist = excel_ticker_list
+    st.session_state.watchlist = clean_tickers(excel_ticker_list)
 elif 'watchlist' not in st.session_state:
-    st.session_state.watchlist = SCAN_UNIVERSE[:10]
+    st.session_state.watchlist = clean_tickers(SCAN_UNIVERSE[:10])
 if 'scanned_results' not in st.session_state:
     st.session_state.scanned_results = pd.DataFrame()
 
