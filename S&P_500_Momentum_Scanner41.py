@@ -19,7 +19,6 @@ CACHE_TTL = 3600 * 12  # 12 hours
 MAX_RETRIES = 3
 TIMEZONE = 'America/New_York'
 
-# ========== SETUP ==========
 yf.set_tz_cache_location("cache")
 
 # ========== RETRY MECHANISM ==========
@@ -279,37 +278,26 @@ def main():
 
     display_results(filtered)
 
-    # --- Sticky selectbox for ticker selection ---
+    # --- Sticky selectbox for ticker selection (fixed logic) ---
     if not filtered.empty:
         symbol_options = ["— Select a symbol —"] + filtered["Symbol"].tolist()
         placeholder = symbol_options[0]
 
-        # Reset selection if filtered symbols change (to keep things in sync)
-        if (
-            "symbol_select" not in st.session_state
-            or st.session_state.get("symbol_options") != symbol_options
-        ):
-            st.session_state["symbol_select"] = placeholder
-            st.session_state["symbol_options"] = symbol_options
+        # Ensure last selection is still valid
+        last_selected = st.session_state.get("symbol_select", placeholder)
+        if last_selected not in symbol_options:
+            last_selected = placeholder
 
-        try:
-            current_index = symbol_options.index(st.session_state["symbol_select"])
-        except ValueError:
-            current_index = 0
-            st.session_state["symbol_select"] = placeholder
-
+        # Show the selectbox and update selection
         selected = st.selectbox(
             "Select a symbol for details",
-            symbol_options,
-            index=current_index,
-            key="symbol_select_box"
+            options=symbol_options,
+            index=symbol_options.index(last_selected),
+            key="symbol_select"
         )
 
-        if selected != st.session_state["symbol_select"]:
-            st.session_state["symbol_select"] = selected
-
-        if st.session_state["symbol_select"] != placeholder:
-            display_symbol_details(st.session_state["symbol_select"])
+        if selected != placeholder:
+            display_symbol_details(selected)
 
 if __name__ == "__main__":
     main()
