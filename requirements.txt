@@ -11,3 +11,4 @@ pytz
 ta
 tqdm
 openpyxl
+stocknews
