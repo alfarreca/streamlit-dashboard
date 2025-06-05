@@ -10,3 +10,4 @@ matplotlib
 pytz
 ta
 tqdm
+openpyxl
