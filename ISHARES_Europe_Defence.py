@@ -182,7 +182,7 @@ with st.sidebar:
     min_score = st.slider("Minimum Momentum Score", 0, 100, 70, 5)
     trend_options = ["↑ Strong", "↑ Medium", "↗ Weak"]
     selected_trends = st.multiselect("Trend Strength", options=trend_options, default=trend_options)
-    price_range = st.slider("Price Range ($)", 0.0, 500.0, (10.0, 200.0), 5.0)
+    price_range = st.slider("Price Range ($)", 0.0, 1000.0, (10.0, 200.0), 5.0)
     # --- Safe multiselect for Exchanges ---
     exchange_options = list(df["Exchange"].unique())
     default_exchanges = [ex for ex in ["NASDAQ", "NYSE"] if ex in exchange_options]
