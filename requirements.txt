@@ -8,3 +8,5 @@ gspread
 oauth2client
 matplotlib
 pytz
+ta
+tqdm
