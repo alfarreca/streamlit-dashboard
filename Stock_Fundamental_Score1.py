@@ -19,13 +19,17 @@ SCORE_WEIGHTS = {
     'gross_margin': 0.05
 }
 
-EXTRA_METRICS = {
-    'dividend_yield': ('Dividend Yield', 'dividendYield'),
-    'eps': ('EPS (TTM)', 'trailingEps'),
-    'revenue': ('Revenue', 'totalRevenue'),
-    'free_cash_flow': ('Free Cash Flow', 'freeCashflow'),
-    'ebitda': ('EBITDA', 'ebitda'),
-    'gross_margin': ('Gross Margin', 'grossMargins')
+EXTRA_METRICS = [
+    'dividend_yield', 'eps', 'revenue', 'free_cash_flow', 'ebitda', 'gross_margin'
+]
+
+EXTRA_METRICS_LABELS = {
+    'dividend_yield': 'Dividend Yield',
+    'eps': 'EPS (TTM)',
+    'revenue': 'Revenue',
+    'free_cash_flow': 'Free Cash Flow',
+    'ebitda': 'EBITDA',
+    'gross_margin': 'Gross Margin'
 }
 
 @st.cache_data(ttl=3600)
@@ -89,12 +93,6 @@ def calculate_scores(fundamentals_list):
     )
     return df.to_dict('records')
 
-def sector_averages(df, metrics, sector):
-    sector_df = df[df['sector'] == sector]
-    if sector_df.empty:
-        return {metric: None for metric in metrics}
-    return {metric: sector_df[metric].mean() for metric in metrics}
-
 def display_results(results):
     if not results:
         st.warning("No results to display")
@@ -102,20 +100,30 @@ def display_results(results):
     df = pd.DataFrame(results).sort_values('normalized_score', ascending=False)
     df['market_cap'] = df['market_cap'].apply(lambda x: f"${x/1e9:.2f}B" if pd.notnull(x) else "N/A")
     df['price'] = df['price'].apply(lambda x: f"${x:.2f}" if pd.notnull(x) else "N/A")
-    # Display main table including extra metrics
+
     st.columns(3)[0].metric("Total Stocks", len(df))
     st.columns(3)[1].metric("Highest Score", f"{df['normalized_score'].max():.1f}")
     st.columns(3)[2].metric("Average Score", f"{df['normalized_score'].mean():.1f}")
+
     min_score = st.slider("Minimum Score", 0, 100, 0)
     sectors = st.multiselect("Filter by Sector", df['sector'].unique(), df['sector'].unique())
     filtered_df = df[(df['normalized_score'] >= min_score) & (df['sector'].isin(sectors))]
-    # Include extra metrics in the table
-    st.dataframe(filtered_df[['ticker', 'company_name', 'sector', 'normalized_score', 'price', 'market_cap'] +
-                             list(EXTRA_METRICS.keys())].rename(columns={
-        'ticker': 'Ticker', 'company_name': 'Company', 'sector': 'Sector', 'normalized_score': 'Score',
-        'price': 'Price', 'market_cap': 'Market Cap',
-        **{k: v[0] for k, v in EXTRA_METRICS.items()}
-    }), use_container_width=True)
+
+    # Show extra metrics in main table
+    st.dataframe(
+        filtered_df[['ticker', 'company_name', 'sector', 'normalized_score', 'price', 'market_cap'] + EXTRA_METRICS]
+        .rename(columns={
+            'ticker': 'Ticker',
+            'company_name': 'Company',
+            'sector': 'Sector',
+            'normalized_score': 'Score',
+            'price': 'Price',
+            'market_cap': 'Market Cap',
+            **EXTRA_METRICS_LABELS
+        }),
+        use_container_width=True
+    )
+
     csv = filtered_df.to_csv(index=False).encode('utf-8')
     st.download_button("Download CSV", csv, f"scores_{datetime.now().strftime('%Y%m%d')}.csv")
     if len(filtered_df) == 0:
@@ -137,8 +145,10 @@ def display_results(results):
     )
 
     selected_stock = df[df['ticker'] == selected_ticker].iloc[0]
-    sec_avgs = sector_averages(df, list(EXTRA_METRICS.keys()), selected_stock['sector'])
 
+    # --- Sector averages for extra metrics ---
+    sector_df = df[df['sector'] == selected_stock['sector']]
+    st.markdown("### Company Details")
     col1, col2 = st.columns(2)
     col1.metric("Company", selected_stock['company_name'])
     col1.metric("Sector", selected_stock['sector'])
@@ -148,9 +158,10 @@ def display_results(results):
     col2.metric("PEG Ratio", selected_stock['peg_ratio'])
 
     st.markdown("### Metric Comparison vs. Sector Average")
-    for key, (label, _) in EXTRA_METRICS.items():
-        val = selected_stock[key]
-        avg = sec_avgs[key]
+    for metric in EXTRA_METRICS:
+        val = selected_stock[metric]
+        avg = sector_df[metric].mean() if not sector_df.empty else None
+        label = EXTRA_METRICS_LABELS[metric]
         if avg is not None and val is not None:
             diff = val - avg
             color = "🟢" if diff > 0 else "🔴"
