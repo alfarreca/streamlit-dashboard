@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from ta import add_all_ta_features
+import plotly.graph_objects as go
 
 # ----- Helper Functions -----
 
@@ -17,19 +18,20 @@ def fetch_and_flatten_ticker(ticker, period="6mo", interval="1d"):
             dbg['error'] = "No data returned."
             return pd.DataFrame(), dbg
 
-        # Prepare DataFrame for ta-lib
         data = data.rename_axis('Date').reset_index()
-        df = data.copy()
+        
         try:
-            # Add TA features (handles most price/volume indicators)
-            df = add_all_ta_features(
-                df, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
+            data = add_all_ta_features(
+                data, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
             )
         except Exception as e:
             dbg['ta_error'] = str(e)
-        dbg['df_shape_post_ta'] = df.shape
-        dbg['columns_post_ta'] = list(df.columns)
-        return df, dbg
+
+        data['Ticker'] = ticker
+        dbg['df_shape_post_ta'] = data.shape
+        dbg['columns_post_ta'] = list(data.columns)
+
+        return data, dbg
     except Exception as ex:
         dbg['exception'] = str(ex)
         return pd.DataFrame(), dbg
@@ -41,7 +43,6 @@ def scan_universe(watchlist, period="6mo", interval="1d"):
         df, dbg = fetch_and_flatten_ticker(ticker, period, interval)
         debug_info[ticker] = dbg
         if not df.empty:
-            # Example: Use RSI as score, add your logic
             last_row = df.iloc[-1]
             score = float(last_row.get("momentum_rsi", 0))
             scan_results.append({
@@ -50,7 +51,6 @@ def scan_universe(watchlist, period="6mo", interval="1d"):
                 "RSI": float(last_row.get("momentum_rsi", np.nan)),
                 "MACD": float(last_row.get("trend_macd", np.nan)),
                 "Volume": float(last_row.get("Volume", np.nan)),
-                # ...add more columns as needed
             })
     results_df = pd.DataFrame(scan_results)
     return results_df, debug_info
@@ -99,12 +99,8 @@ if st.button("Run Scan"):
         scan_df = scan_df[scan_df["Score"] >= min_score].sort_values("Score", ascending=False).head(max_results)
         st.subheader("Scan Results")
         st.dataframe(scan_df)
-        # Download buttons
         st.download_button("Download Results as CSV", scan_df.to_csv(index=False), "scan_results.csv")
         st.download_button("Download Results as Excel", scan_df.to_excel(index=False, engine="openpyxl"), "scan_results.xlsx")
-else:
-    scan_df = pd.DataFrame()
-    debug_info = {}
 
 # --- Diagnostics: Single Ticker ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
@@ -115,33 +111,21 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
         single_period = st.selectbox("Test period", ['6mo', '1y', '3mo'], index=0)
     with col3:
         single_interval = st.selectbox("Test interval", ['1d', '1wk'], index=0)
+
     if st.button("Fetch Ticker Data"):
         df, dbg = fetch_and_flatten_ticker(single_ticker, period=single_period, interval=single_interval)
-        st.write(f"**Ticker:** {single_ticker}  **Period:** {single_period}  **Interval:** {single_interval}")
         if not df.empty:
             st.write(f"Returned DataFrame shape: {df.shape}")
             st.dataframe(df.head(3))
-            st.write("Returned columns:", list(df.columns))
-            # Price chart example
-            if "Close" in df.columns:
-                import plotly.graph_objects as go
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], mode='lines', name="Close"))
-                if "momentum_rsi" in df.columns:
-                    fig.add_trace(go.Scatter(x=df["Date"], y=df["momentum_rsi"], mode='lines', name="RSI", yaxis="y2"))
-                    fig.update_layout(
-                        yaxis2=dict(overlaying='y', side='right', title="RSI"),
-                        title=f"{single_ticker} Price & RSI"
-                    )
-                st.plotly_chart(fig, use_container_width=True)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], mode='lines', name="Close"))
+            if "momentum_rsi" in df.columns:
+                fig.add_trace(go.Scatter(x=df["Date"], y=df["momentum_rsi"], mode='lines', name="RSI", yaxis="y2"))
+                fig.update_layout(yaxis2=dict(overlaying='y', side='right', title="RSI"))
+            st.plotly_chart(fig, use_container_width=True)
         else:
             st.error("No data returned! See Debug Info below.")
 
         st.markdown("#### Debug Info")
         st.write(dbg)
-
-# --- Show debug info for scan (main level, never inside another expander) ---
-if debug_info:
-    with st.expander("Show Debug Info", expanded=False):
-        st.write(debug_info)
-
