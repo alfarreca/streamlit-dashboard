@@ -4,6 +4,7 @@ import yfinance as yf
 from ta import add_all_ta_features
 import time
 import matplotlib.pyplot as plt
+import numpy as np  # <-- Make sure numpy is imported
 
 # --- UTILITIES ---
 def clean_tickers(ticker_list):
@@ -34,6 +35,16 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
         data = add_all_ta_features(
             data, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
+        # --- MACD Cross Detection Step ---
+        if 'trend_macd' in data and 'trend_macd_signal' in data:
+            macd = data['trend_macd']
+            signal = data['trend_macd_signal']
+            macd_prev = macd.shift(1)
+            signal_prev = signal.shift(1)
+            data['macd_cross'] = np.where(
+                (macd_prev < signal_prev) & (macd > signal), 'cross up',
+                np.where((macd_prev > signal_prev) & (macd < signal), 'cross down', '')
+            )
     except Exception as e:
         print(f"TA error for {ticker}: {e}")
         return pd.DataFrame()
@@ -104,6 +115,7 @@ def scan_universe(universe, period='6mo'):
                             'Volume': data['Volume'].iloc[-1],
                             'RSI': data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan'),
                             'MACD': data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan'),
+                            'MACD Cross': data['macd_cross'].iloc[-1] if 'macd_cross' in data else '',  # <-- Added column
                             'BB %': data['volatility_bbp'].iloc[-1] * 100 if 'volatility_bbp' in data else float('nan'),
                             'Strategy': strategy
                         })
@@ -116,7 +128,7 @@ def scan_universe(universe, period='6mo'):
             progress_bar.progress((i + 1) / len(universe))
             time.sleep(0.08)
     if not results:
-        return pd.DataFrame(columns=['Ticker', 'Score', 'Price', 'Change %', 'Volume', 'RSI', 'MACD', 'BB %', 'Strategy']), failed
+        return pd.DataFrame(columns=['Ticker', 'Score', 'Price', 'Change %', 'Volume', 'RSI', 'MACD', 'MACD Cross', 'BB %', 'Strategy']), failed
     return pd.DataFrame(results).sort_values('Score', ascending=False), failed
 
 # --- UI CONFIG ---
@@ -241,8 +253,20 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                     ta_data = add_all_ta_features(
                         data, open="Open", high="High", low="Low", close="Close", volume="Volume"
                     )
+                    # --- MACD Cross Detection Step in diagnostics ---
+                    if 'trend_macd' in ta_data and 'trend_macd_signal' in ta_data:
+                        macd = ta_data['trend_macd']
+                        signal = ta_data['trend_macd_signal']
+                        macd_prev = macd.shift(1)
+                        signal_prev = signal.shift(1)
+                        ta_data['macd_cross'] = np.where(
+                            (macd_prev < signal_prev) & (macd > signal), 'cross up',
+                            np.where((macd_prev > signal_prev) & (macd < signal), 'cross down', '')
+                        )
                     st.write("With TA features (last 5 rows):")
                     st.write(ta_data.tail())
+                    # Show MACD cross last 20 rows for clarity
+                    st.write("MACD Cross Events (last 20 rows):")
+                    st.write(ta_data[['Close', 'trend_macd', 'trend_macd_signal', 'macd_cross']].tail(20))
                 except Exception as e:
                     st.warning(f"TA error: {e}")
-
