@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import yfinance as yf
@@ -218,13 +217,21 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                 data['MA20'] = data['Close'].rolling(window=20).mean()
                 data['MA50'] = data['Close'].rolling(window=50).mean()
                 data['MA200'] = data['Close'].rolling(window=200).mean()
-                # Plot Close and MAs
+                # Calculate Bollinger Bands
+                data['BB_Middle'] = data['Close'].rolling(window=20).mean()
+                data['BB_Std'] = data['Close'].rolling(window=20).std()
+                data['BB_Upper'] = data['BB_Middle'] + 2 * data['BB_Std']
+                data['BB_Lower'] = data['BB_Middle'] - 2 * data['BB_Std']
+                # Plot Close, MAs, and Bollinger Bands
                 fig, ax = plt.subplots(figsize=(10, 5))
                 ax.plot(data.index, data['Close'], label='Close Price')
                 ax.plot(data.index, data['MA20'], label='20-day MA')
                 ax.plot(data.index, data['MA50'], label='50-day MA')
                 ax.plot(data.index, data['MA200'], label='200-day MA')
-                ax.set_title(f"{ticker} Price with Moving Averages")
+                ax.plot(data.index, data['BB_Upper'], label='Bollinger Upper', linestyle='--', color='magenta', alpha=0.7)
+                ax.plot(data.index, data['BB_Lower'], label='Bollinger Lower', linestyle='--', color='cyan', alpha=0.7)
+                ax.fill_between(data.index, data['BB_Lower'], data['BB_Upper'], color='gray', alpha=0.1, label='Bollinger Band')
+                ax.set_title(f"{ticker} Price with Moving Averages and Bollinger Bands")
                 ax.set_xlabel("Date")
                 ax.set_ylabel("Price")
                 ax.legend()
