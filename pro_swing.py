@@ -5,7 +5,6 @@ from ta import add_all_ta_features
 import time
 
 # --- UTILITIES ---
-
 def clean_tickers(ticker_list):
     return (
         pd.Series(ticker_list)
@@ -20,7 +19,7 @@ def clean_tickers(ticker_list):
 
 def get_stock_data(ticker, period='6mo', interval='1d'):
     data = yf.download(ticker, period=period, interval=interval)
-    # Fix: Flatten MultiIndex columns and rename if needed (for EU tickers)
+    # Flatten MultiIndex columns if present
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(-1)
         if len(data.columns) == 5 and len(set(data.columns)) == 1:
@@ -161,6 +160,7 @@ for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
 # --- MAIN PAGE ---
+# Only run scan after button click!
 if st.sidebar.button("Run Scan", type="primary"):
     results, failed = scan_universe(
         st.session_state.watchlist,
@@ -169,7 +169,7 @@ if st.sidebar.button("Run Scan", type="primary"):
     st.session_state.scanned_results = results.head(max_results) if not results.empty else results
     st.session_state.failed_tickers = failed
 
-if not st.session_state.get('scanned_results', pd.DataFrame()).empty:
+if "scanned_results" in st.session_state and not st.session_state.scanned_results.empty:
     st.subheader("Scan Results")
     st.dataframe(st.session_state.scanned_results)
     if 'failed_tickers' in st.session_state and st.session_state.failed_tickers:
@@ -181,7 +181,6 @@ else:
 
 # --- Single Ticker Data Test (Diagnostics) ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
-    # Use placeholder if supported by your Streamlit version (>=1.25.0)
     try:
         ticker = st.text_input(
             "Test a ticker",
@@ -189,7 +188,6 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
             placeholder="e.g. MC.PA, AAPL, ORA.PA, SAN.PA"
         )
     except TypeError:
-        # For older Streamlit: fallback to just label
         ticker = st.text_input(
             "Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA)",
             value=""
