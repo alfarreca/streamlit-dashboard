@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
+import plotly.graph_objs as go
 from ta import add_all_ta_features
-import plotly.graph_objects as go
-import numpy as np
-import io
 
 # --- Utilities ---
 def clean_tickers(ticker_list):
@@ -20,87 +18,74 @@ def clean_tickers(ticker_list):
     )
 
 def get_stock_data(ticker, period='6mo', interval='1d'):
+    """Return: (data, debug_msg, error_msg)"""
+    debug_msg = ""
+    error_msg = ""
     try:
-        data = yf.download(ticker, period=period, interval=interval, progress=False)
-        if data.empty or len(data) < 2:
-            return pd.DataFrame(), "Empty dataframe"
-        try:
-            data_ta = add_all_ta_features(
-                data.copy(), open="Open", high="High", low="Low", close="Close", volume="Volume"
-            )
-        except Exception as e:
-            return data, f"TA error: {e}"
-        return data_ta, "OK"
-    except Exception as e:
-        return pd.DataFrame(), str(e)
-
-def scan_universe(universe, period, interval, min_score, max_results):
-    results = []
-    failed = []
-    progress_bar = st.progress(0)
-    for i, ticker in enumerate(universe):
-        df, msg = get_stock_data(ticker, period, interval)
-        if not df.empty and 'momentum_rsi' in df.columns:
-            last = df.iloc[-1]
-            score = last['momentum_rsi']
-            result = {
-                "Ticker": ticker,
-                "Score": score,
-                "Price": last["Close"],
-                "Change %": (last["Close"] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100 if len(df) > 1 else 0,
-                "Volume": last["Volume"],
-                "RSI": last["momentum_rsi"],
-                "MACD": last.get("trend_macd", np.nan),
-                "BB %": last.get("volatility_bbm", np.nan) / last.get("volatility_bbh", 1) * 100 if last.get("volatility_bbh", 1) else np.nan,
-                "ATR": last.get("volatility_atr", np.nan),
-                "ADX": last.get("trend_adx", np.nan),
-                "SMA_20": last.get("trend_sma_fast", np.nan),
-                "EMA_20": last.get("trend_ema_fast", np.nan),
-                "Sup": df["Low"].rolling(14).min().iloc[-1] if len(df) >= 14 else np.nan,
-                "Res": df["High"].rolling(14).max().iloc[-1] if len(df) >= 14 else np.nan,
-            }
-            results.append(result)
+        raw = yf.download(ticker, period=period, interval=interval)
+        debug_msg += f"Returned DataFrame shape: {raw.shape}\n"
+        debug_msg += f"Columns: {list(raw.columns)}\n"
+        if raw.empty:
+            error_msg = "Yahoo returned an empty DataFrame (possibly unsupported combo or closed market)."
+            return pd.DataFrame(), debug_msg, error_msg
+        # Handle multi-index columns (e.g., ('Close', 'MC.PA')) as in EU tickers
+        if isinstance(raw.columns, pd.MultiIndex):
+            # Take only the relevant ticker
+            subcols = [col for col in raw.columns if col[1].upper() == ticker.upper()]
+            data = raw[subcols]
+            data.columns = [col[0] for col in data.columns]
         else:
-            failed.append(f"{ticker} [{msg}]")
-        progress_bar.progress((i + 1) / len(universe))
-    df = pd.DataFrame(results)
-    if not df.empty:
-        df = df.sort_values("Score", ascending=False)
-        df = df[df["Score"] >= min_score].head(max_results)
-    return df, failed
+            data = raw
+        # Standardize columns
+        data = data.rename(
+            columns={c: c.capitalize() for c in data.columns}
+        )
+        if not all(x in data.columns for x in ['Open', 'High', 'Low', 'Close', 'Volume']):
+            error_msg = f"Yahoo missing required columns: {data.columns}"
+            return pd.DataFrame(), debug_msg, error_msg
+        # Add TA features
+        data = add_all_ta_features(
+            data, open="Open", high="High", low="Low", close="Close", volume="Volume"
+        )
+        return data, debug_msg, ""
+    except Exception as e:
+        error_msg = f"TA error: {e}"
+        return pd.DataFrame(), debug_msg, error_msg
 
-def download_as_excel(df):
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df.to_excel(writer, index=False)
-    buffer.seek(0)
-    return buffer
+def score_momentum(data):
+    if data.empty or 'momentum_rsi' not in data:
+        return 0
+    return data['momentum_rsi'].iloc[-1]
 
-# --- Streamlit Page Setup ---
+# --- Streamlit Config ---
 st.set_page_config(
     page_title="Swing Trading Scanner Pro",
     page_icon="📈",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- Branding ---
-st.markdown("""
-    <h1 style='color:#145DA0;font-size:2.7rem; font-family:Montserrat;'>📈 Swing Trading Scanner Pro</h1>
-    <div style="font-size:1.2rem; color:#333;">Your professional dashboard for swing trading opportunities — with technicals, charts, and Excel export.</div>
-    <hr>
-""", unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+    .big-title {font-size: 2.7rem !important; font-weight: 700;}
+    .info-header {font-size: 1.18rem;}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- Header ---
+st.markdown("<span class='big-title'>📈 Swing Trading Scanner Pro</span>", unsafe_allow_html=True)
+st.markdown("<span class='info-header'>Your professional dashboard for swing trading opportunities — with technicals, charts, and Excel export.</span>", unsafe_allow_html=True)
 
 # --- Sidebar Config ---
 st.sidebar.title("Swing Trading Scanner Pro")
-st.sidebar.header("Configuration")
+st.sidebar.subheader("Configuration")
+
 uploaded_file = st.sidebar.file_uploader(
     "Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", type=["xlsx"]
 )
-TIME_FRAMES = ['1d', '1wk']
-SCAN_UNIVERSE = [
-    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
-]
-
 excel_ticker_list = None
 if uploaded_file:
     df_excel = pd.read_excel(uploaded_file)
@@ -111,90 +96,92 @@ if uploaded_file:
     else:
         st.sidebar.error("Could not find 'Ticker' or 'Symbol' column.")
 
+SCAN_UNIVERSE = [
+    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
+]
+TIME_FRAMES = ['1d', '1wk']
 watchlist = excel_ticker_list or clean_tickers(SCAN_UNIVERSE)
-time_frame = st.sidebar.selectbox("Time Frame", TIME_FRAMES)
-min_score = st.sidebar.slider("Minimum Quality Score", 0, 100, 18)
-max_results = st.sidebar.slider("Max Results", 5, 50, 15)
+
+st.sidebar.selectbox("Time Frame", TIME_FRAMES, key="time_frame")
+st.sidebar.slider("Minimum Quality Score", 0, 100, 18, key="min_score")
+st.sidebar.slider("Max Results", 5, 50, 15, key="max_results")
 
 st.sidebar.markdown("#### Current Universe")
 for ticker in watchlist:
     st.sidebar.write(f"- {ticker}")
 
-# --- SCAN BUTTON ---
-st.markdown("### Scan Results")
+# --- Scanning Logic ---
+def scan_universe(universe, period='6mo', interval='1d', min_score=0, max_results=10):
+    results = []
+    failed = []
+    for ticker in universe:
+        data, dbg, err = get_stock_data(ticker, period, interval)
+        if not data.empty:
+            score = score_momentum(data)
+            if score >= min_score:
+                results.append({'Ticker': ticker, 'Score': score, 'RSI': data['momentum_rsi'].iloc[-1]})
+        else:
+            failed.append((ticker, dbg, err))
+    df = pd.DataFrame(results)
+    if not df.empty:
+        df = df.sort_values('Score', ascending=False).head(max_results)
+    return df, failed
+
+# --- Scan Results ---
 if st.button("Run Scan"):
-    scan_df, failed = scan_universe(watchlist, period='6mo', interval=time_frame, min_score=min_score, max_results=max_results)
-    st.session_state["scan_results"] = scan_df
-    st.session_state["failed"] = failed
-
-scan_df = st.session_state.get("scan_results", pd.DataFrame())
-failed = st.session_state.get("failed", [])
-
-# --- Results Table ---
-if not scan_df.empty:
-    st.success("Scan completed!")
-    st.dataframe(scan_df, use_container_width=True)
-    st.download_button(
-        label="Download Results as Excel",
-        data=download_as_excel(scan_df),
-        file_name="swing_scanner_results.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    scan_df, failed = scan_universe(
+        watchlist,
+        period='6mo',
+        interval=st.session_state.time_frame,
+        min_score=st.session_state.min_score,
+        max_results=st.session_state.max_results,
     )
-else:
-    st.info("Run a scan to see results.")
-    if failed:
-        st.warning("Some tickers failed data download. See diagnostics below.")
+    st.session_state['scan_results'] = scan_df
+    st.session_state['failed'] = failed
 
-# --- Diagnostics Panel: Single Ticker Test ---
+if 'scan_results' in st.session_state and not st.session_state.scan_results.empty:
+    st.subheader("Scan Results")
+    st.dataframe(st.session_state.scan_results, use_container_width=True)
+    st.download_button("Download Results as CSV", st.session_state.scan_results.to_csv(index=False), "results.csv")
+elif 'failed' in st.session_state and st.session_state.failed:
+    st.warning("No results found. All tickers may have failed data download, or none meet the score threshold.")
+
+# --- Single Ticker Diagnostics with Debug Info ---
 with st.expander("Single Ticker Data Test (Diagnostics)"):
-    st.write("Quickly test a single ticker and see raw Yahoo/yfinance output (for debugging failed downloads).")
-    ticker_input = st.text_input("Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA):", value=(watchlist[0] if watchlist else "AAPL"))
-    test_period = st.selectbox("Test period", ["1mo", "3mo", "6mo", "1y"], index=2)
-    test_interval = st.selectbox("Test interval", ["1d", "1wk"], index=0)
+    col1, col2, col3 = st.columns([2,1,1])
+    with col1:
+        ticker_input = st.text_input("Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA):", value=watchlist[0] if watchlist else "")
+    with col2:
+        period_input = st.selectbox("Test period", ['6mo', '3mo', '1mo'], index=0)
+    with col3:
+        interval_input = st.selectbox("Test interval", TIME_FRAMES, index=0)
     if st.button("Fetch Ticker Data"):
-        raw_df, debug_msg = get_stock_data(ticker_input, test_period, test_interval)
-        st.markdown(f"**Ticker:** {ticker_input.upper()}  \n**Period:** {test_period}  \n**Interval:** {test_interval}")
-        if not raw_df.empty:
-            st.write("Raw Yahoo data (tail):")
-            st.dataframe(raw_df.tail(8))
-            # Show chart
-            fig = go.Figure()
-            fig.add_trace(go.Candlestick(
-                x=raw_df.index,
-                open=raw_df['Open'],
-                high=raw_df['High'],
-                low=raw_df['Low'],
-                close=raw_df['Close'],
-                name="Price"
-            ))
-            if "momentum_rsi" in raw_df.columns:
-                fig.add_trace(go.Scatter(
-                    x=raw_df.index, y=raw_df["momentum_rsi"],
-                    yaxis="y2", mode="lines", name="RSI"
-                ))
-            fig.update_layout(
-                title=f"{ticker_input.upper()} Price & RSI",
-                yaxis_title="Price",
-                yaxis2=dict(title="RSI", overlaying='y', side='right'),
-                height=400
+        data, dbg, err = get_stock_data(ticker_input, period_input, interval_input)
+        st.markdown(f"**Ticker:** {ticker_input} &nbsp; **Period:** {period_input} &nbsp; **Interval:** {interval_input}")
+        with st.expander("Debug Info / Raw Log", expanded=True):
+            st.code(
+                f"Debug message: {err or 'No error.'}\n"
+                f"Returned DataFrame shape: {data.shape}\n"
+                f"Columns: {list(data.columns) if not data.empty else 'empty'}\n"
             )
+            if dbg: st.text(dbg)
+            if not data.empty:
+                st.write("Returned head (first 3 rows):")
+                st.dataframe(data.head(3))
+                st.write("Returned tail (last 3 rows):")
+                st.dataframe(data.tail(3))
+        if not data.empty:
+            st.markdown(f"#### {ticker_input.upper()} Price & RSI")
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Close"))
+            if 'momentum_rsi' in data:
+                fig.add_trace(go.Scatter(x=data.index, y=data['momentum_rsi'], name="RSI"))
+            fig.update_layout(xaxis_title="Date", yaxis_title="Price", legend_title="Legend")
             st.plotly_chart(fig, use_container_width=True)
             st.write("With TA features (last 5 rows):")
-            st.dataframe(raw_df.tail(5))
+            st.dataframe(data.tail(5))
         else:
-            st.error("No data returned! " + debug_msg)
-        # --- DEBUG INFO PANEL: not nested! ---
-        st.markdown("**Debug Info / Raw Log**")
-        st.code(f"Debug message: {debug_msg}\n\nReturned DataFrame shape: {raw_df.shape}\nColumns: {list(raw_df.columns)}")
-        st.write("Returned head (first 3 rows):")
-        st.dataframe(raw_df.head(3))
-        st.write("Returned tail (last 3 rows):")
-        st.dataframe(raw_df.tail(3))
+            st.error(err or "No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
 
-# --- Footer ---
-st.markdown("""
-    <hr>
-    <div style="text-align:center; font-size:0.93rem; color:#888;">
-        &copy; 2025 Swing Trading Scanner Pro &bull; Built with ❤️ using Python, Streamlit, yfinance, TA-Lib, Plotly.
-    </div>
-""", unsafe_allow_html=True)
+# --- (Placeholder for Advanced Features) ---
+# Add: sector filter, advanced indicators, Excel export, technical highlight cards, etc.
