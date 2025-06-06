@@ -14,6 +14,9 @@ interval = st.selectbox("Interval", ["1d", "1wk"], index=0)
 if st.button("Fetch Data"):
     st.write(f"**Ticker:** {ticker}  \n**Period:** {period}  \n**Interval:** {interval}")
     data = yf.download(ticker, period=period, interval=interval)
+    # --- Fix: Flatten MultiIndex columns if present ---
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(-1)
     st.write("Raw Yahoo data:")
     st.write(data.tail(10))
 
@@ -28,4 +31,3 @@ if st.button("Fetch Data"):
             st.warning(f"TA error: {e}")
     else:
         st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
-
