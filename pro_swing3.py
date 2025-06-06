@@ -84,6 +84,15 @@ def generate_strategy(data):
         'take_profit': take_profit
     }
 
+# --- Convert the strategy dictionary to a readable string ---
+def strategy_to_string(strategy):
+    return (
+        "Entry: " + (", ".join(strategy['entry_rules']) if strategy['entry_rules'] else "None") + "\n"
+        "Exit: " + (", ".join(strategy['exit_rules']) if strategy['exit_rules'] else "None") + "\n"
+        "Stop Loss: " + (str(strategy['stop_loss']) if strategy['stop_loss'] else "None") + "\n"
+        "Take Profit: " + (str(strategy['take_profit']) if strategy['take_profit'] else "None")
+    )
+
 def scan_universe(universe, period='6mo'):
     results = []
     failed = []
@@ -105,7 +114,7 @@ def scan_universe(universe, period='6mo'):
                             'RSI': data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan'),
                             'MACD': data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan'),
                             'BB %': data['volatility_bbp'].iloc[-1] * 100 if 'volatility_bbp' in data else float('nan'),
-                            'Strategy': strategy
+                            'Strategy': strategy_to_string(strategy)
                         })
                 else:
                     failed.append(ticker)
