@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 from ta import add_all_ta_features
-import plotly.graph_objs as go
+import plotly.graph_objects as go
+from st_aggrid import AgGrid, GridOptionsBuilder
+import numpy as np
+import io
 
-st.set_page_config("Swing Trading Scanner Pro", layout="wide")
-
+# --- Utilities ---
 def clean_tickers(ticker_list):
     return (
         pd.Series(ticker_list)
@@ -20,28 +22,98 @@ def clean_tickers(ticker_list):
 
 def get_stock_data(ticker, period='6mo', interval='1d'):
     try:
-        df = yf.download(ticker, period=period, interval=interval, progress=False)
-        if df.empty or len(df) < 2:
-            return pd.DataFrame()
-        df = add_all_ta_features(
-            df, open="Open", high="High", low="Low", close="Close", volume="Volume"
-        )
-        return df
+        data = yf.download(ticker, period=period, interval=interval, progress=False)
+        if data.empty or len(data) < 2:
+            return pd.DataFrame(), "Empty dataframe"
+        try:
+            data_ta = add_all_ta_features(
+                data.copy(), open="Open", high="High", low="Low", close="Close", volume="Volume"
+            )
+        except Exception as e:
+            return data, f"TA error: {e}"
+        return data_ta, "OK"
     except Exception as e:
-        return pd.DataFrame()  # Return empty on error
+        return pd.DataFrame(), str(e)
 
-def score_momentum(data):
-    if data.empty or 'momentum_rsi' not in data.columns:
-        return 0
-    return data['momentum_rsi'].iloc[-1]
+def get_extra_indicators(df):
+    df = df.copy()
+    # ATR
+    df['ATR'] = df['High'] - df['Low']
+    # Simple support/resistance: last 14d high/low
+    df['Sup'] = df['Low'].rolling(14).min()
+    df['Res'] = df['High'].rolling(14).max()
+    # Analyst rating: placeholder
+    df['AnalystRating'] = np.nan
+    return df
 
-# --- Layout ---
-st.title("📈 Swing Trading Scanner Pro")
-st.caption("Your professional dashboard for swing trading opportunities — with technicals, charts, and Excel export.")
+def scan_universe(universe, period, interval, min_score, max_results):
+    results = []
+    failed = []
+    progress_bar = st.progress(0)
+    for i, ticker in enumerate(universe):
+        df, msg = get_stock_data(ticker, period, interval)
+        if not df.empty and 'momentum_rsi' in df.columns:
+            last = df.iloc[-1]
+            score = last['momentum_rsi']
+            result = {
+                "Ticker": ticker,
+                "Score": score,
+                "Price": last["Close"],
+                "Change %": (last["Close"] - df["Close"].iloc[-2]) / df["Close"].iloc[-2] * 100 if len(df) > 1 else 0,
+                "Volume": last["Volume"],
+                "RSI": last["momentum_rsi"],
+                "MACD": last.get("trend_macd", np.nan),
+                "BB %": last.get("volatility_bbm", np.nan) / last.get("volatility_bbh", 1) * 100 if last.get("volatility_bbh", 1) else np.nan,
+                "ATR": last.get("ATR", np.nan),
+                "ADX": last.get("trend_adx", np.nan),
+                "SMA_20": last.get("trend_sma_fast", np.nan),
+                "EMA_20": last.get("trend_ema_fast", np.nan),
+                "Sup": last.get("Sup", np.nan),
+                "Res": last.get("Res", np.nan),
+                "AnalystRating": np.nan,  # Placeholder
+            }
+            results.append(result)
+        else:
+            failed.append(f"{ticker} [{msg}]")
+        progress_bar.progress((i + 1) / len(universe))
+    df = pd.DataFrame(results)
+    if not df.empty:
+        df = df.sort_values("Score", ascending=False)
+        df = df[df["Score"] >= min_score].head(max_results)
+    return df, failed
 
-# --- Excel Upload / Universe ---
+def download_as_excel(df):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df.to_excel(writer, index=False)
+    buffer.seek(0)
+    return buffer
+
+# --- Streamlit Page Setup ---
+st.set_page_config(
+    page_title="Swing Trading Scanner Pro",
+    page_icon="📈",
+    layout="wide"
+)
+
+# --- Branding ---
+st.markdown("""
+    <h1 style='color:#145DA0;font-size:2.7rem; font-family:Montserrat;'>📈 Swing Trading Scanner Pro</h1>
+    <div style="font-size:1.2rem; color:#333;">Your professional dashboard for swing trading opportunities — with technicals, charts, and Excel export.</div>
+    <hr>
+""", unsafe_allow_html=True)
+
+# --- Sidebar Config ---
+st.sidebar.title("Swing Trading Scanner Pro")
 st.sidebar.header("Configuration")
-uploaded_file = st.sidebar.file_uploader("Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", type=["xlsx"])
+uploaded_file = st.sidebar.file_uploader(
+    "Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", type=["xlsx"]
+)
+TIME_FRAMES = ['1d', '1wk']
+SCAN_UNIVERSE = [
+    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
+]
+
 excel_ticker_list = None
 if uploaded_file:
     df_excel = pd.read_excel(uploaded_file)
@@ -50,101 +122,98 @@ if uploaded_file:
         excel_ticker_list = clean_tickers(df_excel[ticker_col].tolist())
         st.sidebar.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
     else:
-        st.sidebar.error("Could not find 'Ticker' or 'Symbol' column in Excel.")
+        st.sidebar.error("Could not find 'Ticker' or 'Symbol' column.")
 
-default_universe = ['AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX']
-watchlist = excel_ticker_list or clean_tickers(default_universe)
-st.sidebar.markdown("#### Current Universe")
-for t in watchlist:
-    st.sidebar.write(f"- {t}")
-
-# --- Filters ---
-time_frame = st.sidebar.selectbox("Time Frame", ['1d', '1wk'], index=0)
+watchlist = excel_ticker_list or clean_tickers(SCAN_UNIVERSE)
+time_frame = st.sidebar.selectbox("Time Frame", TIME_FRAMES)
 min_score = st.sidebar.slider("Minimum Quality Score", 0, 100, 18)
 max_results = st.sidebar.slider("Max Results", 5, 50, 15)
 
-# --- Scan Logic ---
-def scan_universe(universe, period='6mo', interval='1d', min_score=0, max_results=10):
-    results = []
-    failed = []
-    progress = st.progress(0, text="Scanning tickers...")
-    for i, ticker in enumerate(universe):
-        data = get_stock_data(ticker, period=period, interval=interval)
-        if not data.empty:
-            score = score_momentum(data)
-            if score >= min_score:
-                results.append({
-                    'Ticker': ticker,
-                    'Score': round(score, 2),
-                    'Price': round(data['Close'].iloc[-1], 2),
-                    'Change %': round(100 * (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1), 3) if len(data['Close']) > 1 else 0,
-                    'Volume': int(data['Volume'].iloc[-1]),
-                    'RSI': round(data['momentum_rsi'].iloc[-1], 2) if 'momentum_rsi' in data.columns else None,
-                    'MACD': round(data['trend_macd'].iloc[-1], 3) if 'trend_macd' in data.columns else None
-                })
-        else:
-            failed.append(ticker)
-        progress.progress((i+1)/len(universe))
-    df = pd.DataFrame(results)
-    if not df.empty:
-        df = df.sort_values("Score", ascending=False).head(max_results)
-    return df, failed
+st.sidebar.markdown("#### Current Universe")
+for ticker in watchlist:
+    st.sidebar.write(f"- {ticker}")
 
-# --- Scan Button ---
+# --- SCAN BUTTON ---
+st.markdown("### Scan Results")
 if st.button("Run Scan"):
     scan_df, failed = scan_universe(watchlist, period='6mo', interval=time_frame, min_score=min_score, max_results=max_results)
-    st.session_state['scan_results'] = scan_df
-    st.session_state['failed'] = failed
+    st.session_state["scan_results"] = scan_df
+    st.session_state["failed"] = failed
 
-scan_df = st.session_state.get('scan_results', pd.DataFrame())
-failed = st.session_state.get('failed', [])
+scan_df = st.session_state.get("scan_results", pd.DataFrame())
+failed = st.session_state.get("failed", [])
 
+# --- Results Table ---
 if not scan_df.empty:
-    st.subheader("Scan Results")
-    st.dataframe(scan_df, use_container_width=True)
-    st.download_button("Download Results as CSV", scan_df.to_csv(index=False), "scan_results.csv")
-    st.download_button("Download Results as Excel", scan_df.to_excel(index=False), "scan_results.xlsx")
+    st.success("Scan completed!")
+    # AgGrid for filtering/sorting
+    gb = GridOptionsBuilder.from_dataframe(scan_df)
+    gb.configure_default_column(filterable=True, sortable=True)
+    gb.configure_column("Score", type=["numericColumn"], filter="agNumberColumnFilter")
+    grid_options = gb.build()
+    AgGrid(scan_df, gridOptions=grid_options, height=360)
+    # Download buttons
+    st.download_button(
+        label="Download Results as Excel",
+        data=download_as_excel(scan_df),
+        file_name="swing_scanner_results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
 else:
     st.info("Run a scan to see results.")
     if failed:
-        st.warning(f"No results found. All tickers may have failed data download, or none meet the score threshold.")
+        st.warning("Some tickers failed data download. See diagnostics below.")
 
-# --- Single Ticker Diagnostic ---
+# --- Diagnostics Panel: Single Ticker Test ---
 with st.expander("Single Ticker Data Test (Diagnostics)"):
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        single_ticker = st.text_input("Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA):", value=watchlist[0])
-    with col2:
-        single_period = st.selectbox("Test period", ["6mo", "1y", "1mo"], index=0)
-    with col3:
-        single_interval = st.selectbox("Test interval", ["1d", "1wk"], index=0)
+    st.write("Quickly test a single ticker and see raw Yahoo/yfinance output (for debugging failed downloads).")
+    ticker_input = st.text_input("Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA):", value=(watchlist[0] if watchlist else "AAPL"))
+    test_period = st.selectbox("Test period", ["1mo", "3mo", "6mo", "1y"], index=2)
+    test_interval = st.selectbox("Test interval", ["1d", "1wk"], index=0)
     if st.button("Fetch Ticker Data"):
-        df_single = get_stock_data(single_ticker, period=single_period, interval=single_interval)
-        st.markdown(f"**Ticker:** {single_ticker}\n\n**Period:** {single_period}\n\n**Interval:** {single_interval}")
-        if not df_single.empty:
-            st.dataframe(df_single.tail(10))
-            # --- Plotly Chart ---
-            chart = go.Figure()
-            chart.add_trace(go.Candlestick(
-                x=df_single.index,
-                open=df_single['Open'],
-                high=df_single['High'],
-                low=df_single['Low'],
-                close=df_single['Close'],
-                name="Candlestick"
+        raw_df, debug_msg = get_stock_data(ticker_input, test_period, test_interval)
+        st.markdown(f"**Ticker:** {ticker_input.upper()}  \n**Period:** {test_period}  \n**Interval:** {test_interval}")
+        if not raw_df.empty:
+            st.write("Raw Yahoo data (tail):")
+            st.dataframe(raw_df.tail(8))
+            # Show chart
+            fig = go.Figure()
+            fig.add_trace(go.Candlestick(
+                x=raw_df.index,
+                open=raw_df['Open'],
+                high=raw_df['High'],
+                low=raw_df['Low'],
+                close=raw_df['Close'],
+                name="Price"
             ))
-            if 'momentum_rsi' in df_single.columns:
-                chart.add_trace(go.Scatter(
-                    x=df_single.index, y=df_single['momentum_rsi'],
-                    yaxis="y2", name="RSI", line=dict(color='orange')
+            if "momentum_rsi" in raw_df.columns:
+                fig.add_trace(go.Scatter(
+                    x=raw_df.index, y=raw_df["momentum_rsi"],
+                    yaxis="y2", mode="lines", name="RSI"
                 ))
-            chart.update_layout(
-                xaxis_rangeslider_visible=False,
-                yaxis=dict(title='Price'),
-                yaxis2=dict(title='RSI', overlaying='y', side='right', showgrid=False),
-                height=450
+            fig.update_layout(
+                title=f"{ticker_input.upper()} Price & RSI",
+                yaxis_title="Price",
+                yaxis2=dict(title="RSI", overlaying='y', side='right'),
+                height=400
             )
-            st.plotly_chart(chart, use_container_width=True)
+            st.plotly_chart(fig, use_container_width=True)
+            st.write("With TA features (last 5 rows):")
+            st.dataframe(raw_df.tail(5))
         else:
-            st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
+            st.error("No data returned! " + debug_msg)
+        # --- DEBUG INFO PANEL ---
+        with st.expander("Show Debug Info / Raw Log"):
+            st.code(f"Debug message: {debug_msg}\n\nReturned DataFrame shape: {raw_df.shape}\nColumns: {list(raw_df.columns)}")
+            st.write("Returned head (first 3 rows):")
+            st.dataframe(raw_df.head(3))
+            st.write("Returned tail (last 3 rows):")
+            st.dataframe(raw_df.tail(3))
 
+# --- Footer ---
+st.markdown("""
+    <hr>
+    <div style="text-align:center; font-size:0.93rem; color:#888;">
+        &copy; 2025 Swing Trading Scanner Pro &bull; Built with ❤️ using Python, Streamlit, yfinance, TA-Lib, Plotly, and AgGrid.
+    </div>
+""", unsafe_allow_html=True)
