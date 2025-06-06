@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 from ta import add_all_ta_features
 import plotly.graph_objects as go
-from st_aggrid import AgGrid, GridOptionsBuilder
 import numpy as np
 import io
 
@@ -35,17 +34,6 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
     except Exception as e:
         return pd.DataFrame(), str(e)
 
-def get_extra_indicators(df):
-    df = df.copy()
-    # ATR
-    df['ATR'] = df['High'] - df['Low']
-    # Simple support/resistance: last 14d high/low
-    df['Sup'] = df['Low'].rolling(14).min()
-    df['Res'] = df['High'].rolling(14).max()
-    # Analyst rating: placeholder
-    df['AnalystRating'] = np.nan
-    return df
-
 def scan_universe(universe, period, interval, min_score, max_results):
     results = []
     failed = []
@@ -64,13 +52,12 @@ def scan_universe(universe, period, interval, min_score, max_results):
                 "RSI": last["momentum_rsi"],
                 "MACD": last.get("trend_macd", np.nan),
                 "BB %": last.get("volatility_bbm", np.nan) / last.get("volatility_bbh", 1) * 100 if last.get("volatility_bbh", 1) else np.nan,
-                "ATR": last.get("ATR", np.nan),
+                "ATR": last.get("volatility_atr", np.nan),
                 "ADX": last.get("trend_adx", np.nan),
                 "SMA_20": last.get("trend_sma_fast", np.nan),
                 "EMA_20": last.get("trend_ema_fast", np.nan),
-                "Sup": last.get("Sup", np.nan),
-                "Res": last.get("Res", np.nan),
-                "AnalystRating": np.nan,  # Placeholder
+                "Sup": df["Low"].rolling(14).min().iloc[-1] if len(df) >= 14 else np.nan,
+                "Res": df["High"].rolling(14).max().iloc[-1] if len(df) >= 14 else np.nan,
             }
             results.append(result)
         else:
@@ -146,13 +133,7 @@ failed = st.session_state.get("failed", [])
 # --- Results Table ---
 if not scan_df.empty:
     st.success("Scan completed!")
-    # AgGrid for filtering/sorting
-    gb = GridOptionsBuilder.from_dataframe(scan_df)
-    gb.configure_default_column(filterable=True, sortable=True)
-    gb.configure_column("Score", type=["numericColumn"], filter="agNumberColumnFilter")
-    grid_options = gb.build()
-    AgGrid(scan_df, gridOptions=grid_options, height=360)
-    # Download buttons
+    st.dataframe(scan_df, use_container_width=True)
     st.download_button(
         label="Download Results as Excel",
         data=download_as_excel(scan_df),
@@ -202,18 +183,18 @@ with st.expander("Single Ticker Data Test (Diagnostics)"):
             st.dataframe(raw_df.tail(5))
         else:
             st.error("No data returned! " + debug_msg)
-        # --- DEBUG INFO PANEL ---
-        with st.expander("Show Debug Info / Raw Log"):
-            st.code(f"Debug message: {debug_msg}\n\nReturned DataFrame shape: {raw_df.shape}\nColumns: {list(raw_df.columns)}")
-            st.write("Returned head (first 3 rows):")
-            st.dataframe(raw_df.head(3))
-            st.write("Returned tail (last 3 rows):")
-            st.dataframe(raw_df.tail(3))
+        # --- DEBUG INFO PANEL: not nested! ---
+        st.markdown("**Debug Info / Raw Log**")
+        st.code(f"Debug message: {debug_msg}\n\nReturned DataFrame shape: {raw_df.shape}\nColumns: {list(raw_df.columns)}")
+        st.write("Returned head (first 3 rows):")
+        st.dataframe(raw_df.head(3))
+        st.write("Returned tail (last 3 rows):")
+        st.dataframe(raw_df.tail(3))
 
 # --- Footer ---
 st.markdown("""
     <hr>
     <div style="text-align:center; font-size:0.93rem; color:#888;">
-        &copy; 2025 Swing Trading Scanner Pro &bull; Built with ❤️ using Python, Streamlit, yfinance, TA-Lib, Plotly, and AgGrid.
+        &copy; 2025 Swing Trading Scanner Pro &bull; Built with ❤️ using Python, Streamlit, yfinance, TA-Lib, Plotly.
     </div>
 """, unsafe_allow_html=True)
