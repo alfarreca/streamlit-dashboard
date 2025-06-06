@@ -4,15 +4,7 @@ import yfinance as yf
 from ta import add_all_ta_features
 import plotly.graph_objs as go
 import io
-import subprocess
-import sys
-
-# Ensure xlsxwriter is available for Excel export
-try:
-    import xlsxwriter
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "xlsxwriter"])
-    import xlsxwriter
+import xlsxwriter  # Assumes installed via requirements.txt
 
 # --- Utilities ---
 def clean_tickers(ticker_list):
@@ -47,9 +39,13 @@ def score_momentum(data):
 
 def to_excel(df):
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False)
-    return output.getvalue()
+    try:
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False)
+        return output.getvalue()
+    except Exception as e:
+        st.error(f"Excel export failed: {e}")
+        return None
 
 # --- Streamlit Config ---
 st.set_page_config(page_title="Swing Trading Scanner Pro", layout="wide")
@@ -98,7 +94,7 @@ def scan_universe(universe, period='6mo', interval='1d', min_score=0, max_result
             if score >= min_score:
                 results.append({'Ticker': ticker_clean, 'Score': score, 'RSI': data['momentum_rsi'].iloc[-1]})
         else:
-            failed.append(ticker_clean)
+            failed.append(f"{ticker_clean}: {raw_log}")
         debug_logs.append(f"{ticker_clean}: {raw_log}")
         progress_bar.progress((i + 1) / len(universe))
     df = pd.DataFrame(results).sort_values('Score', ascending=False).head(max_results) if results else pd.DataFrame()
@@ -123,17 +119,19 @@ if not scan_df.empty:
     st.dataframe(scan_df, use_container_width=True)
     # Download as CSV
     st.download_button("Download Results as CSV", scan_df.to_csv(index=False), "scan_results.csv")
-    # Download as Excel
-    st.download_button("Download Results as Excel", to_excel(scan_df), "scan_results.xlsx")
+    # Download as Excel (now robust)
+    excel_bytes = to_excel(scan_df)
+    if excel_bytes:
+        st.download_button("Download Results as Excel", excel_bytes, "scan_results.xlsx")
 else:
-    st.info("Run a scan to see results.")
+    st.warning("No scan results: Either all tickers failed, or none passed the score filter. Try lowering the minimum score or check your ticker list/data.")
 
 # --- Show Debug Info ---
 if debug_logs:
     with st.expander("Debug Info / Raw Log"):
         st.code("\n".join(debug_logs), language='text')
 if failed:
-    st.warning(f"Failed to fetch data for {len(failed)} tickers. See list below:")
+    st.warning(f"Failed to fetch data for {len(failed)} tickers. See below:")
     st.write(failed)
 
 # --- Single Ticker Diagnostic & Live Chart ---
