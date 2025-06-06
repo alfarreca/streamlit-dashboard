@@ -42,11 +42,9 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
 def calculate_opportunity_score(data):
     if data.empty:
         return 0
-    # Example scoring, can be replaced/expanded
     rsi = data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan')
     macd = data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan')
     bbp = data['volatility_bbp'].iloc[-1] if 'volatility_bbp' in data else float('nan')
-    # Normalize and average for simple composite score
     score = 0
     if not pd.isna(rsi):
         score += (100 - abs(rsi - 50)) * 0.5
@@ -57,7 +55,6 @@ def calculate_opportunity_score(data):
     return round(score, 1)
 
 def generate_strategy(data):
-    # Example: Simple rules, expand as needed
     entry, exit = [], []
     stop_loss, take_profit = None, None
     if not data.empty:
@@ -184,29 +181,44 @@ else:
 
 # --- Single Ticker Data Test (Diagnostics) ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
-    ticker = st.text_input("Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA):", value="MC.PA")
+    # Use placeholder if supported by your Streamlit version (>=1.25.0)
+    try:
+        ticker = st.text_input(
+            "Test a ticker",
+            value="",
+            placeholder="e.g. MC.PA, AAPL, ORA.PA, SAN.PA"
+        )
+    except TypeError:
+        # For older Streamlit: fallback to just label
+        ticker = st.text_input(
+            "Test a ticker (e.g. MC.PA, AAPL, ORA.PA, SAN.PA)",
+            value=""
+        )
     period = st.selectbox("Test period", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=2, key='test_period')
     interval = st.selectbox("Test interval", ["1d", "1wk"], index=0, key='test_interval')
     if st.button("Fetch Ticker Data"):
-        st.write(f"**Ticker:** {ticker}  \n**Period:** {period}  \n**Interval:** {interval}")
-        data = yf.download(ticker, period=period, interval=interval)
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(-1)
-            if len(data.columns) == 5 and len(set(data.columns)) == 1:
-                data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-        st.write("Raw Yahoo data:")
-        st.write(data.tail(10))
-        min_rows = 15
-        if data.empty:
-            st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
-        elif len(data) < min_rows:
-            st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
+        if not ticker:
+            st.warning("Please enter a ticker symbol.")
         else:
-            try:
-                ta_data = add_all_ta_features(
-                    data, open="Open", high="High", low="Low", close="Close", volume="Volume"
-                )
-                st.write("With TA features (last 5 rows):")
-                st.write(ta_data.tail())
-            except Exception as e:
-                st.warning(f"TA error: {e}")
+            st.write(f"**Ticker:** {ticker}  \n**Period:** {period}  \n**Interval:** {interval}")
+            data = yf.download(ticker, period=period, interval=interval)
+            if isinstance(data.columns, pd.MultiIndex):
+                data.columns = data.columns.get_level_values(-1)
+                if len(data.columns) == 5 and len(set(data.columns)) == 1:
+                    data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            st.write("Raw Yahoo data:")
+            st.write(data.tail(10))
+            min_rows = 15
+            if data.empty:
+                st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
+            elif len(data) < min_rows:
+                st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
+            else:
+                try:
+                    ta_data = add_all_ta_features(
+                        data, open="Open", high="High", low="Low", close="Close", volume="Volume"
+                    )
+                    st.write("With TA features (last 5 rows):")
+                    st.write(ta_data.tail())
+                except Exception as e:
+                    st.warning(f"TA error: {e}")
