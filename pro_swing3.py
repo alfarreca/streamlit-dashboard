@@ -23,6 +23,9 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
     # Flatten MultiIndex columns if present
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(-1)
+        # Remove duplicates if present
+        if len(set(data.columns)) != len(data.columns):
+            data = data.loc[:, ~data.columns.duplicated()]
         if len(data.columns) == 5 and len(set(data.columns)) == 1:
             data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
     if data.empty or len(data) < 2:
@@ -34,6 +37,9 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
         data = add_all_ta_features(
             data, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
+        # Remove duplicates after adding TA features
+        if data.columns.duplicated().any():
+            data = data.loc[:, ~data.columns.duplicated()]
     except Exception as e:
         print(f"TA error for {ticker}: {e}")
         return pd.DataFrame()
@@ -84,7 +90,6 @@ def generate_strategy(data):
         'take_profit': take_profit
     }
 
-# --- Convert the strategy dictionary to a readable string ---
 def strategy_to_string(strategy):
     return (
         "Entry: " + (", ".join(strategy['entry_rules']) if strategy['entry_rules'] else "None") + "\n"
@@ -92,6 +97,12 @@ def strategy_to_string(strategy):
         "Stop Loss: " + (str(strategy['stop_loss']) if strategy['stop_loss'] else "None") + "\n"
         "Take Profit: " + (str(strategy['take_profit']) if strategy['take_profit'] else "None")
     )
+
+def safe_display(df, **kwargs):
+    if isinstance(df, pd.DataFrame) and df.columns.duplicated().any():
+        st.error(f"Duplicate columns found: {list(df.columns[df.columns.duplicated()])}")
+        df = df.loc[:, ~df.columns.duplicated()]
+    st.dataframe(df, **kwargs)
 
 def scan_universe(universe, period='6mo'):
     results = []
@@ -170,7 +181,6 @@ for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
 # --- MAIN PAGE ---
-# Only run scan after button click!
 if st.sidebar.button("Run Scan", type="primary"):
     results, failed = scan_universe(
         st.session_state.watchlist,
@@ -181,7 +191,7 @@ if st.sidebar.button("Run Scan", type="primary"):
 
 if "scanned_results" in st.session_state and not st.session_state.scanned_results.empty:
     st.subheader("Scan Results")
-    st.dataframe(st.session_state.scanned_results)
+    safe_display(st.session_state.scanned_results)
     if 'failed_tickers' in st.session_state and st.session_state.failed_tickers:
         st.warning(f"Failed to fetch data for {len(st.session_state.failed_tickers)} tickers. See list below:")
         with st.expander("Show Failed Tickers"):
@@ -212,20 +222,28 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
             data = yf.download(ticker, period=period, interval=interval)
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = data.columns.get_level_values(-1)
+                if data.columns.duplicated().any():
+                    data = data.loc[:, ~data.columns.duplicated()]
                 if len(data.columns) == 5 and len(set(data.columns)) == 1:
                     data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+            # Remove moving averages if already present to avoid duplicates
+            for ma in ['MA20', 'MA50', 'MA200']:
+                if ma in data.columns:
+                    data = data.drop(columns=[ma])
+            data['MA20'] = data['Close'].rolling(window=20).mean()
+            data['MA50'] = data['Close'].rolling(window=50).mean()
+            data['MA200'] = data['Close'].rolling(window=200).mean()
+            # Remove duplicates if any
+            if data.columns.duplicated().any():
+                data = data.loc[:, ~data.columns.duplicated()]
             st.write("Raw Yahoo data:")
-            st.write(data.tail(10))
+            safe_display(data.tail(10))
             min_rows = 15
             if data.empty:
                 st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
             elif len(data) < min_rows:
                 st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
             else:
-                # Calculate moving averages
-                data['MA20'] = data['Close'].rolling(window=20).mean()
-                data['MA50'] = data['Close'].rolling(window=50).mean()
-                data['MA200'] = data['Close'].rolling(window=200).mean()
                 # Plot Close and MAs
                 fig, ax = plt.subplots(figsize=(10, 5))
                 ax.plot(data.index, data['Close'], label='Close Price')
@@ -242,7 +260,9 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                     ta_data = add_all_ta_features(
                         data, open="Open", high="High", low="Low", close="Close", volume="Volume"
                     )
+                    if ta_data.columns.duplicated().any():
+                        ta_data = ta_data.loc[:, ~ta_data.columns.duplicated()]
                     st.write("With TA features (last 5 rows):")
-                    st.write(ta_data.tail())
+                    safe_display(ta_data.tail())
                 except Exception as e:
                     st.warning(f"TA error: {e}")
