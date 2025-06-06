@@ -17,13 +17,17 @@ if st.button("Fetch Data"):
     # --- Fix: Flatten MultiIndex columns and rename if needed ---
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(-1)
-        # If all columns are the ticker (e.g. MC.PA), set to standard OHLCV names:
         if len(data.columns) == 5 and len(set(data.columns)) == 1:
             data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
     st.write("Raw Yahoo data:")
     st.write(data.tail(10))
 
-    if not data.empty:
+    min_rows = 15  # at least as large as the largest indicator window you use (e.g., 14 for RSI)
+    if data.empty:
+        st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
+    elif data.shape[0] < min_rows:
+        st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {data.shape[0]})")
+    else:
         try:
             ta_data = add_all_ta_features(
                 data, open="Open", high="High", low="Low", close="Close", volume="Volume"
@@ -32,5 +36,3 @@ if st.button("Fetch Data"):
             st.write(ta_data.tail())
         except Exception as e:
             st.warning(f"TA error: {e}")
-    else:
-        st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
