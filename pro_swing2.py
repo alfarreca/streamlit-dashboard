@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 from ta import add_all_ta_features
 import plotly.graph_objects as go
+import io  # <-- Added for Excel buffer
 
 # ----- Helper Functions -----
 
@@ -100,7 +101,11 @@ if st.button("Run Scan"):
         st.subheader("Scan Results")
         st.dataframe(scan_df)
         st.download_button("Download Results as CSV", scan_df.to_csv(index=False), "scan_results.csv")
-        st.download_button("Download Results as Excel", scan_df.to_excel(index=False, engine="openpyxl"), "scan_results.xlsx")
+        # --- Excel Download Fix ---
+        excel_buffer = io.BytesIO()
+        scan_df.to_excel(excel_buffer, index=False, engine="openpyxl")
+        excel_buffer.seek(0)
+        st.download_button("Download Results as Excel", excel_buffer, "scan_results.xlsx")
 
 # --- Diagnostics: Single Ticker ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
