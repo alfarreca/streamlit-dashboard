@@ -3,6 +3,7 @@ import pandas as pd
 import yfinance as yf
 from ta import add_all_ta_features
 import time
+import matplotlib.pyplot as plt
 
 # --- UTILITIES ---
 def clean_tickers(ticker_list):
@@ -212,6 +213,22 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
             elif len(data) < min_rows:
                 st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
             else:
+                # Calculate moving averages
+                data['MA20'] = data['Close'].rolling(window=20).mean()
+                data['MA50'] = data['Close'].rolling(window=50).mean()
+                data['MA200'] = data['Close'].rolling(window=200).mean()
+                # Plot Close and MAs
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.plot(data.index, data['Close'], label='Close Price')
+                ax.plot(data.index, data['MA20'], label='20-day MA')
+                ax.plot(data.index, data['MA50'], label='50-day MA')
+                ax.plot(data.index, data['MA200'], label='200-day MA')
+                ax.set_title(f"{ticker} Price with Moving Averages")
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Price")
+                ax.legend()
+                st.pyplot(fig)
+                # Existing TA features display
                 try:
                     ta_data = add_all_ta_features(
                         data, open="Open", high="High", low="Low", close="Close", volume="Volume"
