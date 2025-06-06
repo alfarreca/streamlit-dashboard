@@ -67,7 +67,7 @@ def generate_strategy(data):
         rsi = data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else None
         macd = data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else None
         bbp = data['volatility_bbp'].iloc[-1] if 'volatility_bbp' in data else None
-        close = data['Close'].iloc[-1]
+        close = data['Close'].iloc[-1] if 'Close' in data.columns else None
         if rsi is not None:
             if rsi < 35: entry.append(f"RSI ({rsi:.1f}) < 35 (Oversold)")
             elif rsi > 65: entry.append(f"RSI ({rsi:.1f}) > 65 (Overbought)")
@@ -80,7 +80,7 @@ def generate_strategy(data):
             if rsi < 30 or rsi > 70: exit.append(f"RSI crosses {'40' if rsi<30 else '60'}")
         exit.append("MACD crosses signal line (opp. dir)")
         atr = data['volatility_atr'].iloc[-1] if 'volatility_atr' in data else None
-        if atr is not None:
+        if atr is not None and close is not None:
             stop_loss = f"{close - atr * 1.5:.2f} (1.5x ATR)"
             take_profit = f"{close + atr * 3:.2f} (3x ATR)"
     return {
@@ -119,9 +119,9 @@ def scan_universe(universe, period='6mo'):
                         results.append({
                             'Ticker': ticker,
                             'Score': score,
-                            'Price': data['Close'].iloc[-1],
-                            'Change %': (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1) * 100,
-                            'Volume': data['Volume'].iloc[-1],
+                            'Price': data['Close'].iloc[-1] if 'Close' in data.columns else float('nan'),
+                            'Change %': (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1) * 100 if 'Close' in data.columns and len(data['Close']) > 1 else float('nan'),
+                            'Volume': data['Volume'].iloc[-1] if 'Volume' in data.columns else float('nan'),
                             'RSI': data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan'),
                             'MACD': data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan'),
                             'BB %': data['volatility_bbp'].iloc[-1] * 100 if 'volatility_bbp' in data else float('nan'),
@@ -226,16 +226,6 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                     data = data.loc[:, ~data.columns.duplicated()]
                 if len(data.columns) == 5 and len(set(data.columns)) == 1:
                     data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-            # Remove moving averages if already present to avoid duplicates
-            for ma in ['MA20', 'MA50', 'MA200']:
-                if ma in data.columns:
-                    data = data.drop(columns=[ma])
-            data['MA20'] = data['Close'].rolling(window=20).mean()
-            data['MA50'] = data['Close'].rolling(window=50).mean()
-            data['MA200'] = data['Close'].rolling(window=200).mean()
-            # Remove duplicates if any
-            if data.columns.duplicated().any():
-                data = data.loc[:, ~data.columns.duplicated()]
             st.write("Raw Yahoo data:")
             safe_display(data.tail(10))
             min_rows = 15
@@ -244,17 +234,30 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
             elif len(data) < min_rows:
                 st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
             else:
-                # Plot Close and MAs
-                fig, ax = plt.subplots(figsize=(10, 5))
-                ax.plot(data.index, data['Close'], label='Close Price')
-                ax.plot(data.index, data['MA20'], label='20-day MA')
-                ax.plot(data.index, data['MA50'], label='50-day MA')
-                ax.plot(data.index, data['MA200'], label='200-day MA')
-                ax.set_title(f"{ticker} Price with Moving Averages")
-                ax.set_xlabel("Date")
-                ax.set_ylabel("Price")
-                ax.legend()
-                st.pyplot(fig)
+                # Calculate moving averages, if possible and 'Close' exists
+                if 'Close' in data.columns:
+                    for ma in ['MA20', 'MA50', 'MA200']:
+                        if ma in data.columns:
+                            data = data.drop(columns=[ma])
+                    data['MA20'] = data['Close'].rolling(window=20).mean()
+                    data['MA50'] = data['Close'].rolling(window=50).mean()
+                    data['MA200'] = data['Close'].rolling(window=200).mean()
+                    # Remove duplicates if any
+                    if data.columns.duplicated().any():
+                        data = data.loc[:, ~data.columns.duplicated()]
+                    # Plot Close and MAs
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    ax.plot(data.index, data['Close'], label='Close Price')
+                    ax.plot(data.index, data['MA20'], label='20-day MA')
+                    ax.plot(data.index, data['MA50'], label='50-day MA')
+                    ax.plot(data.index, data['MA200'], label='200-day MA')
+                    ax.set_title(f"{ticker} Price with Moving Averages")
+                    ax.set_xlabel("Date")
+                    ax.set_ylabel("Price")
+                    ax.legend()
+                    st.pyplot(fig)
+                else:
+                    st.error("No 'Close' column found in price data! Cannot calculate moving averages. Check ticker, interval, or period.")
                 # Existing TA features display
                 try:
                     ta_data = add_all_ta_features(
