@@ -1,154 +1,112 @@
 import streamlit as st
 import pandas as pd
-import yfinance as yf
 import numpy as np
+import yfinance as yf
 from ta import add_all_ta_features
-import io
 
-# --- Utilities ---
-def clean_tickers(ticker_list):
-    return (
-        pd.Series(ticker_list)
-        .dropna()
-        .astype(str)
-        .str.replace(r'^"|"$', '', regex=True)
-        .str.strip()
-        .str.upper()
-        .unique()
-        .tolist()
-    )
+# ----- Helper Functions -----
 
-def fetch_and_flatten_ticker(ticker, period='6mo', interval='1d'):
-    debug = {}
+@st.cache_data(show_spinner=False)
+def fetch_and_flatten_ticker(ticker, period="6mo", interval="1d"):
+    dbg = {}
     try:
-        raw = yf.download(ticker, period=period, interval=interval)
-        debug['download_shape'] = raw.shape
-        debug['columns'] = str(raw.columns)
-        # Handle MultiIndex as returned by yfinance for some tickers
-        if isinstance(raw.columns, pd.MultiIndex):
-            raw.columns = raw.columns.get_level_values(0)
-        if raw.empty or len(raw) < 5:
-            debug['error'] = "Empty or insufficient rows"
-            return pd.DataFrame(), debug
-        raw['Ticker'] = ticker  # keep for debug
-        # Add TA features
-        ta_df = add_all_ta_features(
-            raw, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
-        )
-        debug['ta_shape'] = ta_df.shape
-        return ta_df, debug
-    except Exception as e:
-        debug['error'] = f"TA error: {str(e)}"
-        return pd.DataFrame(), debug
+        data = yf.download(ticker, period=period, interval=interval)
+        dbg['raw_shape'] = data.shape
+        dbg['raw_columns'] = list(data.columns)
+        if data.empty:
+            dbg['error'] = "No data returned."
+            return pd.DataFrame(), dbg
 
-def score_momentum(df):
-    if df.empty or 'momentum_rsi' not in df.columns:
-        return np.nan
-    return df['momentum_rsi'].iloc[-1]
+        # Prepare DataFrame for ta-lib
+        data = data.rename_axis('Date').reset_index()
+        df = data.copy()
+        try:
+            # Add TA features (handles most price/volume indicators)
+            df = add_all_ta_features(
+                df, open="Open", high="High", low="Low", close="Close", volume="Volume", fillna=True
+            )
+        except Exception as e:
+            dbg['ta_error'] = str(e)
+        dbg['df_shape_post_ta'] = df.shape
+        dbg['columns_post_ta'] = list(df.columns)
+        return df, dbg
+    except Exception as ex:
+        dbg['exception'] = str(ex)
+        return pd.DataFrame(), dbg
 
-# --- Streamlit Config ---
-st.set_page_config(page_title="Swing Trading Scanner Pro", layout="wide")
+def scan_universe(watchlist, period="6mo", interval="1d"):
+    scan_results = []
+    debug_info = {}
+    for ticker in watchlist:
+        df, dbg = fetch_and_flatten_ticker(ticker, period, interval)
+        debug_info[ticker] = dbg
+        if not df.empty:
+            # Example: Use RSI as score, add your logic
+            last_row = df.iloc[-1]
+            score = float(last_row.get("momentum_rsi", 0))
+            scan_results.append({
+                "Ticker": ticker,
+                "Score": score,
+                "RSI": float(last_row.get("momentum_rsi", np.nan)),
+                "MACD": float(last_row.get("trend_macd", np.nan)),
+                "Volume": float(last_row.get("Volume", np.nan)),
+                # ...add more columns as needed
+            })
+    results_df = pd.DataFrame(scan_results)
+    return results_df, debug_info
 
+# ----- Streamlit App -----
+
+st.set_page_config("Swing Trading Scanner Pro", layout="wide")
 st.title("📈 Swing Trading Scanner Pro")
-st.write("Your professional dashboard for swing trading opportunities — with technicals, charts, Excel export, and diagnostics.")
+st.markdown("""
+Your professional dashboard for swing trading opportunities — with technicals, charts, Excel export, and diagnostics.
+""")
 
-# --- Excel Upload ---
-uploaded_file = st.sidebar.file_uploader(
-    "Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", type=["xlsx"]
-)
-excel_ticker_list = None
-if uploaded_file:
-    df_excel = pd.read_excel(uploaded_file)
-    ticker_col = next((col for col in df_excel.columns if col.lower() in ['ticker', 'symbol']), None)
-    if ticker_col:
-        excel_ticker_list = clean_tickers(df_excel[ticker_col].tolist())
-        st.sidebar.success(f"Loaded {len(excel_ticker_list)} tickers from Excel: {ticker_col}")
+# --- Sidebar: Upload & Controls ---
+st.sidebar.header("Configuration")
+
+uploaded = st.sidebar.file_uploader("Upload an Excel file (.xlsx) with a column named 'Ticker' or 'Symbol'", type=['xlsx'])
+if uploaded:
+    df_excel = pd.read_excel(uploaded)
+    col = "Ticker" if "Ticker" in df_excel.columns else ("Symbol" if "Symbol" in df_excel.columns else None)
+    if col:
+        watchlist = df_excel[col].dropna().astype(str).unique().tolist()
+        st.sidebar.success(f"Loaded {len(watchlist)} tickers from Excel: {col}")
     else:
-        st.sidebar.error("Could not find 'Ticker' or 'Symbol' column.")
+        st.sidebar.error("Excel must have a 'Ticker' or 'Symbol' column.")
+        watchlist = []
+else:
+    watchlist = ["AAPL", "MSFT", "GOOG"]
 
-# --- Watchlist Setup ---
-DEFAULT_TICKERS = [
-    'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
-]
-watchlist = excel_ticker_list or clean_tickers(DEFAULT_TICKERS)
-
-st.sidebar.markdown("### Current Universe")
-for ticker in watchlist:
-    st.sidebar.write(f"- {ticker}")
-
-# --- Controls ---
-st.sidebar.header("Scan Settings")
-TIME_FRAMES = ['1d', '1wk']
-time_frame = st.sidebar.selectbox("Time Frame", TIME_FRAMES)
+# --- Scan Settings ---
+period = st.sidebar.selectbox("Time Frame", ["1d", "1wk"], index=0)
 min_score = st.sidebar.slider("Minimum Quality Score", 0, 100, 18)
 max_results = st.sidebar.slider("Max Results", 5, 50, 15)
 
-# --- Scan Button & Logic ---
-if 'scan_results' not in st.session_state:
-    st.session_state.scan_results = pd.DataFrame()
-if 'debug_log' not in st.session_state:
-    st.session_state.debug_log = {}
+# --- Universe Display ---
+st.sidebar.markdown("#### Current Universe")
+for ticker in watchlist:
+    st.sidebar.write("-", ticker)
 
-if st.button("Run Scan", type="primary"):
-    results = []
-    debug_log = {}
-    for ticker in watchlist:
-        df, dbg = fetch_and_flatten_ticker(ticker, period='6mo', interval=time_frame)
-        debug_log[ticker] = dbg
-        if df.empty or 'error' in dbg:
-            continue
-        score = score_momentum(df)
-        rsi = df['momentum_rsi'].iloc[-1] if 'momentum_rsi' in df.columns else None
-        macd = df['trend_macd'].iloc[-1] if 'trend_macd' in df.columns else None
-        close = df['Close'].iloc[-1] if 'Close' in df.columns else None
-        volume = df['Volume'].iloc[-1] if 'Volume' in df.columns else None
-        results.append({
-            'Ticker': ticker, 'Score': score, 'RSI': rsi, 'MACD': macd,
-            'Price': close, 'Volume': volume
-        })
-
-    scan_df = pd.DataFrame(results)
-
-    if not scan_df.empty and 'Score' in scan_df.columns:
-        scan_df = scan_df[scan_df['Score'] >= min_score].sort_values("Score", ascending=False).head(max_results)
-        st.session_state.scan_results = scan_df
-        st.session_state.debug_log = debug_log
-        st.success(f"Scan complete: {len(scan_df)} tickers found.")
+# --- Scan Button & Results ---
+if st.button("Run Scan"):
+    with st.spinner("Scanning..."):
+        scan_df, debug_info = scan_universe(watchlist, period="6mo", interval=period)
+    if scan_df.empty:
+        st.warning("No results found: all tickers failed, or none passed the score filter.")
     else:
-        st.session_state.scan_results = pd.DataFrame()
-        st.session_state.debug_log = debug_log
-        st.warning("No valid scan results. Check the debug info below for details on failed tickers.")
-
-# --- Show Results Table ---
-scan_df = st.session_state.scan_results
-if not scan_df.empty:
-    st.subheader("Scan Results")
-    st.dataframe(scan_df, use_container_width=True)
-    # --- Download Buttons ---
-    st.download_button(
-        "Download Results as CSV", data=scan_df.to_csv(index=False), file_name="scan_results.csv", mime="text/csv"
-    )
-    # Excel Download (OpenPyXL)
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        scan_df.to_excel(writer, index=False)
-    st.download_button(
-        "Download Results as Excel", data=output.getvalue(), file_name="scan_results.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        scan_df = scan_df[scan_df["Score"] >= min_score].sort_values("Score", ascending=False).head(max_results)
+        st.subheader("Scan Results")
+        st.dataframe(scan_df)
+        # Download buttons
+        st.download_button("Download Results as CSV", scan_df.to_csv(index=False), "scan_results.csv")
+        st.download_button("Download Results as Excel", scan_df.to_excel(index=False, engine="openpyxl"), "scan_results.xlsx")
 else:
-    st.info("Run a scan to see results.")
+    scan_df = pd.DataFrame()
+    debug_info = {}
 
-# --- Debug/Log Info ---
-with st.expander("Debug Info / Raw Log", expanded=False):
-    debug_log = st.session_state.get('debug_log', {})
-    # Failed tickers (those not in results)
-    failed = [k for k, v in debug_log.items() if 'error' in v]
-    if failed:
-        st.warning(f"Failed to fetch data for {len(failed)} tickers. See below:")
-        st.write([{k: v['error']} for k, v in debug_log.items() if 'error' in v])
-    st.write(debug_log)
-
-# --- Diagnostics (Single Ticker Test) ---
+# --- Diagnostics: Single Ticker ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
     col1, col2, col3 = st.columns([3,1,1])
     with col1:
@@ -161,11 +119,29 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
         df, dbg = fetch_and_flatten_ticker(single_ticker, period=single_period, interval=single_interval)
         st.write(f"**Ticker:** {single_ticker}  **Period:** {single_period}  **Interval:** {single_interval}")
         if not df.empty:
-            st.write("Returned DataFrame shape:", df.shape)
+            st.write(f"Returned DataFrame shape: {df.shape}")
             st.dataframe(df.head(3))
             st.write("Returned columns:", list(df.columns))
+            # Price chart example
+            if "Close" in df.columns:
+                import plotly.graph_objects as go
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=df["Date"], y=df["Close"], mode='lines', name="Close"))
+                if "momentum_rsi" in df.columns:
+                    fig.add_trace(go.Scatter(x=df["Date"], y=df["momentum_rsi"], mode='lines', name="RSI", yaxis="y2"))
+                    fig.update_layout(
+                        yaxis2=dict(overlaying='y', side='right', title="RSI"),
+                        title=f"{single_ticker} Price & RSI"
+                    )
+                st.plotly_chart(fig, use_container_width=True)
         else:
-            st.error(f"No data returned! Debug info: {dbg}")
-        with st.expander("Show Debug Info", expanded=False):
-            st.write(dbg)
+            st.error("No data returned! See Debug Info below.")
+
+        st.markdown("#### Debug Info")
+        st.write(dbg)
+
+# --- Show debug info for scan (main level, never inside another expander) ---
+if debug_info:
+    with st.expander("Show Debug Info", expanded=False):
+        st.write(debug_info)
 
