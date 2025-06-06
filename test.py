@@ -29,3 +29,7 @@ if st.button("Fetch Data"):
     else:
         st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
 
+# After data = yf.download(...)
+
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = data.columns.get_level_values(-1)
