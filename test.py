@@ -14,9 +14,12 @@ interval = st.selectbox("Interval", ["1d", "1wk"], index=0)
 if st.button("Fetch Data"):
     st.write(f"**Ticker:** {ticker}  \n**Period:** {period}  \n**Interval:** {interval}")
     data = yf.download(ticker, period=period, interval=interval)
-    # --- Fix: Flatten MultiIndex columns if present ---
+    # --- Fix: Flatten MultiIndex columns and rename if needed ---
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(-1)
+        # If all columns are the ticker (e.g. MC.PA), set to standard OHLCV names:
+        if len(data.columns) == 5 and len(set(data.columns)) == 1:
+            data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
     st.write("Raw Yahoo data:")
     st.write(data.tail(10))
 
