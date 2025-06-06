@@ -12,3 +12,4 @@ ta
 tqdm
 openpyxl
 stocknews
+streamlit-aggrid
