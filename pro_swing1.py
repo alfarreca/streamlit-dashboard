@@ -31,10 +31,8 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
         data = add_all_ta_features(
             data, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
-        # Custom: add SMA20, SMA50, ATR, ADX
         data['sma20'] = data['Close'].rolling(20).mean()
         data['sma50'] = data['Close'].rolling(50).mean()
-        # Support/Resistance: min/max of last N closes
         data['support'] = data['Close'].rolling(10).min()
         data['resistance'] = data['Close'].rolling(10).max()
     except Exception as e:
@@ -84,14 +82,6 @@ def scan_universe(universe, period='6mo', interval='1d'):
     if not results:
         return pd.DataFrame(), failed
     return pd.DataFrame(results), failed
-
-def style_dataframe(df):
-    # Highlight top/bottom
-    def color_score(val):
-        if val >= df['Score'].max(): return "background-color: #c7f4d7"
-        if val <= df['Score'].min(): return "background-color: #ffc9c9"
-        return ""
-    return df.style.applymap(color_score, subset=['Score'])
 
 def download_excel(df):
     output = BytesIO()
@@ -161,15 +151,21 @@ with st.sidebar:
     for ticker in watchlist:
         st.write(f"- {ticker}")
 
-# --- SCAN BUTTON ---
+# --- SCAN BUTTON (robust to errors) ---
 if st.button("Run Scan"):
     scan_df, failed = scan_universe(watchlist, period='6mo', interval=time_frame)
-    scan_df = scan_df[scan_df['Score'] >= min_score].sort_values("Score", ascending=False).head(max_results)
-    st.session_state['scan_results'] = scan_df
-    st.session_state['failed'] = failed
+    # --- PRO FIX: Only filter if results are valid
+    if not scan_df.empty and 'Score' in scan_df.columns:
+        scan_df = scan_df[scan_df['Score'] >= min_score].sort_values("Score", ascending=False).head(max_results)
+        st.session_state['scan_results'] = scan_df
+        st.session_state['failed'] = failed
+    else:
+        st.warning("No results found. All tickers may have failed data download, or none meet the score threshold.")
+        st.session_state['scan_results'] = pd.DataFrame()
+        st.session_state['failed'] = failed
 
-# --- SUMMARY CARDS ---
-if 'scan_results' in st.session_state and not st.session_state['scan_results'].empty:
+# --- SUMMARY CARDS & TABLE ---
+if 'scan_results' in st.session_state and not st.session_state['scan_results'].empty and 'Score' in st.session_state['scan_results'].columns:
     df = st.session_state['scan_results']
     col1, col2, col3 = st.columns(3)
     col1.metric("Top Winner", df.iloc[0]['Ticker'], round(df.iloc[0]['Score'],1))
