@@ -13,3 +13,4 @@ tqdm
 openpyxl
 stocknews
 streamlit-aggrid
+import xlsxwriter
