@@ -22,11 +22,11 @@ if st.button("Fetch Data"):
     st.write("Raw Yahoo data:")
     st.write(data.tail(10))
 
-    min_rows = 15  # at least as large as the largest indicator window you use (e.g., 14 for RSI)
+    min_rows = 15
     if data.empty:
         st.error("No data returned! This ticker/interval/period combo is not supported by Yahoo, or market is closed.")
-    elif data.shape[0] < min_rows:
-        st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {data.shape[0]})")
+    elif len(data) < min_rows:
+        st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
     else:
         try:
             ta_data = add_all_ta_features(
