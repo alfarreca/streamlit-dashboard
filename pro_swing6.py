@@ -21,7 +21,6 @@ def clean_tickers(ticker_list):
 
 def get_stock_data(ticker, period='6mo', interval='1d'):
     data = yf.download(ticker, period=period, interval=interval)
-    # Flatten MultiIndex columns if present
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(-1)
         if len(data.columns) == 5 and len(set(data.columns)) == 1:
@@ -35,7 +34,6 @@ def get_stock_data(ticker, period='6mo', interval='1d'):
         data = add_all_ta_features(
             data, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
-        # --- MACD Cross Detection Step ---
         if 'trend_macd' in data and 'trend_macd_signal' in data:
             macd = data['trend_macd']
             signal = data['trend_macd_signal']
@@ -95,8 +93,7 @@ def generate_strategy(data):
         'take_profit': take_profit
     }
 
-# --- Efficient Batch Processing for Large Lists ---
-def scan_universe_batched(universe, period='6mo', batch_size=50):
+def scan_universe_batched(universe, period='6mo', batch_size=500):
     results = []
     failed = []
     total = len(universe)
@@ -130,7 +127,6 @@ def scan_universe_batched(universe, period='6mo', batch_size=50):
                     st.warning(f"Error processing {ticker}: {str(e)}")
                     failed.append(ticker)
                     continue
-                # Show progress by overall position in universe
                 progress = (batch_start + i + 1) / total
                 progress_bar.progress(progress)
                 time.sleep(0.08)
@@ -165,7 +161,13 @@ if uploaded_file:
     else:
         st.error("Could not find 'Ticker' or 'Symbol' column.")
 
-st.session_state.watchlist = excel_ticker_list or clean_tickers(SCAN_UNIVERSE)
+# --- Set the active watchlist based on upload ---
+if excel_ticker_list:
+    st.session_state.watchlist = excel_ticker_list
+    st.info(f"Using {len(excel_ticker_list)} tickers from your uploaded file.")
+else:
+    st.session_state.watchlist = clean_tickers(SCAN_UNIVERSE)
+    st.info("Using default ticker universe.")
 
 # --- SIDEBAR FILTERS ---
 st.sidebar.title("Swing Trading Scanner Pro")
@@ -180,11 +182,11 @@ for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
 # --- MAIN PAGE ---
-# Only run scan after button click!
 if st.sidebar.button("Run Scan", type="primary"):
     results, failed = scan_universe_batched(
         st.session_state.watchlist,
-        period='6mo'
+        period='6mo',
+        batch_size=500  # BATCH SIZE SET TO 500
     )
     st.session_state.scanned_results = results.head(max_results) if not results.empty else results
     st.session_state.failed_tickers = failed
@@ -232,16 +234,13 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
             elif len(data) < min_rows:
                 st.warning(f"Not enough data to compute indicators (need at least {min_rows} rows, got {len(data)})")
             else:
-                # Calculate moving averages
                 data['MA20'] = data['Close'].rolling(window=20).mean()
                 data['MA50'] = data['Close'].rolling(window=50).mean()
                 data['MA200'] = data['Close'].rolling(window=200).mean()
-                # Calculate Bollinger Bands
                 data['BB_Middle'] = data['Close'].rolling(window=20).mean()
                 data['BB_Std'] = data['Close'].rolling(window=20).std()
                 data['BB_Upper'] = data['BB_Middle'] + 2 * data['BB_Std']
                 data['BB_Lower'] = data['BB_Middle'] - 2 * data['BB_Std']
-                # Plot Close, MAs, and Bollinger Bands
                 fig, ax = plt.subplots(figsize=(10, 5))
                 ax.plot(data.index, data['Close'], label='Close Price')
                 ax.plot(data.index, data['MA20'], label='20-day MA')
@@ -255,12 +254,10 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                 ax.set_ylabel("Price")
                 ax.legend()
                 st.pyplot(fig)
-                # Existing TA features display
                 try:
                     ta_data = add_all_ta_features(
                         data, open="Open", high="High", low="Low", close="Close", volume="Volume"
                     )
-                    # --- MACD Cross Detection Step in diagnostics ---
                     if 'trend_macd' in ta_data and 'trend_macd_signal' in ta_data:
                         macd = ta_data['trend_macd']
                         signal = ta_data['trend_macd_signal']
@@ -272,7 +269,6 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                         )
                     st.write("With TA features (last 5 rows):")
                     st.write(ta_data.tail())
-                    # Show MACD cross last 20 rows for clarity
                     st.write("MACD Cross Events (last 20 rows):")
                     st.write(ta_data[['Close', 'trend_macd', 'trend_macd_signal', 'macd_cross']].tail(20))
                 except Exception as e:
