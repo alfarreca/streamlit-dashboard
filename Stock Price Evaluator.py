@@ -51,7 +51,7 @@ def get_stock_data(ticker, period):
         return data, hist
 
     except Exception as e:
-        st.error(f"Error fetching data for {ticker}: {str(e)}")
+        # Do not call st.error here, just return None to let main loop handle errors
         return None, None
 
 # Main app logic
@@ -59,7 +59,9 @@ if uploaded_file is not None:
     # Read Excel file
     try:
         excel_data = pd.read_excel(uploaded_file)
-        tickers = excel_data.iloc[:, 0].dropna().tolist()  # Handle empty cells
+
+        # Ensure all tickers are strings, stripped and uppercased
+        tickers = [str(t).strip().upper() for t in excel_data.iloc[:, 0].dropna().tolist()]
 
         if not tickers:
             st.warning("No tickers found in the uploaded file.")
@@ -71,19 +73,25 @@ if uploaded_file is not None:
             status_text = st.empty()
 
             results = []
+            failed_tickers = []
             benchmark_data = None
 
             # Get benchmark data if selected
             if benchmark != "None":
                 benchmark_ticker = benchmark.split()[0]
-                benchmark_data = yf.Ticker(benchmark_ticker).history(period=period)
+                try:
+                    benchmark_data = yf.Ticker(benchmark_ticker).history(period=period)
+                except Exception:
+                    benchmark_data = None
 
             # Fetch data for each ticker
             for i, ticker in enumerate(tickers):
-                status_text.text(f"Fetching data for {ticker} ({i+1}/{len(tickers)})")
+                status_text.text(f"Fetching data for {ticker} ({i + 1}/{len(tickers)})")
                 data, history = get_stock_data(ticker, period)
                 if data:
                     results.append(data)
+                else:
+                    failed_tickers.append(ticker)
                 progress_bar.progress((i + 1) / len(tickers))
 
             # Display results
@@ -121,7 +129,8 @@ if uploaded_file is not None:
 
                 # Visualization section
                 st.subheader("Price Performance")
-                selected_ticker = st.selectbox("Select ticker to visualize", tickers)
+                valid_tickers = df["Ticker"].tolist()
+                selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
 
                 # Get selected ticker's history
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
@@ -130,7 +139,7 @@ if uploaded_file is not None:
                 fig, ax = plt.subplots(figsize=(10, 5))
                 ax.plot(selected_history.index, selected_history['Close'], label=selected_ticker)
 
-                if benchmark_data is not None:
+                if benchmark_data is not None and not benchmark_data.empty:
                     # Normalize both to percentage change for fair comparison
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
                     norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
@@ -157,6 +166,9 @@ if uploaded_file is not None:
                     ax2.set_ylabel(selected_metric)
                     plt.xticks(rotation=45)
                     st.pyplot(fig2)
+
+            if failed_tickers:
+                st.warning(f"No data found for the following tickers: {', '.join(failed_tickers)}")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
