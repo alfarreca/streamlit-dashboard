@@ -14,4 +14,4 @@ openpyxl
 stocknews
 streamlit-aggrid
 xlsxwriter
-
+pip install -U yfinance curl_cffi
