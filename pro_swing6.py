@@ -18,34 +18,31 @@ def clean_tickers(ticker_list):
         .tolist()
     )
 
-def get_stock_data(ticker, period='6mo', interval='1d'):
-    data = yf.download(ticker, period=period, interval=interval)
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(-1)
-        if len(data.columns) == 5 and len(set(data.columns)) == 1:
-            data.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
-    if data.empty or len(data) < 2:
+def get_stock_data(data, ticker):
+    # Expects a multi-ticker DataFrame from yfinance
+    if ticker not in data or data[ticker].empty or len(data[ticker]) < 2:
         return pd.DataFrame()
+    df = data[ticker].copy()
     min_rows = 15
-    if len(data) < min_rows:
+    if len(df) < min_rows:
         return pd.DataFrame()
     try:
-        data = add_all_ta_features(
-            data, open="Open", high="High", low="Low", close="Close", volume="Volume"
+        df = add_all_ta_features(
+            df, open="Open", high="High", low="Low", close="Close", volume="Volume"
         )
-        if 'trend_macd' in data and 'trend_macd_signal' in data:
-            macd = data['trend_macd']
-            signal = data['trend_macd_signal']
+        if 'trend_macd' in df and 'trend_macd_signal' in df:
+            macd = df['trend_macd']
+            signal = df['trend_macd_signal']
             macd_prev = macd.shift(1)
             signal_prev = signal.shift(1)
-            data['macd_cross'] = np.where(
+            df['macd_cross'] = np.where(
                 (macd_prev < signal_prev) & (macd > signal), 'cross up',
                 np.where((macd_prev > signal_prev) & (macd < signal), 'cross down', '')
             )
     except Exception as e:
         print(f"TA error for {ticker}: {e}")
         return pd.DataFrame()
-    return data
+    return df
 
 def calculate_opportunity_score(data):
     if data.empty:
@@ -101,9 +98,21 @@ def scan_universe_batched(universe, period='6mo', batch_size=500):
         for batch_start in range(0, total, batch_size):
             batch_end = min(batch_start + batch_size, total)
             batch = universe[batch_start:batch_end]
+            try:
+                batch_data = yf.download(
+                    tickers=batch, period=period, interval='1d', group_by="ticker", timeout=15, threads=True
+                )
+                if isinstance(batch_data.columns, pd.MultiIndex):
+                    batch_data = batch_data.swaplevel(axis=1)
+            except Exception as e:
+                st.warning(f"Batch yfinance download failed: {e}")
+                for ticker in batch:
+                    failed.append(ticker)
+                continue
             for i, ticker in enumerate(batch):
+                st.write(f"Batch {batch_start//batch_size+1} | Processing ticker {i+1+batch_start} / {total}: {ticker}")
                 try:
-                    data = get_stock_data(ticker, period)
+                    data = get_stock_data(batch_data, ticker)
                     if not data.empty:
                         score = calculate_opportunity_score(data)
                         strategy = generate_strategy(data)
@@ -125,15 +134,13 @@ def scan_universe_batched(universe, period='6mo', batch_size=500):
                 except Exception as e:
                     st.warning(f"Error processing {ticker}: {str(e)}")
                     failed.append(ticker)
-                    continue
                 progress = (batch_start + i + 1) / total
                 progress_bar.progress(progress)
-                time.sleep(0.08)
+                time.sleep(0.01)
     if not results:
         return pd.DataFrame(columns=['Ticker', 'Score', 'Price', 'Change %', 'Volume', 'RSI', 'MACD', 'MACD Cross', 'BB %', 'Strategy']), failed
     return pd.DataFrame(results).sort_values('Score', ascending=False), failed
 
-# --- UI CONFIG ---
 st.set_page_config(
     page_title="Swing Trading Scanner Pro",
     page_icon="📈",
@@ -159,7 +166,6 @@ if uploaded_file:
     else:
         st.error("Could not find 'Ticker' or 'Symbol' column.")
 
-# Always set the active watchlist
 if excel_ticker_list:
     st.session_state.watchlist = excel_ticker_list
     st.info(f"Using {len(excel_ticker_list)} tickers from your uploaded file.")
@@ -178,11 +184,9 @@ st.sidebar.markdown("#### Current Universe")
 for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
-# DEBUG output of tickers
 st.write("DEBUG - Tickers to scan (first 10):", st.session_state.watchlist[:10])
 st.write("DEBUG - Total tickers:", len(st.session_state.watchlist))
 
-# --- MAIN PAGE ---
 if st.sidebar.button("Run Scan", type="primary"):
     st.write("DEBUG - Scan button pressed")
     results, failed = scan_universe_batched(
@@ -193,7 +197,6 @@ if st.sidebar.button("Run Scan", type="primary"):
     st.session_state.scanned_results = results.head(max_results) if not results.empty else results
     st.session_state.failed_tickers = failed
 
-# Always display results after scan
 if "scanned_results" in st.session_state:
     results_df = st.session_state.scanned_results
     st.write("DEBUG - Results DataFrame shape:", results_df.shape)
