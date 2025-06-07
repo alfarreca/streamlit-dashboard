@@ -4,7 +4,7 @@ import yfinance as yf
 from ta import add_all_ta_features
 import time
 import matplotlib.pyplot as plt
-import numpy as np  # <-- Make sure numpy is imported
+import numpy as np
 
 # --- UTILITIES ---
 def clean_tickers(ticker_list):
@@ -142,7 +142,6 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- UNIVERSE & UPLOAD ---
 SCAN_UNIVERSE = [
     'AAPL', 'MSFT', 'GOOG', 'AMZN', 'META', 'TSLA', 'NVDA', 'PYPL', 'ADBE', 'NFLX'
 ]
@@ -161,7 +160,6 @@ if uploaded_file:
     else:
         st.error("Could not find 'Ticker' or 'Symbol' column.")
 
-# --- Set the active watchlist based on upload ---
 if excel_ticker_list:
     st.session_state.watchlist = excel_ticker_list
     st.info(f"Using {len(excel_ticker_list)} tickers from your uploaded file.")
@@ -169,7 +167,6 @@ else:
     st.session_state.watchlist = clean_tickers(SCAN_UNIVERSE)
     st.info("Using default ticker universe.")
 
-# --- SIDEBAR FILTERS ---
 st.sidebar.title("Swing Trading Scanner Pro")
 st.sidebar.subheader("Configuration")
 with st.sidebar.expander("Scan Settings", expanded=True):
@@ -181,27 +178,34 @@ st.sidebar.markdown("#### Current Universe")
 for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
-# --- MAIN PAGE ---
+st.write("**DEBUG — Watchlist for scan (first 10):**", st.session_state.watchlist[:10])
+st.write("**DEBUG — Total tickers in watchlist:**", len(st.session_state.watchlist))
+
 if st.sidebar.button("Run Scan", type="primary"):
     results, failed = scan_universe_batched(
         st.session_state.watchlist,
         period='6mo',
-        batch_size=500  # BATCH SIZE SET TO 500
+        batch_size=500
     )
     st.session_state.scanned_results = results.head(max_results) if not results.empty else results
     st.session_state.failed_tickers = failed
 
-if "scanned_results" in st.session_state and not st.session_state.scanned_results.empty:
-    st.subheader("Scan Results")
-    st.dataframe(st.session_state.scanned_results)
-    if 'failed_tickers' in st.session_state and st.session_state.failed_tickers:
-        st.warning(f"Failed to fetch data for {len(st.session_state.failed_tickers)} tickers. See list below:")
-        with st.expander("Show Failed Tickers"):
-            st.write(st.session_state.failed_tickers)
+if "scanned_results" in st.session_state:
+    results_df = st.session_state.scanned_results
+    st.write("**DEBUG — Length of scanned_results:**", len(results_df))
+    st.write("**DEBUG — scanned_results preview:**", results_df.head())
+    if not results_df.empty:
+        st.subheader("Scan Results")
+        st.dataframe(results_df)
+        if 'failed_tickers' in st.session_state and st.session_state.failed_tickers:
+            st.warning(f"Failed to fetch data for {len(st.session_state.failed_tickers)} tickers. See list below:")
+            with st.expander("Show Failed Tickers"):
+                st.write(st.session_state.failed_tickers)
+    else:
+        st.info("No scan results found. Check if your tickers are valid and try again.")
 else:
     st.info("Click 'Run Scan' to find swing trading opportunities")
 
-# --- Single Ticker Data Test (Diagnostics) ---
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
     try:
         ticker = st.text_input(
