@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
-from google.oauth2.service_account import Credentials
-import gspread
 from datetime import datetime
 import time
 import random
@@ -30,22 +28,7 @@ def safe_yfinance_fetch(ticker, period="3mo"):
     time.sleep(random.uniform(*REQUEST_DELAY))
     return ticker.history(period=period)
 
-# ========== DATA FETCHING ==========
-@st.cache_data(ttl=CACHE_TTL)
-def get_google_sheet_data():
-    try:
-        SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
-        SERVICE_ACCOUNT_INFO = st.secrets["GCP_SERVICE_ACCOUNT"]
-        creds = Credentials.from_service_account_info(SERVICE_ACCOUNT_INFO, scopes=SCOPES)
-        gc = gspread.authorize(creds)
-        sheet = gc.open_by_key("1sNYUiP4Pl8GVYQ1S7Ltc4ETv-ctOA1RVCdYkMb5xjjg").sheet1
-        df = pd.DataFrame(sheet.get_all_records()).dropna(subset=["Symbol", "Exchange"]).drop_duplicates("Symbol")
-        df["Exchange"] = df["Exchange"].astype(str).str.strip().str.upper()
-        return df
-    except Exception as e:
-        st.error(f"Failed to load Google Sheet data: {str(e)}")
-        return pd.DataFrame(columns=["Symbol", "Exchange"])
-
+# ========== EXCHANGE AND SYMBOL UTILS ==========
 def exchange_suffix(ex: str) -> str:
     suffix_map = {
         "ETR": "DE", "EPA": "PA", "LON": "L", "BIT": "MI", "STO": "ST",
@@ -231,9 +214,16 @@ def main():
     st.set_page_config(page_title="S&P 500 Momentum Scanner", layout="wide")
     st.title("S&P 500 Momentum Scanner")
 
-    df = get_google_sheet_data()
-    if df.empty:
-        st.warning("No data loaded from Google Sheets.")
+    uploaded_file = st.file_uploader("Upload Excel file with tickers", type="xlsx")
+    if uploaded_file is not None:
+        df = pd.read_excel(uploaded_file)
+        if "Symbol" not in df.columns or "Exchange" not in df.columns:
+            st.error("Uploaded file must contain 'Symbol' and 'Exchange' columns.")
+            return
+        df = df.dropna(subset=["Symbol", "Exchange"]).drop_duplicates("Symbol")
+        df["Exchange"] = df["Exchange"].astype(str).str.strip().str.upper()
+    else:
+        st.warning("Please upload a .xlsx file with your tickers.")
         return
 
     df["YF_Symbol"] = df.apply(
@@ -301,4 +291,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
