@@ -95,38 +95,45 @@ def generate_strategy(data):
         'take_profit': take_profit
     }
 
-def scan_universe(universe, period='6mo'):
+# --- Efficient Batch Processing for Large Lists ---
+def scan_universe_batched(universe, period='6mo', batch_size=50):
     results = []
     failed = []
-    with st.spinner(f"Scanning {len(universe)} stocks..."):
+    total = len(universe)
+    with st.spinner(f"Scanning {total} stocks in batches of {batch_size}..."):
         progress_bar = st.progress(0)
-        for i, ticker in enumerate(universe):
-            try:
-                data = get_stock_data(ticker, period)
-                if not data.empty:
-                    score = calculate_opportunity_score(data)
-                    strategy = generate_strategy(data)
-                    if score is not None and strategy is not None:
-                        results.append({
-                            'Ticker': ticker,
-                            'Score': score,
-                            'Price': data['Close'].iloc[-1],
-                            'Change %': (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1) * 100,
-                            'Volume': data['Volume'].iloc[-1],
-                            'RSI': data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan'),
-                            'MACD': data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan'),
-                            'MACD Cross': data['macd_cross'].iloc[-1] if 'macd_cross' in data else '',  # <-- Added column
-                            'BB %': data['volatility_bbp'].iloc[-1] * 100 if 'volatility_bbp' in data else float('nan'),
-                            'Strategy': strategy
-                        })
-                else:
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch = universe[batch_start:batch_end]
+            for i, ticker in enumerate(batch):
+                try:
+                    data = get_stock_data(ticker, period)
+                    if not data.empty:
+                        score = calculate_opportunity_score(data)
+                        strategy = generate_strategy(data)
+                        if score is not None and strategy is not None:
+                            results.append({
+                                'Ticker': ticker,
+                                'Score': score,
+                                'Price': data['Close'].iloc[-1],
+                                'Change %': (data['Close'].iloc[-1] / data['Close'].iloc[-2] - 1) * 100,
+                                'Volume': data['Volume'].iloc[-1],
+                                'RSI': data['momentum_rsi'].iloc[-1] if 'momentum_rsi' in data else float('nan'),
+                                'MACD': data['trend_macd_diff'].iloc[-1] if 'trend_macd_diff' in data else float('nan'),
+                                'MACD Cross': data['macd_cross'].iloc[-1] if 'macd_cross' in data else '',
+                                'BB %': data['volatility_bbp'].iloc[-1] * 100 if 'volatility_bbp' in data else float('nan'),
+                                'Strategy': strategy
+                            })
+                    else:
+                        failed.append(ticker)
+                except Exception as e:
+                    st.warning(f"Error processing {ticker}: {str(e)}")
                     failed.append(ticker)
-            except Exception as e:
-                st.warning(f"Error processing {ticker}: {str(e)}")
-                failed.append(ticker)
-                continue
-            progress_bar.progress((i + 1) / len(universe))
-            time.sleep(0.08)
+                    continue
+                # Show progress by overall position in universe
+                progress = (batch_start + i + 1) / total
+                progress_bar.progress(progress)
+                time.sleep(0.08)
     if not results:
         return pd.DataFrame(columns=['Ticker', 'Score', 'Price', 'Change %', 'Volume', 'RSI', 'MACD', 'MACD Cross', 'BB %', 'Strategy']), failed
     return pd.DataFrame(results).sort_values('Score', ascending=False), failed
@@ -175,7 +182,7 @@ for ticker in st.session_state.watchlist:
 # --- MAIN PAGE ---
 # Only run scan after button click!
 if st.sidebar.button("Run Scan", type="primary"):
-    results, failed = scan_universe(
+    results, failed = scan_universe_batched(
         st.session_state.watchlist,
         period='6mo'
     )
@@ -270,4 +277,3 @@ with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
                     st.write(ta_data[['Close', 'trend_macd', 'trend_macd_signal', 'macd_cross']].tail(20))
                 except Exception as e:
                     st.warning(f"TA error: {e}")
-
