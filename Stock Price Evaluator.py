@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 from io import BytesIO
+import numpy as np  # Import numpy for NaN handling
 
 # App title
 st.title("📈 Stock Price Evaluator")
@@ -27,29 +28,28 @@ def get_stock_data(ticker, period):
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
         info = stock.info
-        
+
         # Get key metrics
         data = {
             "Ticker": ticker,
-            "Current Price": info.get('currentPrice', info.get('regularMarketPrice', None)),
-            "52 Week High": info.get('fiftyTwoWeekHigh', None),
-            "52 Week Low": info.get('fiftyTwoWeekLow', None),
-            "PE Ratio": info.get('trailingPE', None),
-            "Forward PE": info.get('forwardPE', None),
-            "PEG Ratio": info.get('pegRatio', None),
-            "PS Ratio": info.get('priceToSalesTrailing12Months', None),
-            "PB Ratio": info.get('priceToBook', None),
-            "Dividend Yield": info.get('dividendYield', None),
-            "Market Cap": info.get('marketCap', None),
-            "Beta": info.get('beta', None),
-            "Volume": info.get('volume', None),
-            "Avg Volume": info.get('averageVolume', None),
+            "Current Price": info.get('currentPrice', info.get('regularMarketPrice', np.nan)),
+            "52 Week High": info.get('fiftyTwoWeekHigh', np.nan),
+            "52 Week Low": info.get('fiftyTwoWeekLow', np.nan),
+            "PE Ratio": info.get('trailingPE', np.nan),
+            "Forward PE": info.get('forwardPE', np.nan),
+            "PEG Ratio": info.get('pegRatio', np.nan),
+            "PS Ratio": info.get('priceToSalesTrailing12Months', np.nan),
+            "PB Ratio": info.get('priceToBook', np.nan),
+            "Dividend Yield": info.get('dividendYield', np.nan),
+            "Market Cap": info.get('marketCap', np.nan),
+            "Beta": info.get('beta', np.nan),
+            "Volume": info.get('volume', np.nan),
+            "Avg Volume": info.get('averageVolume', np.nan),
             "Sector": info.get('sector', 'N/A'),
             "Industry": info.get('industry', 'N/A')
         }
-        
         return data, hist
-    
+
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {str(e)}")
         return None, None
@@ -59,25 +59,25 @@ if uploaded_file is not None:
     # Read Excel file
     try:
         excel_data = pd.read_excel(uploaded_file)
-        tickers = excel_data.iloc[:, 0].tolist()  # Assume tickers are in first column
-        
+        tickers = excel_data.iloc[:, 0].dropna().tolist()  # Handle empty cells
+
         if not tickers:
             st.warning("No tickers found in the uploaded file.")
         else:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
-            
+
             # Progress bar
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
+
             results = []
             benchmark_data = None
-            
+
             # Get benchmark data if selected
             if benchmark != "None":
                 benchmark_ticker = benchmark.split()[0]
                 benchmark_data = yf.Ticker(benchmark_ticker).history(period=period)
-            
+
             # Fetch data for each ticker
             for i, ticker in enumerate(tickers):
                 status_text.text(f"Fetching data for {ticker} ({i+1}/{len(tickers)})")
@@ -85,10 +85,12 @@ if uploaded_file is not None:
                 if data:
                     results.append(data)
                 progress_bar.progress((i + 1) / len(tickers))
-            
+
             # Display results
             if results:
                 df = pd.DataFrame(results)
+                df = df.replace({None: np.nan})  # Replace None with np.nan
+
                 st.subheader("Stock Valuation Metrics")
                 st.dataframe(df.style.format({
                     "Current Price": "{:.2f}",
@@ -105,7 +107,7 @@ if uploaded_file is not None:
                     "Volume": "{:,.0f}",
                     "Avg Volume": "{:,.0f}"
                 }))
-                
+
                 # Download button for results
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -116,18 +118,18 @@ if uploaded_file is not None:
                     file_name="stock_analysis_results.xlsx",
                     mime="application/vnd.ms-excel"
                 )
-                
+
                 # Visualization section
                 st.subheader("Price Performance")
                 selected_ticker = st.selectbox("Select ticker to visualize", tickers)
-                
+
                 # Get selected ticker's history
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
-                
+
                 # Plot price chart
                 fig, ax = plt.subplots(figsize=(10, 5))
                 ax.plot(selected_history.index, selected_history['Close'], label=selected_ticker)
-                
+
                 if benchmark_data is not None:
                     # Normalize both to percentage change for fair comparison
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
@@ -136,17 +138,17 @@ if uploaded_file is not None:
                     ax.set_ylabel("Normalized Price (Starting at 1.0)")
                 else:
                     ax.set_ylabel("Price ($)")
-                
+
                 ax.set_title(f"{selected_ticker} Price Performance")
                 ax.legend()
                 ax.grid(True)
                 st.pyplot(fig)
-                
+
                 # Additional metrics visualization
                 st.subheader("Valuation Metrics Comparison")
                 metrics = ["PE Ratio", "Forward PE", "PEG Ratio", "PS Ratio", "PB Ratio", "Dividend Yield"]
                 selected_metric = st.selectbox("Select metric to compare", metrics)
-                
+
                 if selected_metric in df.columns:
                     fig2, ax2 = plt.subplots(figsize=(10, 5))
                     valid_data = df.dropna(subset=[selected_metric])
@@ -155,7 +157,7 @@ if uploaded_file is not None:
                     ax2.set_ylabel(selected_metric)
                     plt.xticks(rotation=45)
                     st.pyplot(fig2)
-                
+
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 else:
