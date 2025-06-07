@@ -6,7 +6,6 @@ import time
 import matplotlib.pyplot as plt
 import numpy as np
 
-# --- UTILITIES ---
 def clean_tickers(ticker_list):
     return (
         pd.Series(ticker_list)
@@ -160,10 +159,11 @@ if uploaded_file:
     else:
         st.error("Could not find 'Ticker' or 'Symbol' column.")
 
+# Always set the active watchlist
 if excel_ticker_list:
     st.session_state.watchlist = excel_ticker_list
     st.info(f"Using {len(excel_ticker_list)} tickers from your uploaded file.")
-else:
+elif 'watchlist' not in st.session_state:
     st.session_state.watchlist = clean_tickers(SCAN_UNIVERSE)
     st.info("Using default ticker universe.")
 
@@ -178,10 +178,13 @@ st.sidebar.markdown("#### Current Universe")
 for ticker in st.session_state.watchlist:
     st.sidebar.write(f"- {ticker}")
 
-st.write("**DEBUG — Watchlist for scan (first 10):**", st.session_state.watchlist[:10])
-st.write("**DEBUG — Total tickers in watchlist:**", len(st.session_state.watchlist))
+# DEBUG output of tickers
+st.write("DEBUG - Tickers to scan (first 10):", st.session_state.watchlist[:10])
+st.write("DEBUG - Total tickers:", len(st.session_state.watchlist))
 
+# --- MAIN PAGE ---
 if st.sidebar.button("Run Scan", type="primary"):
+    st.write("DEBUG - Scan button pressed")
     results, failed = scan_universe_batched(
         st.session_state.watchlist,
         period='6mo',
@@ -190,10 +193,11 @@ if st.sidebar.button("Run Scan", type="primary"):
     st.session_state.scanned_results = results.head(max_results) if not results.empty else results
     st.session_state.failed_tickers = failed
 
+# Always display results after scan
 if "scanned_results" in st.session_state:
     results_df = st.session_state.scanned_results
-    st.write("**DEBUG — Length of scanned_results:**", len(results_df))
-    st.write("**DEBUG — scanned_results preview:**", results_df.head())
+    st.write("DEBUG - Results DataFrame shape:", results_df.shape)
+    st.write("DEBUG - Results DataFrame head:", results_df.head())
     if not results_df.empty:
         st.subheader("Scan Results")
         st.dataframe(results_df)
@@ -202,10 +206,11 @@ if "scanned_results" in st.session_state:
             with st.expander("Show Failed Tickers"):
                 st.write(st.session_state.failed_tickers)
     else:
-        st.info("No scan results found. Check if your tickers are valid and try again.")
+        st.warning("Scan finished but no results were found. Double-check your ticker list and try again.")
 else:
     st.info("Click 'Run Scan' to find swing trading opportunities")
 
+# Diagnostic single ticker tool (unchanged)
 with st.expander("Single Ticker Data Test (Diagnostics)", expanded=False):
     try:
         ticker = st.text_input(
