@@ -51,7 +51,7 @@ def get_stock_data(ticker, period):
         return data, hist
 
     except Exception as e:
-        # Do not call st.error here, just return None to let main loop handle errors
+        # Return None for failed fetches to handle in main loop
         return None, None
 
 # Main app logic
@@ -59,7 +59,6 @@ if uploaded_file is not None:
     # Read Excel file
     try:
         excel_data = pd.read_excel(uploaded_file)
-
         # Ensure all tickers are strings, stripped and uppercased
         tickers = [str(t).strip().upper() for t in excel_data.iloc[:, 0].dropna().tolist()]
 
@@ -97,7 +96,17 @@ if uploaded_file is not None:
             # Display results
             if results:
                 df = pd.DataFrame(results)
-                df = df.replace({None: np.nan})  # Replace None with np.nan
+                df = df.replace({None: np.nan})
+
+                # Convert columns to numeric where appropriate, coercing errors to NaN
+                num_cols = [
+                    "Current Price", "52 Week High", "52 Week Low", "PE Ratio", "Forward PE",
+                    "PEG Ratio", "PS Ratio", "PB Ratio", "Dividend Yield", "Market Cap",
+                    "Beta", "Volume", "Avg Volume"
+                ]
+                for col in num_cols:
+                    if col in df.columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
 
                 st.subheader("Stock Valuation Metrics")
                 st.dataframe(df.style.format({
