@@ -18,7 +18,8 @@ with st.sidebar:
             "^GSPC (S&P 500)", 
             "^IXIC (NASDAQ)", 
             "^DJI (Dow Jones)", 
-            "EXS1.DE (dax etf)",
+            "EXS1.DE (Dax ETF)",
+            "CAC.PA ( CAC ETF)",
             "GDX (Gold Miners ETF)", 
             "None"
         ]
