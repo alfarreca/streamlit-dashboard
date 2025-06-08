@@ -14,7 +14,13 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Excel File (xlsx)", type=["xlsx"])
     benchmark = st.selectbox(
         "Compare to Benchmark",
-        ["^GSPC (S&P 500)", "^IXIC (NASDAQ)", "^DJI (Dow Jones)", "None"]
+        [
+            "^GSPC (S&P 500)", 
+            "^IXIC (NASDAQ)", 
+            "^DJI (Dow Jones)", 
+            "^GDM (S&P 500 Index)", 
+            "None"
+        ]
     )
     period = st.selectbox(
         "Historical Period",
