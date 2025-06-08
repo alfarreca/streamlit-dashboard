@@ -33,6 +33,16 @@ EXTRA_METRICS_LABELS = {
     'gross_margin': 'Gross Margin',
 }
 
+def clean_ticker(ticker):
+    """Auto-correct common ticker issues for Yahoo Finance."""
+    if not isinstance(ticker, str) or ticker.strip() == "":
+        return ""
+    ticker = ticker.replace('..', '.').strip()
+    if ticker.endswith('.E'):
+        ticker = ticker[:-2] + '.IS'
+    # Add more mappings as needed
+    return ticker
+
 @st.cache_data(ttl=3600)
 def get_tickers_from_excel(uploaded_file):
     df = pd.read_excel(uploaded_file)
@@ -41,8 +51,11 @@ def get_tickers_from_excel(uploaded_file):
 
 @st.cache_data(ttl=3600)
 def get_fundamentals(ticker):
-    stock = yf.Ticker(ticker)
+    if not ticker or ticker.strip() == "":
+        print(f"Skipping empty or invalid ticker: {ticker}")
+        return None
     try:
+        stock = yf.Ticker(ticker)
         info = stock.info
         fundamentals = {
             'ticker': ticker,
@@ -120,7 +133,6 @@ def display_results(results):
     sectors = st.multiselect("Filter by Sector", df['sector'].unique(), df['sector'].unique())
     filtered_df = df[(df['normalized_score'] >= min_score) & (df['sector'].isin(sectors))]
 
-    # --- Conditional icons in main table ---
     def add_icons(row):
         sector_mean = df[df['sector'] == row['sector']].mean(numeric_only=True)
         for m in EXTRA_METRICS:
@@ -160,7 +172,6 @@ def display_results(results):
         return
 
     tickers_list = filtered_df['ticker'].tolist()
-    # Sticky selectbox logic
     if ('selected_ticker' not in st.session_state) or (st.session_state.selected_ticker not in tickers_list):
         if tickers_list:
             st.session_state.selected_ticker = tickers_list[0]
@@ -176,7 +187,6 @@ def display_results(results):
 
     selected_stock = df[df['ticker'] == selected_ticker].iloc[0]
 
-    # --- Company details ---
     st.markdown("### Company Details")
     col1, col2 = st.columns(2)
     col1.metric("Company", selected_stock['company_name'])
@@ -186,7 +196,6 @@ def display_results(results):
     col2.metric("P/E Ratio", selected_stock['pe_ratio'])
     col2.metric("PEG Ratio", selected_stock['peg_ratio'])
 
-    # --- Metric Bar Chart: Stock vs Sector Avg ---
     sector_df = df[df['sector'] == selected_stock['sector']]
     metric_vals = []
     sector_avgs = []
@@ -211,7 +220,6 @@ def display_results(results):
         ax.legend()
         st.pyplot(fig)
 
-    # --- Sector averages summary table ---
     if not sector_df.empty:
         st.markdown("### Sector Averages (This Sector)")
         sector_means = sector_df[EXTRA_METRICS].mean()
@@ -221,17 +229,14 @@ def display_results(results):
         })
         st.dataframe(summary_df, hide_index=True)
 
-    # --- All sector averages summary ---
     all_sector_avgs = df.groupby('sector')[EXTRA_METRICS].mean().reset_index()
     all_sector_avgs.columns = ['Sector'] + [EXTRA_METRICS_LABELS[m] for m in EXTRA_METRICS]
     with st.expander("See all sector averages (all S&P 500 sectors)"):
         st.dataframe(all_sector_avgs)
 
-    # --- Export sector averages as CSV ---
     sector_csv = all_sector_avgs.to_csv(index=False).encode('utf-8')
     st.download_button("Download All Sector Averages CSV", sector_csv, "sector_averages.csv")
 
-    # --- Top/Bottom 5 Stocks per Metric ---
     st.markdown("#### Top 5 Stocks per Metric")
     for m in EXTRA_METRICS:
         st.write(f"**{EXTRA_METRICS_LABELS[m]}:**")
@@ -243,7 +248,6 @@ def display_results(results):
         bottoms = df[['ticker', 'company_name', m]].dropna().sort_values(m, ascending=True).head(5)
         st.dataframe(bottoms.rename(columns={m: 'Value'}), hide_index=True)
 
-    # --- Price history chart for selected stock ---
     try:
         hist = yf.Ticker(selected_stock['ticker']).history(period="1y")
         if not hist.empty:
@@ -252,7 +256,6 @@ def display_results(results):
     except Exception:
         pass
 
-    # --- Metric-by-metric sector comparison for selected stock ---
     st.markdown("### Metric Comparison vs. Sector Average")
     for metric in EXTRA_METRICS:
         val = selected_stock[metric]
@@ -287,7 +290,11 @@ def main():
                 data = []
                 progress = st.progress(0)
                 for i, t in enumerate(tickers):
-                    fundamentals = get_fundamentals(t)
+                    cleaned_ticker = clean_ticker(t)
+                    if cleaned_ticker:
+                        fundamentals = get_fundamentals(cleaned_ticker)
+                    else:
+                        fundamentals = None
                     if fundamentals is not None:
                         data.append(fundamentals)
                     else:
@@ -307,7 +314,6 @@ def main():
     else:
         st.info("Please upload an Excel file with tickers in the first column.")
 
-    # --- S&P 500 Sector Averages Sidebar ---
     if st.session_state.get("results") is not None:
         df = pd.DataFrame(st.session_state.results)
         with st.sidebar:
