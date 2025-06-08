@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from io import BytesIO
 import numpy as np
+import matplotlib.dates as mdates
 
 # App title
 st.title("📈 Stock Price Evaluator")
@@ -124,38 +125,58 @@ if uploaded_file is not None:
                     mime="application/vnd.ms-excel"
                 )
 
-                # Visualization section - **Corrected Block**
+                # --- Improved Visualization Section ---
                 st.subheader("Price Performance")
                 valid_tickers = df["Ticker"].tolist()
                 selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
 
-                # Only plot if we have enough data
                 if not selected_history.empty and (benchmark_data is None or not benchmark_data.empty):
                     fig, ax = plt.subplots(figsize=(10, 5))
+
                     # Normalize both series
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
-                    ax.plot(selected_history.index, norm_selected, label=selected_ticker, color='blue')
+
+                    # Plot main ticker (bold blue line with circle markers)
+                    ax.plot(
+                        selected_history.index, norm_selected,
+                        label=selected_ticker,
+                        color='#0057b7', linewidth=3, marker='o', markersize=6, markerfacecolor='white', markeredgewidth=2
+                    )
 
                     if benchmark_data is not None and not benchmark_data.empty:
-                        # Align dates for fair comparison (inner join)
                         norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
-                        # Intersect dates
+                        # Intersect dates for fair comparison
                         common_dates = selected_history.index.intersection(benchmark_data.index)
-                        ax.plot(common_dates, norm_selected.loc[common_dates], label=f"{selected_ticker} (aligned)", color='blue', alpha=0.5)
-                        ax.plot(common_dates, norm_benchmark.loc[common_dates], label=benchmark, color='orange')
-                        ax.set_ylabel("Normalized Price (Starting at 1.0)")
-                    else:
-                        ax.set_ylabel("Normalized Price (Starting at 1.0)")
 
-                    ax.set_title(f"{selected_ticker} vs Benchmark Price Performance")
-                    ax.legend()
-                    ax.grid(True)
+                        # Plot aligned stock (faded dashed blue, omitted from legend)
+                        ax.plot(
+                            common_dates, norm_selected.loc[common_dates],
+                            color='#0057b7', linewidth=1.5, linestyle='--', alpha=0.3
+                        )
+                        # Plot benchmark (bold orange with square markers)
+                        ax.plot(
+                            common_dates, norm_benchmark.loc[common_dates],
+                            label=benchmark,
+                            color='#ff6600', linewidth=3, marker='s', markersize=6, markerfacecolor='white', markeredgewidth=2
+                        )
+                        ax.set_ylabel("Normalized Price (Starting at 1.0)", fontsize=12)
+                    else:
+                        ax.set_ylabel("Normalized Price (Starting at 1.0)", fontsize=12)
+
+                    ax.set_title(f"{selected_ticker} vs Benchmark Price Performance", fontsize=15, weight='bold')
+                    ax.legend(fontsize=12)
+                    ax.grid(True, linestyle=':', alpha=0.7)
+                    ax.tick_params(axis='x', labelsize=10)
+                    ax.tick_params(axis='y', labelsize=10)
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+                    fig.autofmt_xdate()
+
                     st.pyplot(fig)
                 else:
                     st.warning("Not enough data available to plot price performance.")
 
-                # Additional metrics visualization
+                # --- Valuation Metrics Comparison ---
                 st.subheader("Valuation Metrics Comparison")
                 metrics = ["PE Ratio", "Forward PE", "PEG Ratio", "PS Ratio", "PB Ratio", "Dividend Yield"]
                 selected_metric = st.selectbox("Select metric to compare", metrics)
@@ -163,7 +184,7 @@ if uploaded_file is not None:
                 if selected_metric in df.columns:
                     fig2, ax2 = plt.subplots(figsize=(10, 5))
                     valid_data = df.dropna(subset=[selected_metric])
-                    ax2.bar(valid_data["Ticker"], valid_data[selected_metric])
+                    ax2.bar(valid_data["Ticker"], valid_data[selected_metric], color="#5e72e4")
                     ax2.set_title(f"Comparison of {selected_metric}")
                     ax2.set_ylabel(selected_metric)
                     plt.xticks(rotation=45)
