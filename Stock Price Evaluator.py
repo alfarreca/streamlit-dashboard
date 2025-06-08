@@ -6,11 +6,9 @@ from io import BytesIO
 import numpy as np
 import matplotlib.dates as mdates
 
-# App title
 st.title("📈 Stock Price Evaluator")
 st.markdown("Upload an Excel file with stock tickers to get current market data and valuation metrics")
 
-# Sidebar for user inputs
 with st.sidebar:
     st.header("Configuration")
     uploaded_file = st.file_uploader("Upload Excel File (xlsx)", type=["xlsx"])
@@ -125,45 +123,46 @@ if uploaded_file is not None:
                     mime="application/vnd.ms-excel"
                 )
 
-                # --- Improved Visualization Section ---
+                # --- Robust Visualization Section ---
                 st.subheader("Price Performance")
                 valid_tickers = df["Ticker"].tolist()
                 selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
 
                 if not selected_history.empty and (benchmark_data is None or not benchmark_data.empty):
-                    fig, ax = plt.subplots(figsize=(10, 5))
-
-                    # Normalize both series
+                    # Normalize
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
+                    df_selected = norm_selected.rename('NormPrice_Ticker').to_frame()
+                    norm_benchmark = None
+                    df_benchmark = None
+                    if benchmark_data is not None and not benchmark_data.empty:
+                        norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
+                        df_benchmark = norm_benchmark.rename('NormPrice_Benchmark').to_frame()
 
-                    # Plot main ticker (bold blue line with circle markers)
+                    # Merge on dates (outer), fill missing
+                    if df_benchmark is not None:
+                        merged = pd.merge(df_selected, df_benchmark, left_index=True, right_index=True, how='outer')
+                        merged = merged.ffill().bfill()
+                    else:
+                        merged = df_selected
+
+                    # Debug: Uncomment the next line to check merged data in Streamlit
+                    # st.write(merged.tail())
+
+                    # Plot
+                    fig, ax = plt.subplots(figsize=(10, 5))
                     ax.plot(
-                        selected_history.index, norm_selected,
+                        merged.index, merged['NormPrice_Ticker'],
                         label=selected_ticker,
                         color='#0057b7', linewidth=3, marker='o', markersize=6, markerfacecolor='white', markeredgewidth=2
                     )
-
-                    if benchmark_data is not None and not benchmark_data.empty:
-                        norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
-                        # Intersect dates for fair comparison
-                        common_dates = selected_history.index.intersection(benchmark_data.index)
-
-                        # Plot aligned stock (faded dashed blue, omitted from legend)
+                    if df_benchmark is not None:
                         ax.plot(
-                            common_dates, norm_selected.loc[common_dates],
-                            color='#0057b7', linewidth=1.5, linestyle='--', alpha=0.3
-                        )
-                        # Plot benchmark (bold orange with square markers)
-                        ax.plot(
-                            common_dates, norm_benchmark.loc[common_dates],
+                            merged.index, merged['NormPrice_Benchmark'],
                             label=benchmark,
                             color='#ff6600', linewidth=3, marker='s', markersize=6, markerfacecolor='white', markeredgewidth=2
                         )
-                        ax.set_ylabel("Normalized Price (Starting at 1.0)", fontsize=12)
-                    else:
-                        ax.set_ylabel("Normalized Price (Starting at 1.0)", fontsize=12)
-
+                    ax.set_ylabel("Normalized Price (Starting at 1.0)", fontsize=12)
                     ax.set_title(f"{selected_ticker} vs Benchmark Price Performance", fontsize=15, weight='bold')
                     ax.legend(fontsize=12)
                     ax.grid(True, linestyle=':', alpha=0.7)
@@ -171,7 +170,6 @@ if uploaded_file is not None:
                     ax.tick_params(axis='y', labelsize=10)
                     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
                     fig.autofmt_xdate()
-
                     st.pyplot(fig)
                 else:
                     st.warning("Not enough data available to plot price performance.")
