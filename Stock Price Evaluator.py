@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
 from io import BytesIO
-import numpy as np  # Import numpy for NaN handling
+import numpy as np
 
 # App title
 st.title("📈 Stock Price Evaluator")
@@ -22,14 +22,12 @@ with st.sidebar:
         ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"]
     )
 
-# Function to fetch stock data
 def get_stock_data(ticker, period):
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
         info = stock.info
 
-        # Get key metrics
         data = {
             "Ticker": ticker,
             "Current Price": info.get('currentPrice', info.get('regularMarketPrice', np.nan)),
@@ -50,24 +48,18 @@ def get_stock_data(ticker, period):
         }
         return data, hist
 
-    except Exception as e:
-        # Return None for failed fetches to handle in main loop
+    except Exception:
         return None, None
 
-# Main app logic
 if uploaded_file is not None:
-    # Read Excel file
     try:
         excel_data = pd.read_excel(uploaded_file)
-        # Ensure all tickers are strings, stripped and uppercased
         tickers = [str(t).strip().upper() for t in excel_data.iloc[:, 0].dropna().tolist()]
 
         if not tickers:
             st.warning("No tickers found in the uploaded file.")
         else:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
-
-            # Progress bar
             progress_bar = st.progress(0)
             status_text = st.empty()
 
@@ -75,7 +67,6 @@ if uploaded_file is not None:
             failed_tickers = []
             benchmark_data = None
 
-            # Get benchmark data if selected
             if benchmark != "None":
                 benchmark_ticker = benchmark.split()[0]
                 try:
@@ -83,7 +74,6 @@ if uploaded_file is not None:
                 except Exception:
                     benchmark_data = None
 
-            # Fetch data for each ticker
             for i, ticker in enumerate(tickers):
                 status_text.text(f"Fetching data for {ticker} ({i + 1}/{len(tickers)})")
                 data, history = get_stock_data(ticker, period)
@@ -93,12 +83,10 @@ if uploaded_file is not None:
                     failed_tickers.append(ticker)
                 progress_bar.progress((i + 1) / len(tickers))
 
-            # Display results
             if results:
                 df = pd.DataFrame(results)
                 df = df.replace({None: np.nan})
 
-                # Convert columns to numeric where appropriate, coercing errors to NaN
                 num_cols = [
                     "Current Price", "52 Week High", "52 Week Low", "PE Ratio", "Forward PE",
                     "PEG Ratio", "PS Ratio", "PB Ratio", "Dividend Yield", "Market Cap",
@@ -136,31 +124,36 @@ if uploaded_file is not None:
                     mime="application/vnd.ms-excel"
                 )
 
-                # Visualization section
+                # Visualization section - **Corrected Block**
                 st.subheader("Price Performance")
                 valid_tickers = df["Ticker"].tolist()
                 selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
-
-                # Get selected ticker's history
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
 
-                # Plot price chart
-                fig, ax = plt.subplots(figsize=(10, 5))
-                ax.plot(selected_history.index, selected_history['Close'], label=selected_ticker)
-
-                if benchmark_data is not None and not benchmark_data.empty:
-                    # Normalize both to percentage change for fair comparison
+                # Only plot if we have enough data
+                if not selected_history.empty and (benchmark_data is None or not benchmark_data.empty):
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    # Normalize both series
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
-                    norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
-                    ax.plot(benchmark_data.index, norm_benchmark, label=benchmark, alpha=0.7)
-                    ax.set_ylabel("Normalized Price (Starting at 1.0)")
-                else:
-                    ax.set_ylabel("Price ($)")
+                    ax.plot(selected_history.index, norm_selected, label=selected_ticker, color='blue')
 
-                ax.set_title(f"{selected_ticker} Price Performance")
-                ax.legend()
-                ax.grid(True)
-                st.pyplot(fig)
+                    if benchmark_data is not None and not benchmark_data.empty:
+                        # Align dates for fair comparison (inner join)
+                        norm_benchmark = benchmark_data['Close'] / benchmark_data['Close'].iloc[0]
+                        # Intersect dates
+                        common_dates = selected_history.index.intersection(benchmark_data.index)
+                        ax.plot(common_dates, norm_selected.loc[common_dates], label=f"{selected_ticker} (aligned)", color='blue', alpha=0.5)
+                        ax.plot(common_dates, norm_benchmark.loc[common_dates], label=benchmark, color='orange')
+                        ax.set_ylabel("Normalized Price (Starting at 1.0)")
+                    else:
+                        ax.set_ylabel("Normalized Price (Starting at 1.0)")
+
+                    ax.set_title(f"{selected_ticker} vs Benchmark Price Performance")
+                    ax.legend()
+                    ax.grid(True)
+                    st.pyplot(fig)
+                else:
+                    st.warning("Not enough data available to plot price performance.")
 
                 # Additional metrics visualization
                 st.subheader("Valuation Metrics Comparison")
