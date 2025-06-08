@@ -18,7 +18,7 @@ with st.sidebar:
             "^GSPC (S&P 500)", 
             "^IXIC (NASDAQ)", 
             "^DJI (Dow Jones)", 
-            "^GDM (S&P 500 Index)", 
+            "GDX (Gold Miners ETF)", 
             "None"
         ]
     )
