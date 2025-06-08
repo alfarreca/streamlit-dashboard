@@ -123,14 +123,13 @@ if uploaded_file is not None:
                     mime="application/vnd.ms-excel"
                 )
 
-                # --- Robust Visualization Section ---
+                # --- Price Performance Section ---
                 st.subheader("Price Performance")
                 valid_tickers = df["Ticker"].tolist()
                 selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
                 selected_history = yf.Ticker(selected_ticker).history(period=period)
 
                 if not selected_history.empty and (benchmark_data is None or not benchmark_data.empty):
-                    # Normalize
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
                     df_selected = norm_selected.rename('NormPrice_Ticker').to_frame()
                     norm_benchmark = None
@@ -146,10 +145,6 @@ if uploaded_file is not None:
                     else:
                         merged = df_selected
 
-                    # Debug: Uncomment the next line to check merged data in Streamlit
-                    # st.write(merged.tail())
-
-                    # Plot
                     fig, ax = plt.subplots(figsize=(10, 5))
                     ax.plot(
                         merged.index, merged['NormPrice_Ticker'],
@@ -174,19 +169,58 @@ if uploaded_file is not None:
                 else:
                     st.warning("Not enough data available to plot price performance.")
 
-                # --- Valuation Metrics Comparison ---
+                # --- Valuation Metrics Comparison: FOCUSED COMPARISON ---
                 st.subheader("Valuation Metrics Comparison")
                 metrics = ["PE Ratio", "Forward PE", "PEG Ratio", "PS Ratio", "PB Ratio", "Dividend Yield"]
                 selected_metric = st.selectbox("Select metric to compare", metrics)
 
-                if selected_metric in df.columns:
-                    fig2, ax2 = plt.subplots(figsize=(10, 5))
-                    valid_data = df.dropna(subset=[selected_metric])
-                    ax2.bar(valid_data["Ticker"], valid_data[selected_metric], color="#5e72e4")
-                    ax2.set_title(f"Comparison of {selected_metric}")
-                    ax2.set_ylabel(selected_metric)
-                    plt.xticks(rotation=45)
-                    st.pyplot(fig2)
+                # Get metric value for selected ticker
+                selected_value = df.loc[df["Ticker"] == selected_ticker, selected_metric].values
+                selected_value = selected_value[0] if len(selected_value) > 0 else None
+
+                # Get benchmark value (via yfinance)
+                benchmark_label = benchmark.split()[0] if benchmark != "None" else None
+                benchmark_value = None
+                if benchmark_label:
+                    try:
+                        benchmark_info = yf.Ticker(benchmark_label).info
+                        # The info keys may differ; handle common cases
+                        metric_key_map = {
+                            "PE Ratio": "trailingPE",
+                            "Forward PE": "forwardPE",
+                            "PEG Ratio": "pegRatio",
+                            "PS Ratio": "priceToSalesTrailing12Months",
+                            "PB Ratio": "priceToBook",
+                            "Dividend Yield": "dividendYield"
+                        }
+                        key = metric_key_map.get(selected_metric)
+                        benchmark_value = benchmark_info.get(key, None)
+                        # Convert dividend yield to percent if necessary
+                        if selected_metric == "Dividend Yield" and benchmark_value is not None:
+                            benchmark_value = benchmark_value * 100
+                    except Exception:
+                        benchmark_value = None
+
+                # Build comparison DataFrame
+                labels = [selected_ticker]
+                values = [selected_value]
+                colors = ['#0057b7']  # blue
+                if benchmark_label and benchmark_value is not None:
+                    labels.append(benchmark)
+                    values.append(benchmark_value)
+                    colors.append('#ff6600')  # orange
+
+                compare_df = pd.DataFrame({"Label": labels, "Value": values})
+
+                # Plot focused comparison
+                fig2, ax2 = plt.subplots(figsize=(6, 5))
+                ax2.bar(compare_df["Label"], compare_df["Value"], color=colors)
+                ax2.set_title(f"{selected_metric}: Selected vs Benchmark")
+                ax2.set_ylabel(selected_metric)
+                if selected_metric == "Dividend Yield":
+                    ax2.set_ylim(bottom=0)
+                    ax2.set_ylabel(f"{selected_metric} (%)")
+                st.pyplot(fig2)
 
             if failed_tickers:
                 st.warning(f"No data found for the following tickers: {', '.join(failed_tickers)}")
