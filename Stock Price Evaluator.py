@@ -19,6 +19,7 @@ with st.sidebar:
             "^IXIC (NASDAQ)", 
             "^DJI (Dow Jones)", 
             "EXS1.DE (Dax ETF)",
+            "EUDF.DE (ISHARES Defense Europe)",
             "CAC.PA ( CAC ETF)",
             "GDX (Gold Miners ETF)", 
             "None"
