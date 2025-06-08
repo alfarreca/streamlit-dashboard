@@ -28,6 +28,7 @@ with st.sidebar:
         ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"]
     )
 
+@st.cache_data(show_spinner="Fetching stock data...")
 def get_stock_data(ticker, period):
     try:
         stock = yf.Ticker(ticker)
@@ -53,9 +54,34 @@ def get_stock_data(ticker, period):
             "Industry": info.get('industry', 'N/A')
         }
         return data, hist
-
     except Exception:
         return None, None
+
+@st.cache_data(show_spinner="Caching ticker scan...")
+def scan_tickers(tickers, period):
+    results = []
+    failed_tickers = []
+    for ticker in tickers:
+        data, history = get_stock_data(ticker, period)
+        if data:
+            results.append(data)
+        else:
+            failed_tickers.append(ticker)
+    return results, failed_tickers
+
+@st.cache_data(show_spinner="Fetching benchmark data...")
+def get_benchmark_data(benchmark_ticker, period):
+    try:
+        return yf.Ticker(benchmark_ticker).history(period=period)
+    except Exception:
+        return None
+
+@st.cache_data(show_spinner="Fetching price history...")
+def get_history(ticker, period):
+    try:
+        return yf.Ticker(ticker).history(period=period)
+    except Exception:
+        return pd.DataFrame()
 
 if uploaded_file is not None:
     try:
@@ -66,28 +92,15 @@ if uploaded_file is not None:
             st.warning("No tickers found in the uploaded file.")
         else:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
-            progress_bar = st.progress(0)
-            status_text = st.empty()
 
-            results = []
-            failed_tickers = []
+            # Scan all tickers (cached)
+            results, failed_tickers = scan_tickers(tickers, period)
+
+            # Get benchmark history (cached)
             benchmark_data = None
-
             if benchmark != "None":
                 benchmark_ticker = benchmark.split()[0]
-                try:
-                    benchmark_data = yf.Ticker(benchmark_ticker).history(period=period)
-                except Exception:
-                    benchmark_data = None
-
-            for i, ticker in enumerate(tickers):
-                status_text.text(f"Fetching data for {ticker} ({i + 1}/{len(tickers)})")
-                data, history = get_stock_data(ticker, period)
-                if data:
-                    results.append(data)
-                else:
-                    failed_tickers.append(ticker)
-                progress_bar.progress((i + 1) / len(tickers))
+                benchmark_data = get_benchmark_data(benchmark_ticker, period)
 
             if results:
                 df = pd.DataFrame(results)
@@ -134,7 +147,7 @@ if uploaded_file is not None:
                 st.subheader("Price Performance")
                 valid_tickers = df["Ticker"].tolist()
                 selected_ticker = st.selectbox("Select ticker to visualize", valid_tickers)
-                selected_history = yf.Ticker(selected_ticker).history(period=period)
+                selected_history = get_history(selected_ticker, period)
 
                 if not selected_history.empty and (benchmark_data is None or not benchmark_data.empty):
                     norm_selected = selected_history['Close'] / selected_history['Close'].iloc[0]
