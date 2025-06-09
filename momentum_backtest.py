@@ -2,14 +2,22 @@ import streamlit as st
 import pandas as pd
 
 # ---- MOCK IMPLEMENTATION FOR backtest_ticker ----
-def backtest_ticker(ticker, threshold=80, holding_days=[5, 10, 20]):
-    data = {
-        "Ticker": [ticker] * len(holding_days),
-        "Holding Days": holding_days,
-    }
+def backtest_ticker(symbol, threshold=80, holding_days=[5, 10, 20]):
+    # For each symbol and holding period, generate a row with dummy returns
+    rows = []
     for h in holding_days:
-        data[f"Return_{h}D"] = [round((hash(ticker) % 100) / 10 - 5 + h, 2)]
-    return pd.DataFrame(data)
+        row = {
+            "Symbol": symbol,
+            "Holding Days": h,
+        }
+        # Populate return columns for all holding days
+        for h_inner in holding_days:
+            if h == h_inner:
+                row[f"Return_{h_inner}D"] = round((hash(symbol + str(h)) % 100) / 10 - 5 + h, 2)
+            else:
+                row[f"Return_{h_inner}D"] = None
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 st.title("Momentum Backtest Tool")
 
@@ -19,7 +27,7 @@ uploaded_file = st.file_uploader(
 )
 
 manual_disabled = uploaded_file is not None
-tickers = st.text_input(
+symbols = st.text_input(
     "Or enter symbols manually (comma-separated)", 
     value="FCX,NUE,RIO.L",
     disabled=manual_disabled
@@ -35,27 +43,27 @@ holding_days = st.multiselect(
 run = st.button("Run Backtest")
 
 if run:
-    user_tickers = []
+    user_symbols = []
     # If file uploaded, use symbols from file
     if uploaded_file is not None:
         try:
             df = pd.read_excel(uploaded_file)
             if 'Symbol' in df.columns:
-                user_tickers = df['Symbol'].dropna().astype(str).str.strip().str.upper().tolist()
+                user_symbols = df['Symbol'].dropna().astype(str).str.strip().str.upper().tolist()
             else:
                 st.warning("No column named 'Symbol' found in your file.")
         except Exception as e:
             st.error(f"Error reading Excel file: {e}")
     else:
-        user_tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        user_symbols = [s.strip().upper() for s in symbols.split(",") if s.strip()]
 
-    if not user_tickers:
+    if not user_symbols:
         st.warning("No symbols provided. Please enter or upload at least one.")
     else:
         all_results = []
         with st.spinner("Running backtest..."):
-            for t in user_tickers:
-                df = backtest_ticker(t, threshold=threshold, holding_days=holding_days)
+            for s in user_symbols:
+                df = backtest_ticker(s, threshold=threshold, holding_days=holding_days)
                 if df is not None and not df.empty:
                     all_results.append(df)
         if all_results:
@@ -67,8 +75,8 @@ if run:
             for h in holding_days:
                 col = f"Return_{h}D"
                 if col in final_df:
-                    avg_return = final_df[col].mean()
-                    win_rate = (final_df[col] > 0).mean() * 100
+                    avg_return = final_df[col].mean(skipna=True)
+                    win_rate = (final_df[col] > 0).mean(skipna=True) * 100
                     summary.append({
                         "Holding Period": f"{h} Days",
                         "Avg Return (%)": round(avg_return, 2),
