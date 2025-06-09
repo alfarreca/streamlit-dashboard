@@ -277,7 +277,7 @@ def main():
     exchanges = sorted(df["Exchange"].unique().tolist())
     selected_exchange = st.sidebar.selectbox("Exchange", ["All"] + exchanges)
     min_score = st.sidebar.slider("Min Momentum Score", 0, 100, 50)
-momentum_threshold = st.sidebar.slider("Alert Momentum Threshold", 0, 100, 80)
+    momentum_threshold = st.sidebar.slider("Alert Momentum Threshold", 0, 100, 80)
 
     ticker_data = []
     progress = st.progress(0, text="Fetching ticker data...")
