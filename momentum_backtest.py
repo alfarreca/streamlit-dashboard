@@ -1,6 +1,17 @@
 import streamlit as st
 import pandas as pd
-from momentum_backtest import backtest_ticker
+
+# ---- MOCK IMPLEMENTATION FOR backtest_ticker ----
+# Replace this with your actual backtesting logic as needed.
+def backtest_ticker(ticker, threshold=80, holding_days=[5, 10, 20]):
+    # This mock just creates a DataFrame with dummy returns for demonstration
+    data = {
+        "Ticker": [ticker] * len(holding_days),
+        "Holding Days": holding_days,
+    }
+    for h in holding_days:
+        data[f"Return_{h}D"] = [round((hash(ticker) % 100) / 10 - 5 + h, 2)]
+    return pd.DataFrame(data)
 
 st.title("Momentum Backtest Tool")
 
