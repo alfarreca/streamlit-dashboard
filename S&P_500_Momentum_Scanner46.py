@@ -115,25 +115,6 @@ def calculate_momentum(hist):
     adx = dx.rolling(14).mean().iloc[-1] if not dx.isnull().all() else dx.mean()
 
     # DI crossovers
-    def calculate_di_crossovers(hist, period=14):
-        high = hist['High']
-        low = hist['Low']
-        close = hist['Close']
-        plus_dm = high.diff()
-        minus_dm = -low.diff()
-        plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0)
-        minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0)
-        tr1 = high - low
-        tr2 = np.abs(high - close.shift())
-        tr3 = np.abs(low - close.shift())
-        tr = np.maximum.reduce([tr1, tr2, tr3])
-        atr = pd.Series(tr).rolling(window=period, min_periods=period).mean()
-        plus_di = 100 * pd.Series(plus_dm).rolling(window=period, min_periods=period).mean() / atr
-        minus_di = 100 * pd.Series(minus_dm).rolling(window=period, min_periods=period).mean() / atr
-        bullish_crossover = (plus_di > minus_di) & (plus_di.shift(1) <= minus_di.shift(1))
-        bearish_crossover = (minus_di > plus_di) & (minus_di.shift(1) <= plus_di.shift(1))
-        return plus_di, minus_di, bullish_crossover, bearish_crossover
-
     plus_di_c, minus_di_c, bullish_cross, bearish_cross = calculate_di_crossovers(hist)
     last_bullish = bool(bullish_cross.iloc[-1])
     last_bearish = bool(bearish_cross.iloc[-1])
@@ -319,40 +300,40 @@ def main():
 
     st.session_state.filtered_results = filtered
 
+    # --------- MOVED ALERTS LOGIC INSIDE main() ---------
     alerts = results_df[results_df["Momentum_Score"] >= momentum_threshold]
     if not alerts.empty:
         st.subheader("🔔 High Momentum Alerts")
-        
-alerts_with_dates = []
-seen = set()
-for _, row in alerts.iterrows():
-    symbol = row["Symbol"]
-    if symbol in seen:
-        continue
-    trigger_date = find_first_trigger_date(safe_yfinance_fetch(yf.Ticker(row["YF_Symbol"])), momentum_threshold)
-    if trigger_date:
-        alerts_with_dates.append((trigger_date, symbol, row["Momentum_Score"]))
-        seen.add(symbol)
+        alerts_with_dates = []
+        seen = set()
+        for _, row in alerts.iterrows():
+            symbol = row["Symbol"]
+            if symbol in seen:
+                continue
+            trigger_date = find_first_trigger_date(safe_yfinance_fetch(yf.Ticker(row["YF_Symbol"])), momentum_threshold)
+            if trigger_date:
+                alerts_with_dates.append((trigger_date, symbol, row["Momentum_Score"]))
+                seen.add(symbol)
+        # Sort by trigger date descending
+        for date, symbol, score in sorted(alerts_with_dates, reverse=True):
+            st.success(f"{symbol} triggered on {date} with Momentum Score = {score}")
+            # Optional: Visualize chart with marker on trigger date
+            try:
+                hist = safe_yfinance_fetch(yf.Ticker(symbol), period="3mo")
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Price"))
+                fig.add_trace(go.Scatter(
+                    x=[pd.to_datetime(date)],
+                    y=[hist.loc[date]["Close"]] if date in hist.index else [hist["Close"].iloc[-1]],
+                    mode="markers+text",
+                    name="Trigger",
+                    marker=dict(size=10, color="red"),
+                    text=[f"{symbol} Trigger"],
+                    textposition="top center"
+                ))
+                st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not plot {symbol}: {e}")
 
-# Sort by trigger date descending
-for date, symbol, score in sorted(alerts_with_dates, reverse=True):
-    st.success(f"{symbol} triggered on {date} with Momentum Score = {score}")
-
-    # Optional: Visualize chart with marker on trigger date
-    try:
-        hist = safe_yfinance_fetch(yf.Ticker(symbol), period="3mo")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Price"))
-        fig.add_trace(go.Scatter(
-            x=[pd.to_datetime(date)],
-            y=[hist.loc[date]["Close"]] if date in hist.index else [hist["Close"].iloc[-1]],
-            mode="markers+text",
-            name="Trigger",
-            marker=dict(size=10, color="red"),
-            text=[f"{symbol} Trigger"],
-            textposition="top center"
-        ))
-        st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Could not plot {symbol}: {e}")
-
+if __name__ == "__main__":
+    main()
