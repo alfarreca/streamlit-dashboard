@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # ---- MOCK IMPLEMENTATION FOR backtest_ticker ----
-# Replace this with your actual backtesting logic as needed.
 def backtest_ticker(ticker, threshold=80, holding_days=[5, 10, 20]):
-    # This mock just creates a DataFrame with dummy returns for demonstration
     data = {
         "Ticker": [ticker] * len(holding_days),
         "Holding Days": holding_days,
@@ -15,16 +13,14 @@ def backtest_ticker(ticker, threshold=80, holding_days=[5, 10, 20]):
 
 st.title("Momentum Backtest Tool")
 
-# File uploader for Excel files with tickers
 uploaded_file = st.file_uploader(
-    "Upload an Excel file with tickers (column name: Ticker)", 
+    "Upload an Excel file with symbols (column name: Symbol)", 
     type=["xlsx"]
 )
 
-# Disable manual input if file is uploaded
 manual_disabled = uploaded_file is not None
 tickers = st.text_input(
-    "Or enter tickers manually (comma-separated)", 
+    "Or enter symbols manually (comma-separated)", 
     value="FCX,NUE,RIO.L",
     disabled=manual_disabled
 )
@@ -40,22 +36,21 @@ run = st.button("Run Backtest")
 
 if run:
     user_tickers = []
-    # If file uploaded, use tickers from file
+    # If file uploaded, use symbols from file
     if uploaded_file is not None:
         try:
             df = pd.read_excel(uploaded_file)
-            if 'Ticker' in df.columns:
-                user_tickers = df['Ticker'].dropna().astype(str).str.strip().str.upper().tolist()
+            if 'Symbol' in df.columns:
+                user_tickers = df['Symbol'].dropna().astype(str).str.strip().str.upper().tolist()
             else:
-                st.warning("No column named 'Ticker' found in your file.")
+                st.warning("No column named 'Symbol' found in your file.")
         except Exception as e:
             st.error(f"Error reading Excel file: {e}")
     else:
-        # If no file, use manual entry
         user_tickers = [t.strip().upper() for t in tickers.split(",") if t.strip()]
 
     if not user_tickers:
-        st.warning("No tickers provided. Please enter or upload at least one.")
+        st.warning("No symbols provided. Please enter or upload at least one.")
     else:
         all_results = []
         with st.spinner("Running backtest..."):
@@ -96,6 +91,6 @@ if run:
                 mime="text/csv"
             )
         else:
-            st.warning("No results. Try different tickers or parameters.")
+            st.warning("No results. Try different symbols or parameters.")
 else:
     st.info("Configure your options and click 'Run Backtest'.")
