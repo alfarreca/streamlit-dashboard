@@ -192,7 +192,6 @@ def calculate_momentum(hist):
         "minus_di_last": round(minus_di_c.iloc[-1], 1) if not np.isnan(minus_di_c.iloc[-1]) else None,
     }
 
-
 # ========== TICKER PROCESSING ==========
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_ticker_data(_ticker, exchange, yf_symbol):
@@ -286,7 +285,7 @@ def main():
     selected_exchange = st.sidebar.selectbox("Exchange", ["All"] + exchanges)
     min_score = st.sidebar.slider("Min Momentum Score", 0, 100, 50)
     momentum_threshold = st.sidebar.slider("Alert Momentum Threshold", 0, 100, 80)
-show_charts = st.sidebar.checkbox('Show Trigger Charts', value=True)
+    show_charts = st.sidebar.checkbox('Show Trigger Charts', value=True)
 
     ticker_data = []
     progress = st.progress(0, text="Fetching ticker data...")
@@ -323,39 +322,40 @@ show_charts = st.sidebar.checkbox('Show Trigger Charts', value=True)
     alerts = results_df[results_df["Momentum_Score"] >= momentum_threshold]
     if not alerts.empty:
         st.subheader("🔔 High Momentum Alerts")
-        
 
-alerts_with_dates = []
-seen = set()
-for _, row in alerts.iterrows():
-    symbol = row["Symbol"]
-    if symbol in seen:
-        continue
-    trigger_date = find_first_trigger_date(safe_yfinance_fetch(yf.Ticker(row["YF_Symbol"])), momentum_threshold)
-    if trigger_date:
-        alerts_with_dates.append((trigger_date, symbol, row["Momentum_Score"]))
-        seen.add(symbol)
+    alerts_with_dates = []
+    seen = set()
+    for _, row in alerts.iterrows():
+        symbol = row["Symbol"]
+        if symbol in seen:
+            continue
+        trigger_date = find_first_trigger_date(safe_yfinance_fetch(yf.Ticker(row["YF_Symbol"])), momentum_threshold)
+        if trigger_date:
+            alerts_with_dates.append((trigger_date, symbol, row["Momentum_Score"]))
+            seen.add(symbol)
 
-# Sort by trigger date descending
-for i, (date, symbol, score) in enumerate(sorted(alerts_with_dates, reverse=True)):
-    st.success(f"{symbol} triggered on {date} with Momentum Score = {score}")
+    # Sort by trigger date descending
+    for i, (date, symbol, score) in enumerate(sorted(alerts_with_dates, reverse=True)):
+        st.success(f"{symbol} triggered on {date} with Momentum Score = {score}")
 
-    if show_charts and i < 5:
-        try:
-            with st.spinner(f"Plotting chart for {symbol}..."):
-                hist = safe_yfinance_fetch(yf.Ticker(symbol), period="3mo")
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Price"))
-                fig.add_trace(go.Scatter(
-                    x=[pd.to_datetime(date)],
-                    y=[hist.loc[date]["Close"]] if date in hist.index else [hist["Close"].iloc[-1]],
-                    mode="markers+text",
-                    name="Trigger",
-                    marker=dict(size=10, color="red"),
-                    text=[f"{symbol} Trigger"],
-                    textposition="top center"
-                ))
-                st.plotly_chart(fig, use_container_width=True)
-        except Exception as e:
-            st.warning(f"Could not plot {symbol}: {e}")
+        if show_charts and i < 5:
+            try:
+                with st.spinner(f"Plotting chart for {symbol}..."):
+                    hist = safe_yfinance_fetch(yf.Ticker(symbol), period="3mo")
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=hist.index, y=hist["Close"], mode="lines", name="Price"))
+                    fig.add_trace(go.Scatter(
+                        x=[pd.to_datetime(date)],
+                        y=[hist.loc[date]["Close"]] if date in hist.index else [hist["Close"].iloc[-1]],
+                        mode="markers+text",
+                        name="Trigger",
+                        marker=dict(size=10, color="red"),
+                        text=[f"{symbol} Trigger"],
+                        textposition="top center"
+                    ))
+                    st.plotly_chart(fig, use_container_width=True)
+            except Exception as e:
+                st.warning(f"Could not plot {symbol}: {e}")
 
+# If you want to actually run the Streamlit app, make sure this call is not commented:
+# main()
