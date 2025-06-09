@@ -1,4 +1,3 @@
-
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -63,8 +62,8 @@ def calculate_momentum(hist):
         return plus_di, minus_di, bullish_crossover, bearish_crossover
 
     plus_di_c, minus_di_c, bullish_cross, bearish_cross = calculate_di_crossovers(hist)
-    last_bullish = bool(bullish_cross[-1]) if not bullish_cross.empty else False
-    last_bearish = bool(bearish_cross[-1]) if not bearish_cross.empty else False
+    last_bullish = bool(bullish_cross.iloc[-1]) if not bullish_cross.empty else False
+    last_bearish = bool(bearish_cross.iloc[-1]) if not bearish_cross.empty else False
 
     score = 0
     if close.iloc[-1] > ema20 > ema50 > ema200:
