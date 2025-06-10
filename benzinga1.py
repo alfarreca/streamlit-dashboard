@@ -184,4 +184,29 @@ st.line_chart(df["Close"])
 
 # --- Formula Explanation ---
 st.subheader("🔍 Formula Logic")
-st.markdown(f"""
+st.markdown(
+    f"""
+This app calculates custom support and resistance levels by blending:
+
+- **Current Price**
+- **Normalized Volume** (vs. peak in lookback)
+- **Options Flow Ratio** (weighted calls vs. puts, using both volume and open interest)
+- **ATR (Average True Range)**
+
+**Bullish Level:**  
+&nbsp;&nbsp;&nbsp;&nbsp;`price * (1 + k1*volume_pct + k2*options_ratio/10 + k3*atr_pct)`
+
+**Bearish Level:**  
+&nbsp;&nbsp;&nbsp;&nbsp;`price * (1 - k1*volume_pct - k2*options_ratio/10 - k3*atr_pct)`
+
+- _k1, k2, k3_ are weights set in the sidebar.
+- ATR is normalized as a % of price.
+- Options ratio is a weighted average of call/put volume and open interest.
+- All data is fetched live from Yahoo Finance.
+    """
+)
+
+st.caption(
+    "For education only – do not use for trading without your own research. "
+    "Contact @alfarreca for feedback or suggestions!"
+)
