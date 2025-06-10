@@ -36,24 +36,20 @@ start_date = st.sidebar.date_input(
 if strategy == "Put Options":
     strike_offset = st.sidebar.slider("Strike Price (% below current)", 5, 30, 10)
     expiration_days = st.sidebar.slider("Days to Expiration", 30, 180, 30)
-    
 elif strategy == "Inverse ETFs":
     hedge_ratio = st.sidebar.slider("Hedge Ratio (% of portfolio)", 5, 50, 20)
     inverse_etf = st.sidebar.selectbox(
         "Inverse ETF",
         ["SQQQ (Nasdaq)", "SDOW (Dow)", "SPXU (S&P)", "SH (S&P)"]
     )
-    
 elif strategy == "Gold Allocation":
     gold_percentage = st.sidebar.slider("Gold Allocation (% of portfolio)", 5, 50, 20)
-    
 elif strategy == "Dynamic Allocation":
     moving_average_days = st.sidebar.slider("Moving Average Days", 50, 200, 100)
     risk_off_asset = st.sidebar.selectbox(
         "Risk-Off Asset",
         ["BIL (T-Bills)", "GLD (Gold)", "TLT (Long Bonds)", "SHY (Short Bonds)"]
     )
-    
 elif strategy == "Volatility Index (VIX)":
     vix_threshold = st.sidebar.slider("VIX Threshold for Hedge", 20, 40, 25)
     hedge_percentage = st.sidebar.slider("Hedge Percentage at Threshold", 10, 100, 50)
@@ -61,7 +57,7 @@ elif strategy == "Volatility Index (VIX)":
 # Download data function
 @st.cache_data
 def load_data(ticker, start_date, end_date):
-    data = yf.download(ticker, start=start_date, end=end_date)
+    data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
     return data
 
 # Main analysis
@@ -74,7 +70,7 @@ try:
         st.stop()
     
     # Calculate returns
-    main_data['Returns'] = main_data['Adj Close'].pct_change()
+    main_data['Returns'] = main_data['Close'].pct_change()
     main_data['Cumulative'] = (1 + main_data['Returns']).cumprod()
     
     # Strategy simulation
@@ -84,14 +80,12 @@ try:
         Simulating buying {strike_offset}% out-of-the-money put options with {expiration_days} days to expiration,
         rolled monthly.
         """)
-        
         # Simplified simulation (actual option pricing would be more complex)
         main_data['Hedge_Payoff'] = np.where(
-            main_data['Adj Close'] < main_data['Adj Close'].shift(expiration_days) * (1 - strike_offset/100),
-            (main_data['Adj Close'].shift(expiration_days) * (1 - strike_offset/100) - main_data['Adj Close']) / main_data['Adj Close'].shift(expiration_days),
+            main_data['Close'] < main_data['Close'].shift(expiration_days) * (1 - strike_offset/100),
+            (main_data['Close'].shift(expiration_days) * (1 - strike_offset/100) - main_data['Close']) / main_data['Close'].shift(expiration_days),
             0
         )
-        
         # Assume cost of puts is 3% of notional per month
         main_data['Strategy_Returns'] = main_data['Returns'] - 0.03/expiration_days*30 + main_data['Hedge_Payoff']
         
@@ -100,17 +94,14 @@ try:
         st.write(f"""
         Allocating {hedge_ratio}% of portfolio to {inverse_etf} as a hedge against market downturns.
         """)
-        
         # Load inverse ETF data
         inverse_data = load_data(inverse_etf.split()[0], start_date, end_date)
-        inverse_data['Inverse_Returns'] = inverse_data['Adj Close'].pct_change()
-        
+        inverse_data['Inverse_Returns'] = inverse_data['Close'].pct_change()
         # Combine returns
         combined = pd.concat([
             main_data['Returns'].rename('Main'),
             inverse_data['Inverse_Returns'].rename('Inverse')
         ], axis=1).dropna()
-        
         main_data['Strategy_Returns'] = (
             (1 - hedge_ratio/100) * combined['Main'] + 
             (hedge_ratio/100) * (-combined['Inverse'])
@@ -121,17 +112,14 @@ try:
         st.write(f"""
         Maintaining a {gold_percentage}% allocation to gold (GLD) as a defensive position.
         """)
-        
         # Load gold data
         gold_data = load_data("GLD", start_date, end_date)
-        gold_data['Gold_Returns'] = gold_data['Adj Close'].pct_change()
-        
+        gold_data['Gold_Returns'] = gold_data['Close'].pct_change()
         # Combine returns
         combined = pd.concat([
             main_data['Returns'].rename('Main'),
             gold_data['Gold_Returns'].rename('Gold')
         ], axis=1).dropna()
-        
         main_data['Strategy_Returns'] = (
             (1 - gold_percentage/100) * combined['Main'] + 
             (gold_percentage/100) * combined['Gold']
@@ -142,27 +130,22 @@ try:
         st.write(f"""
         Moving to {risk_off_asset} when price is below {moving_average_days}-day moving average.
         """)
-        
         # Calculate moving average
-        main_data['MA'] = main_data['Adj Close'].rolling(moving_average_days).mean()
-        
+        main_data['MA'] = main_data['Close'].rolling(moving_average_days).mean()
         # Load risk-off asset data
         risk_off_data = load_data(risk_off_asset.split()[0], start_date, end_date)
-        risk_off_data['Risk_Off_Returns'] = risk_off_data['Adj Close'].pct_change()
-        
+        risk_off_data['Risk_Off_Returns'] = risk_off_data['Close'].pct_change()
         # Combine data
         combined = pd.concat([
-            main_data[['Returns', 'MA', 'Adj Close']],
+            main_data[['Returns', 'MA', 'Close']],
             risk_off_data['Risk_Off_Returns']
         ], axis=1).dropna()
-        
         # Strategy logic
         combined['Strategy_Returns'] = np.where(
-            combined['Adj Close'] > combined['MA'],
+            combined['Close'] > combined['MA'],
             combined['Returns'],
             combined['Risk_Off_Returns']
         )
-        
         main_data['Strategy_Returns'] = combined['Strategy_Returns']
         
     elif strategy == "Volatility Index (VIX)":
@@ -170,17 +153,14 @@ try:
         st.write(f"""
         Increasing hedge when VIX rises above {vix_threshold}, up to {hedge_percentage}% allocation to cash.
         """)
-        
         # Load VIX data
         vix_data = load_data("^VIX", start_date, end_date)
-        vix_data['VIX_Close'] = vix_data['Adj Close']
-        
+        vix_data['VIX_Close'] = vix_data['Close']
         # Combine data
         combined = pd.concat([
             main_data['Returns'],
             vix_data['VIX_Close']
         ], axis=1).dropna()
-        
         # Calculate hedge percentage based on VIX
         combined['Hedge_Pct'] = np.where(
             combined['VIX_Close'] > vix_threshold,
@@ -190,13 +170,11 @@ try:
             ),
             0
         )
-        
         # Assume cash returns 0% (could use BIL returns for more accuracy)
         combined['Strategy_Returns'] = (
             (1 - combined['Hedge_Pct']) * combined['Returns'] +
             combined['Hedge_Pct'] * 0
         )
-        
         main_data['Strategy_Returns'] = combined['Strategy_Returns']
     
     # Calculate strategy performance
@@ -214,26 +192,20 @@ try:
     
     # Performance metrics
     st.subheader("Performance Metrics")
-    
-    # Calculate metrics
     total_return = main_data['Cumulative'].iloc[-1] - 1
     strategy_return = main_data['Strategy_Cumulative'].iloc[-1] - 1
     max_drawdown = (main_data['Cumulative'] / main_data['Cumulative'].cummax() - 1).min()
     strategy_drawdown = (main_data['Strategy_Cumulative'] / main_data['Strategy_Cumulative'].cummax() - 1).min()
-    
-    # Display metrics
     col1, col2 = st.columns(2)
     col1.metric("Buy & Hold Return", f"{total_return:.1%}")
     col2.metric("Strategy Return", f"{strategy_return:.1%}", f"{(strategy_return - total_return):.1%}")
-    
     col3, col4 = st.columns(2)
     col3.metric("Buy & Hold Max Drawdown", f"{max_drawdown:.1%}")
     col4.metric("Strategy Max Drawdown", f"{strategy_drawdown:.1%}", f"{(strategy_drawdown - max_drawdown):.1%}")
-    
+
     # Drawdown chart
     main_data['Drawdown'] = main_data['Cumulative'] / main_data['Cumulative'].cummax() - 1
     main_data['Strategy_Drawdown'] = main_data['Strategy_Cumulative'] / main_data['Strategy_Cumulative'].cummax() - 1
-    
     fig2 = px.line(
         main_data,
         y=['Drawdown', 'Strategy_Drawdown'],
@@ -285,11 +257,9 @@ try:
         - Reduces hedges when markets are calm
         - Attempts to be more capital efficient than constant hedging
         """)
-    
     st.write("""
     *Note: This is a simplified simulation. Actual implementation would require more sophisticated modeling,
     especially for options strategies. Past performance is not indicative of future results.*
     """)
-    
 except Exception as e:
     st.error(f"An error occurred: {str(e)}")
