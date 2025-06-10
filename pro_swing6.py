@@ -86,7 +86,6 @@ def adjustable_swing_strategy(
         return response
     try:
         current = data.iloc[-1]
-        prev = data.iloc[-2]
         rsi = current['momentum_rsi']
         macd = current['trend_macd_diff']
         bbp = current['volatility_bbp']
@@ -176,7 +175,9 @@ st.title("Swing Trading Strategy Dashboard")
 st.markdown("Test and visualize swing trading signals using TA indicators.")
 
 st.sidebar.header("Strategy Settings")
-file = st.sidebar.file_uploader("Upload XLSX file (OHLCV or 'Symbol'/'Symbols' columns)", type=["xlsx"])
+file = st.sidebar.file_uploader(
+    "Upload XLSX file (OHLCV or 'Symbol'/'Symbols' columns)", type=["xlsx"]
+)
 
 ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
 rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
@@ -186,6 +187,7 @@ vol_filter = st.sidebar.checkbox("Filter by Volume > Avg", value=True)
 weekly_ma_filter = st.sidebar.checkbox("Filter by Weekly Uptrend (MA50 > MA200)", value=True)
 
 if st.sidebar.button("Run Strategy"):
+    st.info("Running strategy. Please wait for results below.")
     with st.spinner("Fetching data and running strategy..."):
         if file is not None:
             try:
@@ -226,9 +228,12 @@ if st.sidebar.button("Run Strategy"):
                     symbol_col = "Symbol" if "Symbol" in df.columns else "Symbols"
                     st.info(f"Detected watchlist column '{symbol_col}'. Will fetch live data for each symbol.")
                     summary = []
-                    for row in df.itertuples(index=False):
+                    progress_bar = st.progress(0)
+                    total = len(df)
+                    for idx, row in enumerate(df.itertuples(index=False)):
                         symbol = getattr(row, symbol_col, None)
                         if pd.isna(symbol):
+                            progress_bar.progress(min(int((idx + 1) / total * 100), 100))
                             continue
                         yf_symbol = str(symbol)
                         data = get_stock_data(yf_symbol)
@@ -249,6 +254,7 @@ if st.sidebar.button("Run Strategy"):
                             "StopLoss": result['StopLoss'],
                             "TakeProfit": result['TakeProfit']
                         })
+                        progress_bar.progress(min(int((idx + 1) / total * 100), 100))
                     st.subheader("Batch Results")
                     st.dataframe(pd.DataFrame(summary))
                 else:
