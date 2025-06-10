@@ -269,7 +269,7 @@ def display_results(results):
 
 def main():
     st.set_page_config(page_title="Stock Analyzer", layout="wide")
-    st.title("📈 S&P 500 Fundamental Analysis (Pro Dashboard)")
+    st.title("📈 Fundamental Analysis (Stock_Fundamental_Score.py)")
 
     uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
 
