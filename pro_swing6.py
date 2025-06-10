@@ -176,7 +176,7 @@ st.title("Swing Trading Strategy Dashboard")
 st.markdown("Test and visualize swing trading signals using TA indicators.")
 
 st.sidebar.header("Strategy Settings")
-file = st.sidebar.file_uploader("Upload XLSX file (must have columns: Open, High, Low, Close, Volume, Date)", type=["xlsx"])
+file = st.sidebar.file_uploader("Upload XLSX file (OHLCV or 'Symbols'/'Exchange' columns)", type=["xlsx"])
 
 ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
 rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
@@ -192,43 +192,93 @@ if st.sidebar.button("Run Strategy"):
                 df = pd.read_excel(file)
                 df.columns = [c.strip() for c in df.columns]
                 required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-                if not all(col in df.columns for col in required_cols):
-                    st.error("XLSX missing required columns: Open, High, Low, Close, Volume")
-                    data = pd.DataFrame()
-                else:
-                    df.set_index('Date', inplace=True, drop=True)
-                    df.index = pd.to_datetime(df.index)
+                # OHLCV data upload
+                if all(col in df.columns for col in required_cols):
+                    st.info("Detected OHLCV data. Using uploaded file for analysis.")
+                    if 'Date' in df.columns:
+                        df.set_index('Date', inplace=True, drop=True)
+                        df.index = pd.to_datetime(df.index)
                     data = add_all_ta_features(
                         df, open="Open", high="High", low="Low", close="Close", volume="Volume"
                     )
+                    higher_tf = pd.DataFrame()
+                    active_trades = 0
+                    result = adjustable_swing_strategy(
+                        data, higher_tf, active_trades,
+                        rsi_thresh, macd_thresh, bbp_thresh,
+                        vol_filter, weekly_ma_filter,
+                        ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
+                    )
+                    st.subheader("Latest Signal for Uploaded Data")
+                    st.write("**Entry Signal:**", result['EntrySignal'])
+                    st.write("**Reason:**", result['Reason'])
+                    if result['Trade']:
+                        st.success(f"Trade Signal: BUY {result['PositionSize']} shares at {result['EntryPrice']:.2f}")
+                        st.write(f"- Stop Loss: {result['StopLoss']:.2f}")
+                        st.write(f"- Take Profit: {result['TakeProfit']:.2f}")
+                        st.write(f"- Exit Condition: {result['ExitSignal']}")
+                    else:
+                        st.warning("No trade signal at this time.")
+                    st.write("Recent Data Snapshot:")
+                    st.dataframe(data.tail(10))
+                # Symbols/Exchange watchlist upload
+                elif "Symbols" in df.columns:
+                    st.info("Detected symbol/exchange watchlist. Will fetch live data for each symbol.")
+                    summary = []
+                    for row in df.itertuples(index=False):
+                        symbol = getattr(row, 'Symbols', None)
+                        # Optionally, use exchange info here if needed for yfinance
+                        if pd.isna(symbol):
+                            continue
+                        yf_symbol = str(symbol)
+                        data = get_stock_data(yf_symbol)
+                        higher_tf = get_higher_tf_data(yf_symbol) if weekly_ma_filter else pd.DataFrame()
+                        active_trades = 0
+                        result = adjustable_swing_strategy(
+                            data, higher_tf, active_trades,
+                            rsi_thresh, macd_thresh, bbp_thresh,
+                            vol_filter, weekly_ma_filter,
+                            ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
+                        )
+                        summary.append({
+                            "Symbol": yf_symbol,
+                            "Trade": "YES" if result['Trade'] else "NO",
+                            "Reason": result['Reason'],
+                            "EntryPrice": result['EntryPrice'],
+                            "PositionSize": result['PositionSize'],
+                            "StopLoss": result['StopLoss'],
+                            "TakeProfit": result['TakeProfit']
+                        })
+                    st.subheader("Batch Results")
+                    st.dataframe(pd.DataFrame(summary))
+                else:
+                    st.error("XLSX must contain either OHLCV columns (Open, High, Low, Close, Volume, Date) or at least a 'Symbols' column.")
             except Exception as e:
-                st.error(f"Failed to read XLSX: {e}")
-                data = pd.DataFrame()
-            higher_tf = pd.DataFrame()  # Not supported from upload, unless user provides it
+                st.error(f"Failed to process XLSX: {e}")
         else:
             data = get_stock_data(ticker)
             higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
-        active_trades = 0
-        result = adjustable_swing_strategy(
-            data, higher_tf, active_trades,
-            rsi_thresh, macd_thresh, bbp_thresh,
-            vol_filter, weekly_ma_filter,
-            ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
-        )
-        if data.empty:
-            st.error("No valid data for analysis.")
-        else:
-            st.subheader(f"Latest Signal for {ticker if file is None else 'uploaded file'}")
-            st.write("**Entry Signal:**", result['EntrySignal'])
-            st.write("**Reason:**", result['Reason'])
-            if result['Trade']:
-                st.success(f"Trade Signal: BUY {result['PositionSize']} shares at {result['EntryPrice']:.2f}")
-                st.write(f"- Stop Loss: {result['StopLoss']:.2f}")
-                st.write(f"- Take Profit: {result['TakeProfit']:.2f}")
-                st.write(f"- Exit Condition: {result['ExitSignal']}")
+            active_trades = 0
+            result = adjustable_swing_strategy(
+                data, higher_tf, active_trades,
+                rsi_thresh, macd_thresh, bbp_thresh,
+                vol_filter, weekly_ma_filter,
+                ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
+            )
+            if data.empty:
+                st.error("No valid data for analysis.")
             else:
-                st.warning("No trade signal at this time.")
-            st.write("Recent Data Snapshot:")
-            st.dataframe(data.tail(10))
+                st.subheader(f"Latest Signal for {ticker}")
+                st.write("**Entry Signal:**", result['EntrySignal'])
+                st.write("**Reason:**", result['Reason'])
+                if result['Trade']:
+                    st.success(f"Trade Signal: BUY {result['PositionSize']} shares at {result['EntryPrice']:.2f}")
+                    st.write(f"- Stop Loss: {result['StopLoss']:.2f}")
+                    st.write(f"- Take Profit: {result['TakeProfit']:.2f}")
+                    st.write(f"- Exit Condition: {result['ExitSignal']}")
+                else:
+                    st.warning("No trade signal at this time.")
+                st.write("Recent Data Snapshot:")
+                st.dataframe(data.tail(10))
 else:
-    st.info("Upload an XLSX file or enter a ticker and strategy settings, then click 'Run Strategy'.")
+    st.info("Upload an XLSX file (with OHLCV or with Symbols/Exchange) or enter a ticker and strategy settings, then click 'Run Strategy'.")
