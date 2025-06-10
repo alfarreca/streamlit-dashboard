@@ -75,9 +75,7 @@ def get_higher_tf_data(ticker, period='2y'):
         st.warning(f"Error getting weekly data for {ticker}: {str(e)}")
         return pd.DataFrame()
 
-# ... [rest of the UI and session state initialization remains the same] ...
-
-# --- IMPROVED STRATEGY LOGIC ---
+# --- STRATEGY LOGIC ---
 def adjustable_swing_strategy(
     data, higher_tf, active_trades,
     rsi_thresh, macd_thresh, bbp_thresh,
@@ -210,4 +208,48 @@ def adjustable_swing_strategy(
     
     return response
 
-# ... [rest of the main page code remains the same] ...
+# --- STREAMLIT UI ---
+st.set_page_config(page_title="Swing Trading Dashboard", layout="wide")
+st.title("Swing Trading Strategy Dashboard")
+st.markdown("Test and visualize swing trading signals using TA indicators.")
+
+# Sidebar for user inputs
+st.sidebar.header("Strategy Settings")
+ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
+rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
+macd_thresh = st.sidebar.slider("MACD Threshold (Entry Above)", min_value=-10, max_value=10, value=0)
+bbp_thresh = st.sidebar.slider("BB% Threshold (Entry Below)", min_value=0.0, max_value=1.0, value=0.2, step=0.01)
+vol_filter = st.sidebar.checkbox("Filter by Volume > Avg", value=True)
+weekly_ma_filter = st.sidebar.checkbox("Filter by Weekly Uptrend (MA50 > MA200)", value=True)
+
+# Run button
+if st.sidebar.button("Run Strategy"):
+    with st.spinner("Fetching data and running strategy..."):
+        data = get_stock_data(ticker)
+        higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
+        active_trades = 0
+        result = adjustable_swing_strategy(
+            data, higher_tf, active_trades,
+            rsi_thresh, macd_thresh, bbp_thresh,
+            vol_filter, weekly_ma_filter,
+            ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
+        )
+        if data.empty:
+            st.error("No valid data for analysis.")
+        else:
+            st.subheader(f"Latest Signal for {ticker}")
+            st.write("**Entry Signal:**", result['EntrySignal'])
+            st.write("**Reason:**", result['Reason'])
+            if result['Trade']:
+                st.success(f"Trade Signal: BUY {result['PositionSize']} shares at {result['EntryPrice']:.2f}")
+                st.write(f"- Stop Loss: {result['StopLoss']:.2f}")
+                st.write(f"- Take Profit: {result['TakeProfit']:.2f}")
+                st.write(f"- Exit Condition: {result['ExitSignal']}")
+            else:
+                st.warning("No trade signal at this time.")
+            # Show latest data
+            st.write("Recent Data Snapshot:")
+            st.dataframe(data.tail(10))
+
+else:
+    st.info("Enter a ticker and strategy settings, then click 'Run Strategy'.")
