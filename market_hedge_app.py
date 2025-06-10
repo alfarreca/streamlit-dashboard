@@ -184,13 +184,16 @@ try:
         # Calculate hedge percentage based on VIX
         combined['Hedge_Pct'] = np.where(
             combined['VIX_Close'] > vix_threshold,
-            np.minimum(hedge_percentage/100, (combined['VIX_Close'] - vix_threshold)/vix_threshold * (hedge_percentage/100),
+            np.minimum(
+                hedge_percentage/100,
+                (combined['VIX_Close'] - vix_threshold)/vix_threshold * (hedge_percentage/100)
+            ),
             0
         )
         
         # Assume cash returns 0% (could use BIL returns for more accuracy)
         combined['Strategy_Returns'] = (
-            (1 - combined['Hedge_Pct']) * combined['Returns'] + 
+            (1 - combined['Hedge_Pct']) * combined['Returns'] +
             combined['Hedge_Pct'] * 0
         )
         
