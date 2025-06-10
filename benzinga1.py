@@ -54,7 +54,7 @@ def get_stock_data(ticker, lookback):
 with st.spinner("Fetching price history..."):
     df = get_stock_data(ticker, lookback_days)
     # Normalize column names to title case (e.g., 'high' → 'High')
-    df.columns = [col.title() for col in df.columns]
+    df.columns = [str(col).title() for col in df.columns]
 
     # Debug: Show DataFrame shape and columns
     st.write("Downloaded DataFrame shape:", df.shape)
