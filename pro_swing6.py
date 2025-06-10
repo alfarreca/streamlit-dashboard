@@ -10,22 +10,15 @@ RISK_PER_TRADE = 0.01
 MAX_CONCURRENT_TRADES = 3
 
 def get_stock_data(ticker, period='6mo'):
-    """Get stock data with robust error handling and data validation."""
     try:
         data = yf.download(ticker, period=period, interval='1d', progress=False)
-
         if data.empty:
             st.warning(f"No data found for {ticker} (Yahoo Finance may not support this ticker or exchange).")
             return pd.DataFrame()
-
-        # Handle multi-index columns if they exist
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(-1)
-
         required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
         have_cols = [col for col in required_cols if col in data.columns]
-
-        # Fallback: use Adj Close if OHLCV missing
         if len(have_cols) < 5 and "Adj Close" in data.columns:
             st.warning(f"Only 'Adj Close' found for {ticker}. Using it as 'Close'; other OHLCV will be NaN.")
             data['Close'] = data['Adj Close']
@@ -33,13 +26,10 @@ def get_stock_data(ticker, period='6mo'):
                 if col not in data.columns:
                     data[col] = np.nan
             have_cols = [col for col in required_cols if col in data.columns]
-
         if not all(col in data.columns for col in required_cols):
             missing = [col for col in required_cols if col not in data.columns]
             st.warning(f"Missing columns for {ticker}: {', '.join(missing)}")
             return pd.DataFrame()
-
-        # Calculate technical indicators
         try:
             data = add_all_ta_features(
                 data, open="Open", high="High", low="Low", close="Close", volume="Volume"
@@ -52,15 +42,12 @@ def get_stock_data(ticker, period='6mo'):
         except Exception as ta_error:
             st.warning(f"TA calculation failed for {ticker}: {str(ta_error)}")
             return pd.DataFrame()
-
         return data
-
     except Exception as e:
         st.warning(f"Error downloading data for {ticker}: {str(e)}")
         return pd.DataFrame()
 
 def get_higher_tf_data(ticker, period='2y'):
-    """Get weekly data for MA calculations"""
     try:
         data = yf.download(ticker, period=period, interval='1wk', progress=False)
         if data.empty or len(data) < 60:
@@ -189,6 +176,8 @@ st.title("Swing Trading Strategy Dashboard")
 st.markdown("Test and visualize swing trading signals using TA indicators.")
 
 st.sidebar.header("Strategy Settings")
+file = st.sidebar.file_uploader("Upload XLSX file (must have columns: Open, High, Low, Close, Volume, Date)", type=["xlsx"])
+
 ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
 rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
 macd_thresh = st.sidebar.slider("MACD Threshold (Entry Above)", min_value=-10, max_value=10, value=0)
@@ -198,8 +187,27 @@ weekly_ma_filter = st.sidebar.checkbox("Filter by Weekly Uptrend (MA50 > MA200)"
 
 if st.sidebar.button("Run Strategy"):
     with st.spinner("Fetching data and running strategy..."):
-        data = get_stock_data(ticker)
-        higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
+        if file is not None:
+            try:
+                df = pd.read_excel(file)
+                df.columns = [c.strip() for c in df.columns]
+                required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                if not all(col in df.columns for col in required_cols):
+                    st.error("XLSX missing required columns: Open, High, Low, Close, Volume")
+                    data = pd.DataFrame()
+                else:
+                    df.set_index('Date', inplace=True, drop=True)
+                    df.index = pd.to_datetime(df.index)
+                    data = add_all_ta_features(
+                        df, open="Open", high="High", low="Low", close="Close", volume="Volume"
+                    )
+            except Exception as e:
+                st.error(f"Failed to read XLSX: {e}")
+                data = pd.DataFrame()
+            higher_tf = pd.DataFrame()  # Not supported from upload, unless user provides it
+        else:
+            data = get_stock_data(ticker)
+            higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
         active_trades = 0
         result = adjustable_swing_strategy(
             data, higher_tf, active_trades,
@@ -210,7 +218,7 @@ if st.sidebar.button("Run Strategy"):
         if data.empty:
             st.error("No valid data for analysis.")
         else:
-            st.subheader(f"Latest Signal for {ticker}")
+            st.subheader(f"Latest Signal for {ticker if file is None else 'uploaded file'}")
             st.write("**Entry Signal:**", result['EntrySignal'])
             st.write("**Reason:**", result['Reason'])
             if result['Trade']:
@@ -223,4 +231,4 @@ if st.sidebar.button("Run Strategy"):
             st.write("Recent Data Snapshot:")
             st.dataframe(data.tail(10))
 else:
-    st.info("Enter a ticker and strategy settings, then click 'Run Strategy'.")
+    st.info("Upload an XLSX file or enter a ticker and strategy settings, then click 'Run Strategy'.")
