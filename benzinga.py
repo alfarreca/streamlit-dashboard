@@ -24,7 +24,8 @@ k3 = st.sidebar.slider("Volatility Weight (k3)", 0.1, 1.0, 0.5)
 def get_stock_data(ticker, lookback):
     end_date = datetime.today()
     start_date = end_date - timedelta(days=lookback)
-    data = yf.download(ticker, start=start_date, end=end_date)
+    # Explicitly set auto_adjust to True to avoid FutureWarning
+    data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
     return data
 
 # --- Fetch Options Data ---
@@ -69,12 +70,13 @@ try:
         st.stop()
     
     # Get latest metrics
-    latest_close = df["Close"].iloc[-1]
-    avg_volume = df["Volume"].mean() / 1e6  # in millions
-    atr = (df["High"] - df["Low"]).mean()  # simplified ATR
+    latest_close = float(df["Close"].iloc[-1])
+    avg_volume = float(df["Volume"].mean() / 1e6)  # in millions
+    atr = float((df["High"] - df["Low"]).mean())  # simplified ATR
     
     # Get options data
     call_put_ratio, calls, puts = get_options_flow(ticker)
+    call_put_ratio = float(call_put_ratio)
     
     # --- Proprietary Formula ---
     def calculate_levels(price, volume, options_ratio, atr, bullish=True):
@@ -84,14 +86,14 @@ try:
             return price - (k1 * volume) - (k2 * options_ratio) - (k3 * atr)
     
     # Bullish Targets
-    r1 = calculate_levels(latest_close, avg_volume, call_put_ratio, atr, bullish=True)
-    r2 = r1 + (0.5 * atr)
-    r3 = r2 + (0.5 * atr)
+    r1 = float(calculate_levels(latest_close, avg_volume, call_put_ratio, atr, bullish=True))
+    r2 = float(r1 + (0.5 * atr))
+    r3 = float(r2 + (0.5 * atr))
     
     # Bearish Targets
-    s1 = calculate_levels(latest_close, avg_volume, call_put_ratio, atr, bullish=False)
-    s2 = s1 - (0.5 * atr)
-    s3 = s2 - (0.5 * atr)
+    s1 = float(calculate_levels(latest_close, avg_volume, call_put_ratio, atr, bullish=False))
+    s2 = float(s1 - (0.5 * atr))
+    s3 = float(s2 - (0.5 * atr))
     
     # --- Display Results ---
     col1, col2, col3 = st.columns([1, 1, 2])
