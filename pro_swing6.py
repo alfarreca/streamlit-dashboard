@@ -12,24 +12,26 @@ if 'failed_tickers' not in st.session_state:
 
 # --- XLSX Upload Section with improved validation ---
 st.sidebar.title("Swing Trading Scanner Pro (Adjustable)")
-uploaded_file = st.sidebar.file_uploader("Upload XLSX Watchlist", type=["xlsx"], 
-                                        help="Upload Excel file with 'Ticker' column")
+uploaded_file = st.sidebar.file_uploader(
+    "Upload XLSX Watchlist", type=["xlsx"],
+    help="Upload Excel file with 'Symbol' column"
+)
 
 if uploaded_file is not None:
     try:
         df_uploaded = pd.read_excel(uploaded_file)
-        if 'Ticker' in df_uploaded.columns:
+        if 'Symbol' in df_uploaded.columns:
             st.session_state.watchlist = (
-                df_uploaded['Ticker']
+                df_uploaded['Symbol']
                 .dropna()
                 .astype(str)
                 .str.upper()  # Ensure consistent ticker formatting
                 .unique()  # Remove duplicates
                 .tolist()
             )
-            st.sidebar.success(f"Watchlist updated with {len(st.session_state.watchlist)} unique tickers!")
+            st.sidebar.success(f"Watchlist updated with {len(st.session_state.watchlist)} unique symbols!")
         else:
-            st.sidebar.error("Uploaded file must contain a 'Ticker' column")
+            st.sidebar.error("Uploaded file must contain a 'Symbol' column")
     except Exception as e:
         st.sidebar.error(f"Error reading file: {str(e)}")
 
@@ -86,7 +88,7 @@ if st.session_state.watchlist:
     for ticker in st.session_state.watchlist:
         st.sidebar.code(ticker)
 else:
-    st.sidebar.warning("Watchlist is empty - upload a file or add tickers")
+    st.sidebar.warning("Watchlist is empty - upload a file or add symbols")
 
 # --- Improved Strategy Function ---
 def adjustable_swing_strategy(
@@ -188,7 +190,7 @@ if st.sidebar.button("Run Adjustable Scan", type="primary"):
     active_trades = 0
     
     if not st.session_state.watchlist:
-        st.warning("Watchlist is empty - upload a file or add tickers")
+        st.warning("Watchlist is empty - upload a file or add symbols")
     else:
         with st.spinner(f"Scanning {len(st.session_state.watchlist)} stocks..."):
             progress_bar = st.progress(0)
@@ -208,7 +210,7 @@ if st.sidebar.button("Run Adjustable Scan", type="primary"):
                         active_trades += 1
                     
                     results.append({
-                        'Ticker': ticker,
+                        'Symbol': ticker,
                         'Signal': 'BUY' if strat['Trade'] else '-',
                         'Reason': strat['Reason'],
                         'Price': f"{strat['EntryPrice']:.2f}" if strat['EntryPrice'] else '-',
@@ -242,7 +244,7 @@ if not st.session_state.scanned_results.empty:
         
         # Show trade details in expanders
         for _, row in buy_signals.iterrows():
-            with st.expander(f"Trade Details: {row['Ticker']}"):
+            with st.expander(f"Trade Details: {row['Symbol']}"):
                 st.write(f"**Entry Price:** {row['Price']}")
                 st.write(f"**Position Size:** {row['Size']} shares")
                 st.write(f"**Stop Loss:** {row['Stop']}")
@@ -255,8 +257,8 @@ if not st.session_state.scanned_results.empty:
         st.dataframe(other_results)
     
     if st.session_state.failed_tickers:
-        st.warning(f"Failed to process {len(st.session_state.failed_tickers)} tickers")
-        with st.expander("Show failed tickers"):
+        st.warning(f"Failed to process {len(st.session_state.failed_tickers)} symbols")
+        with st.expander("Show failed symbols"):
             st.write(st.session_state.failed_tickers)
 else:
     st.info("Configure your scan criteria and click 'Run Adjustable Scan' to begin")
