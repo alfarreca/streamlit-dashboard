@@ -60,6 +60,11 @@ def load_data(ticker, start_date, end_date):
     data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
     return data
 
+def flatten_columns(df):
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ['_'.join([str(x) for x in col if x]) for col in df.columns.values]
+    return df
+
 # Main analysis
 try:
     # Load primary asset data
@@ -102,6 +107,8 @@ try:
             main_data['Returns'].rename('Main'),
             inverse_data['Inverse_Returns'].rename('Inverse')
         ], axis=1).dropna()
+        # Flatten columns if needed
+        combined = flatten_columns(combined)
         main_data['Strategy_Returns'] = (
             (1 - hedge_ratio/100) * combined['Main'] + 
             (hedge_ratio/100) * (-combined['Inverse'])
@@ -120,6 +127,8 @@ try:
             main_data['Returns'].rename('Main'),
             gold_data['Gold_Returns'].rename('Gold')
         ], axis=1).dropna()
+        # Flatten columns if needed
+        combined = flatten_columns(combined)
         main_data['Strategy_Returns'] = (
             (1 - gold_percentage/100) * combined['Main'] + 
             (gold_percentage/100) * combined['Gold']
@@ -140,6 +149,8 @@ try:
             main_data[['Returns', 'MA', 'Close']],
             risk_off_data['Risk_Off_Returns']
         ], axis=1).dropna()
+        # Flatten columns if needed
+        combined = flatten_columns(combined)
         # Strategy logic
         combined['Strategy_Returns'] = np.where(
             combined['Close'] > combined['MA'],
@@ -161,6 +172,8 @@ try:
             main_data['Returns'],
             vix_data['VIX_Close']
         ], axis=1).dropna()
+        # Flatten columns if needed
+        combined = flatten_columns(combined)
         # Calculate hedge percentage based on VIX
         combined['Hedge_Pct'] = np.where(
             combined['VIX_Close'] > vix_threshold,
@@ -179,6 +192,9 @@ try:
     
     # Calculate strategy performance
     main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
+    
+    # Flatten columns before plotting
+    main_data = flatten_columns(main_data)
     
     # Plot results
     fig = px.line(
