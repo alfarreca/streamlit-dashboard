@@ -3,39 +3,64 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 from ta import add_all_ta_features
-import time
 
 # --- CONFIGURABLES ---
 ACCOUNT_EQUITY = 10_000
 RISK_PER_TRADE = 0.01
 MAX_CONCURRENT_TRADES = 3
 
-# --- DATA FETCHING FUNCTIONS ---
 def get_stock_data(ticker, period='6mo'):
+    """Get stock data with robust error handling and data validation."""
     try:
         data = yf.download(ticker, period=period, interval='1d', progress=False)
-        if data.empty or len(data) < 20:
-            st.warning(f"Insufficient data for {ticker}")
+
+        if data.empty:
+            st.warning(f"No data found for {ticker} (Yahoo Finance may not support this ticker or exchange).")
             return pd.DataFrame()
+
+        # Handle multi-index columns if they exist
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(-1)
+
         required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        have_cols = [col for col in required_cols if col in data.columns]
+
+        # Fallback: use Adj Close if OHLCV missing
+        if len(have_cols) < 5 and "Adj Close" in data.columns:
+            st.warning(f"Only 'Adj Close' found for {ticker}. Using it as 'Close'; other OHLCV will be NaN.")
+            data['Close'] = data['Adj Close']
+            for col in ['Open', 'High', 'Low', 'Volume']:
+                if col not in data.columns:
+                    data[col] = np.nan
+            have_cols = [col for col in required_cols if col in data.columns]
+
         if not all(col in data.columns for col in required_cols):
-            st.warning(f"Missing columns for {ticker}: {', '.join([col for col in required_cols if col not in data.columns])}")
+            missing = [col for col in required_cols if col not in data.columns]
+            st.warning(f"Missing columns for {ticker}: {', '.join(missing)}")
             return pd.DataFrame()
-        data = add_all_ta_features(
-            data, open="Open", high="High", low="Low", close="Close", volume="Volume"
-        )
-        ta_cols = ['momentum_rsi', 'trend_macd_diff', 'volatility_bbp', 'volatility_atr']
-        if not all(col in data.columns for col in ta_cols):
-            st.warning(f"Missing TA columns for {ticker}: {', '.join([col for col in ta_cols if col not in data.columns])}")
+
+        # Calculate technical indicators
+        try:
+            data = add_all_ta_features(
+                data, open="Open", high="High", low="Low", close="Close", volume="Volume"
+            )
+            ta_cols = ['momentum_rsi', 'trend_macd_diff', 'volatility_bbp', 'volatility_atr']
+            if not all(col in data.columns for col in ta_cols):
+                missing_ta = [col for col in ta_cols if col not in data.columns]
+                st.warning(f"Missing TA columns for {ticker}: {', '.join(missing_ta)}")
+                return pd.DataFrame()
+        except Exception as ta_error:
+            st.warning(f"TA calculation failed for {ticker}: {str(ta_error)}")
             return pd.DataFrame()
+
         return data
+
     except Exception as e:
         st.warning(f"Error downloading data for {ticker}: {str(e)}")
         return pd.DataFrame()
 
 def get_higher_tf_data(ticker, period='2y'):
+    """Get weekly data for MA calculations"""
     try:
         data = yf.download(ticker, period=period, interval='1wk', progress=False)
         if data.empty or len(data) < 60:
@@ -49,7 +74,6 @@ def get_higher_tf_data(ticker, period='2y'):
         st.warning(f"Error getting weekly data for {ticker}: {str(e)}")
         return pd.DataFrame()
 
-# --- STRATEGY FUNCTION ---
 def adjustable_swing_strategy(
     data, higher_tf, active_trades,
     rsi_thresh, macd_thresh, bbp_thresh,
@@ -86,6 +110,7 @@ def adjustable_swing_strategy(
     except Exception as e:
         response['Reason'] = f'Error reading data: {str(e)}'
         return response
+
     uptrend = True
     if weekly_ma_filter:
         if higher_tf.empty or len(higher_tf) < 200:
@@ -159,82 +184,43 @@ def adjustable_swing_strategy(
     return response
 
 # --- STREAMLIT UI ---
-st.set_page_config(page_title="Swing Trading Batch Scanner", layout="wide")
-st.title("Swing Trading Batch Scanner")
-st.markdown("Upload your ticker list, set your entry rules, and scan for swing setups across the market.")
+st.set_page_config(page_title="Swing Trading Dashboard", layout="wide")
+st.title("Swing Trading Strategy Dashboard")
+st.markdown("Test and visualize swing trading signals using TA indicators.")
 
 st.sidebar.header("Strategy Settings")
-
-uploaded_file = st.sidebar.file_uploader(
-    "Upload XLSX Watchlist", type=["xlsx"],
-    help="Upload Excel file with 'Symbol' or 'Ticker' column"
-)
-
-if uploaded_file:
-    df_uploaded = pd.read_excel(uploaded_file)
-    ticker_col = None
-    for col in df_uploaded.columns:
-        if col.strip().lower() in ['symbol', 'ticker']:
-            ticker_col = col
-            break
-    if not ticker_col:
-        st.sidebar.error("No 'Symbol' or 'Ticker' column found!")
-        tickers = []
-    else:
-        tickers = df_uploaded[ticker_col].dropna().astype(str).str.upper().unique().tolist()
-        st.sidebar.success(f"Loaded {len(tickers)} tickers.")
-else:
-    tickers = []
-    st.sidebar.info("Please upload an Excel file to start batch scanning.")
-
-account_equity = st.sidebar.number_input("Account Equity (€)", min_value=1000, max_value=1_000_000, value=ACCOUNT_EQUITY, step=1000)
-risk_per_trade = st.sidebar.slider("Risk per trade (%)", 0.5, 5.0, RISK_PER_TRADE*100, step=0.1) / 100
-max_concurrent_trades = st.sidebar.slider("Max concurrent trades", 1, 20, MAX_CONCURRENT_TRADES)
+ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
 rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
 macd_thresh = st.sidebar.slider("MACD Threshold (Entry Above)", min_value=-10, max_value=10, value=0)
 bbp_thresh = st.sidebar.slider("BB% Threshold (Entry Below)", min_value=0.0, max_value=1.0, value=0.2, step=0.01)
 vol_filter = st.sidebar.checkbox("Filter by Volume > Avg", value=True)
 weekly_ma_filter = st.sidebar.checkbox("Filter by Weekly Uptrend (MA50 > MA200)", value=True)
 
-if uploaded_file and st.sidebar.button("Run Batch Scan"):
-    results = []
-    failed = []
-    active_trades = 0
-    with st.spinner(f"Scanning {len(tickers)} stocks..."):
-        for i, ticker in enumerate(tickers):
-            data = get_stock_data(ticker)
-            higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
-            result = adjustable_swing_strategy(
-                data, higher_tf, active_trades,
-                rsi_thresh, macd_thresh, bbp_thresh,
-                vol_filter, weekly_ma_filter,
-                account_equity, risk_per_trade,
-                max_concurrent_trades
-            )
+if st.sidebar.button("Run Strategy"):
+    with st.spinner("Fetching data and running strategy..."):
+        data = get_stock_data(ticker)
+        higher_tf = get_higher_tf_data(ticker) if weekly_ma_filter else pd.DataFrame()
+        active_trades = 0
+        result = adjustable_swing_strategy(
+            data, higher_tf, active_trades,
+            rsi_thresh, macd_thresh, bbp_thresh,
+            vol_filter, weekly_ma_filter,
+            ACCOUNT_EQUITY, RISK_PER_TRADE, MAX_CONCURRENT_TRADES
+        )
+        if data.empty:
+            st.error("No valid data for analysis.")
+        else:
+            st.subheader(f"Latest Signal for {ticker}")
+            st.write("**Entry Signal:**", result['EntrySignal'])
+            st.write("**Reason:**", result['Reason'])
             if result['Trade']:
-                active_trades += 1
-            results.append({
-                'Symbol': ticker,
-                'Signal': 'BUY' if result['Trade'] else '-',
-                'Reason': result['Reason'],
-                'Price': f"{result['EntryPrice']:.2f}" if result['EntryPrice'] else '-',
-                'Size': result['PositionSize'] or '-',
-                'Stop': f"{result['StopLoss']:.2f}" if result['StopLoss'] else '-',
-                'Target': f"{result['TakeProfit']:.2f}" if result['TakeProfit'] else '-',
-                'Conditions': result['EntrySignal'],
-                'Exit Rules': result['ExitSignal']
-            })
-    results_df = pd.DataFrame(results)
-    st.subheader("Batch Scan Results")
-    if not results_df.empty:
-        buy_signals = results_df[results_df['Signal'] == 'BUY']
-        if not buy_signals.empty:
-            st.success(f"Found {len(buy_signals)} trade signals!")
-            st.dataframe(buy_signals)
-        st.write("All Results:")
-        st.dataframe(results_df)
-    else:
-        st.warning("No results to display.")
-    st.success(f"Scanned {len(tickers)} stocks.")
-elif not uploaded_file:
-    st.info("Upload a ticker list and set your scan parameters, then click 'Run Batch Scan'.")
+                st.success(f"Trade Signal: BUY {result['PositionSize']} shares at {result['EntryPrice']:.2f}")
+                st.write(f"- Stop Loss: {result['StopLoss']:.2f}")
+                st.write(f"- Take Profit: {result['TakeProfit']:.2f}")
+                st.write(f"- Exit Condition: {result['ExitSignal']}")
+            else:
+                st.warning("No trade signal at this time.")
+            st.write("Recent Data Snapshot:")
+            st.dataframe(data.tail(10))
+else:
+    st.info("Enter a ticker and strategy settings, then click 'Run Strategy'.")
