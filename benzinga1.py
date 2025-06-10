@@ -57,10 +57,13 @@ with st.spinner("Fetching price history..."):
         st.error("No or insufficient stock data found for this period. Try a different ticker or timeframe.")
         st.stop()
 
-# --- Standard ATR Calculation ---
-def calculate_atr(df, period=lookback_days):
+# --- Robust ATR Calculation ---
+def calculate_atr(df, period=14):
+    required_cols = {'High', 'Low', 'Close'}
+    if df.empty or not required_cols.issubset(df.columns):
+        st.error("Not enough data to calculate ATR (missing columns or empty data).")
+        st.stop()
     try:
-        # Use TA if available, else fallback to manual calc
         from ta.volatility import AverageTrueRange
         atr = AverageTrueRange(df['High'], df['Low'], df['Close'], window=min(period, len(df))).average_true_range()
         return float(atr.iloc[-1])
@@ -71,6 +74,9 @@ def calculate_atr(df, period=lookback_days):
         tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
         atr = tr.rolling(window=min(period, len(df)), min_periods=1).mean()
         return float(atr.iloc[-1])
+    except Exception as e:
+        st.error(f"Error calculating ATR: {e}")
+        st.stop()
 
 atr = calculate_atr(df, lookback_days)
 
