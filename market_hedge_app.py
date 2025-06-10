@@ -107,7 +107,6 @@ try:
             main_data['Returns'].rename('Main'),
             inverse_data['Inverse_Returns'].rename('Inverse')
         ], axis=1).dropna()
-        # Flatten columns if needed
         combined = flatten_columns(combined)
         main_data['Strategy_Returns'] = (
             (1 - hedge_ratio/100) * combined['Main'] + 
@@ -127,7 +126,6 @@ try:
             main_data['Returns'].rename('Main'),
             gold_data['Gold_Returns'].rename('Gold')
         ], axis=1).dropna()
-        # Flatten columns if needed
         combined = flatten_columns(combined)
         main_data['Strategy_Returns'] = (
             (1 - gold_percentage/100) * combined['Main'] + 
@@ -149,7 +147,6 @@ try:
             main_data[['Returns', 'MA', 'Close']],
             risk_off_data['Risk_Off_Returns']
         ], axis=1).dropna()
-        # Flatten columns if needed
         combined = flatten_columns(combined)
         # Strategy logic
         combined['Strategy_Returns'] = np.where(
@@ -172,7 +169,6 @@ try:
             main_data['Returns'],
             vix_data['VIX_Close']
         ], axis=1).dropna()
-        # Flatten columns if needed
         combined = flatten_columns(combined)
         # Calculate hedge percentage based on VIX
         combined['Hedge_Pct'] = np.where(
@@ -193,8 +189,17 @@ try:
     # Calculate strategy performance
     main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
     
-    # Flatten columns before plotting
+    # Flatten columns before plotting or export
     main_data = flatten_columns(main_data)
+    
+    # CSV Download Button
+    csv = main_data.to_csv(index=True)
+    st.download_button(
+        label="Download Results as CSV",
+        data=csv,
+        file_name='hedge_strategy_results.csv',
+        mime='text/csv'
+    )
     
     # Plot results
     fig = px.line(
