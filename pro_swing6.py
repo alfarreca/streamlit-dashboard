@@ -176,7 +176,7 @@ st.title("Swing Trading Strategy Dashboard")
 st.markdown("Test and visualize swing trading signals using TA indicators.")
 
 st.sidebar.header("Strategy Settings")
-file = st.sidebar.file_uploader("Upload XLSX file (OHLCV or 'Symbols'/'Exchange' columns)", type=["xlsx"])
+file = st.sidebar.file_uploader("Upload XLSX file (OHLCV or 'Symbol'/'Symbols' columns)", type=["xlsx"])
 
 ticker = st.sidebar.text_input("Stock Ticker", value="AAPL")
 rsi_thresh = st.sidebar.slider("RSI Threshold (Entry Below)", min_value=10, max_value=70, value=30)
@@ -221,13 +221,13 @@ if st.sidebar.button("Run Strategy"):
                         st.warning("No trade signal at this time.")
                     st.write("Recent Data Snapshot:")
                     st.dataframe(data.tail(10))
-                # Symbols/Exchange watchlist upload
-                elif "Symbols" in df.columns:
-                    st.info("Detected symbol/exchange watchlist. Will fetch live data for each symbol.")
+                # Symbols/Exchange watchlist upload (supports "Symbol" or "Symbols")
+                elif "Symbol" in df.columns or "Symbols" in df.columns:
+                    symbol_col = "Symbol" if "Symbol" in df.columns else "Symbols"
+                    st.info(f"Detected watchlist column '{symbol_col}'. Will fetch live data for each symbol.")
                     summary = []
                     for row in df.itertuples(index=False):
-                        symbol = getattr(row, 'Symbols', None)
-                        # Optionally, use exchange info here if needed for yfinance
+                        symbol = getattr(row, symbol_col, None)
                         if pd.isna(symbol):
                             continue
                         yf_symbol = str(symbol)
@@ -252,7 +252,7 @@ if st.sidebar.button("Run Strategy"):
                     st.subheader("Batch Results")
                     st.dataframe(pd.DataFrame(summary))
                 else:
-                    st.error("XLSX must contain either OHLCV columns (Open, High, Low, Close, Volume, Date) or at least a 'Symbols' column.")
+                    st.error("XLSX must contain either OHLCV columns (Open, High, Low, Close, Volume, Date) or at least a 'Symbol' or 'Symbols' column.")
             except Exception as e:
                 st.error(f"Failed to process XLSX: {e}")
         else:
@@ -281,4 +281,4 @@ if st.sidebar.button("Run Strategy"):
                 st.write("Recent Data Snapshot:")
                 st.dataframe(data.tail(10))
 else:
-    st.info("Upload an XLSX file (with OHLCV or with Symbols/Exchange) or enter a ticker and strategy settings, then click 'Run Strategy'.")
+    st.info("Upload an XLSX file (with OHLCV or with Symbol/Symbols) or enter a ticker and strategy settings, then click 'Run Strategy'.")
