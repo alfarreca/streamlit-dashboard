@@ -53,8 +53,23 @@ def get_stock_data(ticker, lookback):
 
 with st.spinner("Fetching price history..."):
     df = get_stock_data(ticker, lookback_days)
-    if df.empty or len(df) < lookback_days // 2:
-        st.error("No or insufficient stock data found for this period. Try a different ticker or timeframe.")
+    # Normalize column names to title case (e.g., 'high' → 'High')
+    df.columns = [col.title() for col in df.columns]
+
+    # Debug: Show DataFrame shape and columns
+    st.write("Downloaded DataFrame shape:", df.shape)
+    st.write("Columns:", df.columns)
+    st.write("Preview:", df.head())
+
+    # Check for empty DataFrame or missing columns
+    required_cols = {'High', 'Low', 'Close', 'Volume'}
+    if df.empty or not required_cols.issubset(df.columns):
+        st.error("No or insufficient stock data found for this period, or required columns are missing. "
+                 "Try a different ticker or timeframe.")
+        st.stop()
+
+    if len(df) < lookback_days // 2:
+        st.error("Insufficient stock data for this period. Try a different ticker or longer lookback.")
         st.stop()
 
 # --- Robust ATR Calculation ---
