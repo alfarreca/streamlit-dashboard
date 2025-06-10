@@ -157,22 +157,11 @@ s1 = calculate_levels(latest_close, normalized_vol, call_put_ratio, atr, volume_
 s2 = s1 - (0.5 * atr)
 s3 = s2 - (0.5 * atr)
 
-# --- CSV Export in Sidebar ---
-with st.sidebar:
-    st.markdown("### Export Data")
-    if not df.empty:
-        csv = df.to_csv(index=True).encode('utf-8')
-        st.download_button(
-            label="Download Price Data CSV",
-            data=csv,
-            file_name=f"{ticker}_history.csv",
-            mime="text/csv",
-            key='csv_dl'
-        )
-    else:
-        st.write("No data to export.")
-
 # --- UI Columns: Mobile Friendly ---
+if st.sidebar.button("Export as CSV"):
+    csv = df.to_csv(index=True).encode('utf-8')
+    st.download_button("Download Price Data CSV", csv, f"{ticker}_history.csv", "text/csv", key='csv_dl')
+
 col1, col2, col3 = st.columns([1, 1, 2])
 
 # Metrics
