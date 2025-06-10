@@ -43,11 +43,13 @@ with st.spinner("Validating ticker..."):
 # --- Fetch Stock Data ---
 @st.cache_data(ttl=3600)
 def get_stock_data(ticker, lookback):
-    # Request more days to cover non-trading days
     end_date = datetime.today()
     start_date = end_date - timedelta(days=lookback * 3)
     df = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
-    df = df[df['Close'].notna()]  # filter out non-trading days
+    # Flatten multi-level columns if present (e.g., ('Close', 'MSFT') -> 'Close')
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df[df['Close'].notna()]
     df = df.tail(lookback)
     return df
 
