@@ -2,8 +2,21 @@ import streamlit as st
 import pandas as pd
 import time
 
-# --- Mocked/Required Constants & Functions ---
-# Please replace these with your actual logic or import from your project as needed
+# --- XLSX Upload Section ---
+uploaded_file = st.sidebar.file_uploader("Upload XLSX Watchlist", type=["xlsx"])
+if uploaded_file is not None:
+    df_uploaded = pd.read_excel(uploaded_file)
+    if 'Ticker' in df_uploaded.columns:
+        st.session_state.watchlist = df_uploaded['Ticker'].dropna().astype(str).tolist()
+        st.success("Watchlist updated from uploaded file!")
+    else:
+        st.error("No 'Ticker' column found in uploaded file.")
+
+# --- Initialize watchlist if not set ---
+if 'watchlist' not in st.session_state:
+    st.session_state.watchlist = ['AAPL', 'GOOG', 'TSLA']
+
+# --- Mocked/Required Constants & Functions (Replace with your actual logic) ---
 ACCOUNT_EQUITY = 10000
 RISK_PER_TRADE = 0.01
 MAX_CONCURRENT_TRADES = 3
@@ -26,10 +39,6 @@ def get_higher_tf_data(ticker):
         'MA50': [100 + i*0.2 for i in range(200)],
         'MA200': [95 + i*0.18 for i in range(200)],
     }, index=idx)
-
-# --- Streamlit State Initialization ---
-if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = ['AAPL', 'GOOG', 'TSLA']
 
 # --- SIDEBAR FILTERS WITH ADJUSTABLE THRESHOLDS ---
 st.sidebar.title("Swing Trading Scanner Pro (Adjustable)")
