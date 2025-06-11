@@ -8,91 +8,99 @@ from typing import List, Tuple, Optional, Dict
 
 # Configure page settings
 st.set_page_config(
-    page_title="Fundamental Stock Evaluator",
-    page_icon="📈",
+    page_title="Global Stock Evaluator",
+    page_icon="🌐",
     layout="wide"
 )
 
-# Constants
+# Constants with Yahoo Finance-compatible exchange suffixes
+YAHOO_EXCHANGE_MAP = {
+    # Europe
+    'DE': '.DE',   # XETRA (Germany)
+    'MI': '.MI',   # Milan
+    'L': '.L',     # London
+    'ST': '.ST',   # Stockholm
+    'PA': '.PA',   # Paris
+    'AS': '.AS',   # Amsterdam
+    'BR': '.BR',   # Brussels
+    'MC': '.MC',   # Madrid
+    'SW': '.SW',   # Switzerland
+    'CO': '.CO',   # Copenhagen
+    'OL': '.OL',   # Oslo
+    'HE': '.HE',   # Helsinki
+    'VI': '.VI',   # Vienna
+    
+    # Americas
+    'TO': '.TO',   # Toronto
+    'V': '.V',     # TSX Venture
+    'MX': '.MX',   # Mexico
+    
+    # Asia/Pacific
+    'T': '.T',     # Tokyo
+    'HK': '.HK',   # Hong Kong
+    'SI': '.SI',   # Singapore
+    'KS': '.KS',   # Korea
+    'TW': '.TW',   # Taiwan
+    'AX': '.AX',   # Australia
+    'NZ': '.NZ',   # New Zealand
+    
+    # Special cases
+    'US': '',      # No suffix for US stocks
+    'NA': ''       # No suffix (fallback)
+}
+
 SECTOR_DISCOUNT_RATES = {
     "Technology": 10.5,
     "Healthcare": 9.0,
-    "Consumer Defensive": 8.0,
     "Financial Services": 9.5,
-    "Utilities": 7.0,
-    "Communication Services": 9.0,
-    "Energy": 9.5,
-    "Industrials": 9.0,
-    "Real Estate": 8.5,
-    "Basic Materials": 10.0
+    "Industrial": 9.0,
+    "European": 8.5,
+    "UK": 8.0,
+    "Scandinavian": 8.0,
+    "Asian": 10.0
 }
 
-DEFAULT_INFLATION = 0.025  # 2.5%
+DEFAULT_INFLATION = 0.025
 MAX_TICKERS = 50
 TIMEOUT_SECONDS = 10
 
-def get_inflation_rate() -> float:
-    """Return current inflation rate with validation"""
-    return max(0.0, min(DEFAULT_INFLATION, 0.1))
+def convert_to_yahoo_format(symbol: str, exchange: str) -> str:
+    """Convert Symbol+Exchange to proper Yahoo Finance format"""
+    # Clean inputs
+    symbol = str(symbol).strip().upper()
+    exchange = str(exchange).strip().upper()
+    
+    # Remove any existing suffix from symbol
+    base_symbol = symbol.split('.')[0]
+    
+    # Apply Yahoo Finance suffix mapping
+    suffix = YAHOO_EXCHANGE_MAP.get(exchange, f'.{exchange}')
+    return f"{base_symbol}{suffix}"
 
 def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
-    """Validate tickers with optional exchange suffixes"""
+    """Validate tickers according to Yahoo Finance requirements"""
     valid = []
     invalid = []
     
     for t in tickers:
         t = str(t).strip().upper()
         
-        # Handle tickers with exchange suffixes (e.g., SAP.DE)
-        if "." in t:
-            parts = t.split(".")
-            if len(parts) == 2:
-                symbol, exchange = parts
-                if (1 <= len(symbol) <= 5 and symbol.isalpha() and 
-                    1 <= len(exchange) <= 2 and exchange.isalpha()):
-                    valid.append(t)
-                    continue
+        # Check for already properly formatted tickers (e.g., SAAB-B.ST)
+        if '.' in t:
+            parts = t.split('.')
+            if len(parts) == 2 and 1 <= len(parts[0]) <= 8 and 1 <= len(parts[1]) <= 2:
+                valid.append(t)
+                continue
         
-        # Handle simple tickers without exchange (e.g., AAPL)
-        if 1 <= len(t) <= 5 and t.isalpha():
+        # Check for simple tickers (will be formatted later)
+        if 1 <= len(t) <= 8 and any(c.isalpha() for c in t):
             valid.append(t)
         else:
             invalid.append(t)
     
     return valid[:MAX_TICKERS], invalid
 
-def calculate_dcf(
-    fcf: float,
-    growth_rate: float,
-    discount_rate: float,
-    growth_period: int,
-    terminal_growth: float,
-    inflation_rate: float = 0.0
-) -> float:
-    """Calculate intrinsic value using DCF model"""
-    if discount_rate <= terminal_growth:
-        st.warning("Discount rate must be greater than terminal growth rate")
-        return np.nan
-    
-    if inflation_rate > 0:
-        real_discount = max(0.01, discount_rate - inflation_rate)
-        real_growth = max(0.0, growth_rate - inflation_rate)
-        real_terminal = max(0.0, terminal_growth - inflation_rate)
-    else:
-        real_discount = discount_rate
-        real_growth = growth_rate
-        real_terminal = terminal_growth
-    
-    present_value = 0.0
-    for year in range(1, growth_period + 1):
-        future_fcf = fcf * (1 + real_growth) ** year
-        present_value += future_fcf / ((1 + real_discount) ** year)
-    
-    terminal_fcf = fcf * (1 + real_growth) ** growth_period
-    terminal_value = (terminal_fcf * (1 + real_terminal)) / (real_discount - real_terminal)
-    return present_value + (terminal_value / ((1 + real_discount) ** growth_period))
-
-@st.cache_data(show_spinner="Fetching stock data...", ttl=3600)
+@st.cache_data(show_spinner="Fetching global stock data...", ttl=3600)
 def get_stock_data(
     ticker: str,
     period: str,
@@ -103,30 +111,34 @@ def get_stock_data(
     adjust_inflation: bool,
     inflation: float
 ) -> Tuple[Optional[Dict], Optional[pd.DataFrame]]:
-    """Fetch and process stock data"""
+    """Fetch data with international stock support"""
     try:
         stock = yf.Ticker(ticker)
         
-        try:
-            hist = stock.history(period=period, timeout=TIMEOUT_SECONDS)
-            if hist.empty:
-                st.warning(f"No historical data found for {ticker}")
-                return None, None
-        except Exception as e:
-            st.warning(f"Couldn't fetch history for {ticker}: {str(e)}")
+        # Get historical data with international market support
+        hist = stock.history(period=period, timeout=TIMEOUT_SECONDS)
+        if hist.empty:
+            st.warning(f"No data found for {ticker} - may be delisted or wrong exchange")
             return None, None
         
-        try:
-            info = stock.info
-            if not info:
-                st.warning(f"No info available for {ticker}")
-                return None, None
-        except Exception as e:
-            st.warning(f"Couldn't fetch info for {ticker}: {str(e)}")
-            return None, None
+        # Get info with fallbacks for international stocks
+        info = stock.info
+        current_price = info.get('currentPrice') or info.get('regularMarketPrice') or hist['Close'].iloc[-1]
         
-        sector = info.get('sector', 'Technology')
+        # Determine sector with international fallback
+        sector = info.get('sector', 'Unknown')
+        if '.' in ticker:
+            exchange_suffix = ticker.split('.')[1]
+            if exchange_suffix in ['DE', 'MI', 'PA', 'ST']:
+                sector = sector if sector != 'Unknown' else 'European'
+            elif exchange_suffix == 'L':
+                sector = sector if sector != 'Unknown' else 'UK'
+            elif exchange_suffix in ['SW', 'OL', 'CO', 'HE']:
+                sector = sector if sector != 'Unknown' else 'Scandinavian'
+            elif exchange_suffix in ['T', 'HK', 'KS']:
+                sector = sector if sector != 'Unknown' else 'Asian'
         
+        # Get discount rate
         if discount_method == "Use industry default":
             nominal_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0) / 100
             suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0)
@@ -134,23 +146,24 @@ def get_stock_data(
             nominal_rate = manual_rate / 100
             suggested_rate = manual_rate
 
+        # Get cash flows with international fallback
         try:
             cashflow = stock.cashflow
             fcf = cashflow.loc['Free Cash Flow'].iloc[0] if (cashflow is not None and 'Free Cash Flow' in cashflow.index) else np.nan
-        except Exception as e:
-            st.warning(f"Couldn't fetch cash flow for {ticker}: {str(e)}")
+        except:
             fcf = np.nan
         
         data = {
             "Ticker": ticker,
             "Sector": sector,
             "Discount Rate": suggested_rate,
-            "Current Price": info.get('currentPrice', info.get('regularMarketPrice', np.nan)),
+            "Current Price": current_price,
             "FCF (ttm)": fcf,
             "Revenue Growth": info.get('revenueGrowth', np.nan),
             "Inflation Adjusted": "Yes" if adjust_inflation else "No"
         }
         
+        # Calculate valuation if we have valid data
         if not np.isnan(fcf) and fcf > 0:
             growth_rate = info.get('revenueGrowth', 0.05)
             intrinsic_value = calculate_dcf(
@@ -171,157 +184,41 @@ def get_stock_data(
         return data, hist
     
     except Exception as e:
-        st.error(f"Unexpected error processing {ticker}: {str(e)}")
+        st.error(f"Error processing {ticker}: {str(e)}")
         return None, None
 
-@st.cache_data(show_spinner="Scanning tickers...", ttl=3600)
-def scan_tickers(
-    tickers: List[str],
-    period: str,
-    discount_method: str,
-    manual_rate: Optional[float],
-    growth_period: int,
-    terminal_growth: float,
-    adjust_inflation: bool,
-    inflation: float
-) -> Tuple[List[Dict], List[str]]:
-    """Process multiple tickers"""
-    results = []
-    failed = []
-    
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for i, ticker in enumerate(tickers):
-        status_text.text(f"Processing {i+1}/{len(tickers)}: {ticker}")
-        progress_bar.progress((i + 1) / len(tickers))
-        
-        data, hist = get_stock_data(
-            ticker, period, discount_method, manual_rate,
-            growth_period, terminal_growth, adjust_inflation, inflation
-        )
-        
-        if data:
-            results.append(data)
-        else:
-            failed.append(ticker)
-        
-        time.sleep(0.5)  # Rate limiting
-    
-    progress_bar.empty()
-    status_text.empty()
-    
-    return results, failed
-
-def display_results(results: List[Dict]) -> None:
-    """Display analysis results"""
-    if not results:
-        st.warning("No valid results to display")
-        return
-    
-    df = pd.DataFrame(results)
-    df = df.replace({None: np.nan})
-    
-    st.subheader("📊 Valuation Analysis")
-    
-    # Summary metrics
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Stocks Analyzed", len(df))
-    with col2:
-        undervalued = df[df['Margin of Safety'] > 0]
-        st.metric("Undervalued Stocks", len(undervalued))
-    with col3:
-        avg_margin = df['Margin of Safety'].mean() * 100
-        st.metric("Avg Margin of Safety", f"{avg_margin:.1f}%")
-    
-    # Main results table
-    st.dataframe(
-        df.style.format({
-            "Current Price": "${:.2f}",
-            "FCF (ttm)": "${:,.0f}",
-            "Revenue Growth": "{:.1%}",
-            "Discount Rate": "{:.1f}%",
-            "Intrinsic Value": "${:.2f}",
-            "Margin of Safety": "{:.1%}"
-        }).applymap(
-            lambda x: 'color: green' if isinstance(x, str) and 'Yes' in x 
-            else ('color: red' if isinstance(x, float) and x < 0 
-                 else ('color: green' if isinstance(x, float) and x > 0 
-                     else '')),
-        subset=["Margin of Safety", "Inflation Adjusted"]
-    ),
-        height=600,
-        use_container_width=True
-    )
-    
-    # Download button
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Valuation')
-        summary = pd.DataFrame({
-            'Metric': ['Total Stocks', 'Undervalued Stocks', 'Average Margin of Safety'],
-            'Value': [len(df), len(undervalued), f"{avg_margin:.1f}%"]
-        })
-        summary.to_excel(writer, index=False, sheet_name='Summary')
-    
-    st.download_button(
-        "💾 Download Full Analysis",
-        data=output.getvalue(),
-        file_name="stock_valuation_analysis.xlsx",
-        mime="application/vnd.ms-excel"
-    )
-
-def main() -> None:
-    """Main application function"""
-    st.title("📈 Fundamental Stock Evaluator")
+def main():
+    st.title("🌍 Global Stock Evaluator")
     st.markdown("""
-    **Stocks are priced according to the value of their future cash flows.**  
-    Upload an Excel file with stock tickers to analyze valuation based on cash flow fundamentals.
+    **Analyze international stocks using Yahoo Finance-compatible ticker formats**  
+    Upload an Excel file with 'Symbol' and 'Exchange' columns for accurate valuation.
     """)
     
-    with st.expander("ℹ️ How to use this tool"):
+    with st.expander("ℹ️ Ticker Format Guide"):
         st.markdown("""
-        1. **Prepare your data**: Create an Excel file with either:
-           - A single column of tickers, or
-           - Two columns labeled 'Symbol' and 'Exchange'
-        2. **Upload**: Use the file uploader in the sidebar
-        3. **Configure**: Set your valuation parameters
-        4. **Analyze**: View results and download if needed
+        ### Proper Yahoo Finance Ticker Formats:
+        - **US Stocks**: AAPL, MSFT (no suffix needed)
+        - **German Stocks**: SAP.DE, RHM.DE
+        - **UK Stocks**: BA.L, HSBA.L
+        - **Swedish Stocks**: SAAB-B.ST, VOLV-B.ST
+        - **Italian Stocks**: LDO.MI, ENEL.MI
+        
+        ### File Format Requirements:
+        - Either single column of formatted tickers (e.g., `SAAB-B.ST`)
+        - OR two columns labeled 'Symbol' and 'Exchange' (e.g., Symbol=`SAAB-B`, Exchange=`ST`)
         """)
     
     # Sidebar configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
-        
         uploaded_file = st.file_uploader(
             "Upload Excel File", 
             type=["xlsx"],
-            help="Supports single-column tickers or two-column 'Symbol'+'Exchange' format"
-        )
-        
-        st.markdown("---")
-        st.subheader("Market Comparison")
-        benchmark = st.selectbox(
-            "Compare to Benchmark",
-            ["^GSPC (S&P 500)", "^IXIC (NASDAQ)", "^DJI (Dow Jones)", 
-             "EXS1.DE (Dax ETF)", "EUDF.DE (ISHARES Defense Europe)", 
-             "CAC.PA (CAC ETF)", "GDX (Gold Miners ETF)", "None"],
-            index=0
-        )
-        period = st.selectbox(
-            "Historical Period", 
-            ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y"],
-            index=3
+            help="Supports formatted tickers or Symbol+Exchange columns"
         )
         
         st.markdown("---")
         st.subheader("Valuation Settings")
-        adjust_for_inflation = st.checkbox("Adjust for inflation", value=True)
-        current_inflation = get_inflation_rate()
-        if adjust_for_inflation:
-            st.markdown(f"Current inflation rate: **{current_inflation:.1%}**")
-        
         discount_method = st.radio(
             "Discount Rate Method",
             ["Use industry default", "Manual override"],
@@ -331,88 +228,126 @@ def main() -> None:
         if discount_method == "Manual override":
             discount_rate = st.slider("Discount Rate (%)", 5.0, 20.0, 10.0, 0.5)
         
-        growth_period = st.slider("Growth Period (years)", 1, 10, 5, 1)
+        growth_period = st.slider("Growth Period (years)", 1, 10, 5)
         terminal_growth = st.slider("Terminal Growth Rate (%)", 0.0, 5.0, 2.5, 0.1)
         
-        if st.button("🔄 Recalculate DCF", use_container_width=True):
+        if st.button("🔄 Analyze Stocks", use_container_width=True):
             st.cache_data.clear()
-            st.rerun()
     
     # Main analysis flow
     if uploaded_file is not None:
         try:
             excel_data = pd.read_excel(uploaded_file)
             
-            # Handle two-column format
+            # Handle different file formats
             if all(col in excel_data.columns for col in ["Symbol", "Exchange"]):
-                tickers = [f"{s}.{e}" if pd.notna(e) else str(s) 
-                          for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])]
-            else:
-                # Fallback to first column
-                tickers = [str(t).strip() for t in excel_data.iloc[:, 0].dropna().tolist()]
+                tickers = [
+                    convert_to_yahoo_format(s, e) 
+                    for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])
+                    if pd.notna(s)
+                ]
+            elif "Ticker" in excel_data.columns:
+                tickers = [str(t).strip() for t in excel_data["Ticker"].dropna()]
+            else:  # Fallback to first column
+                tickers = [str(t).strip() for t in excel_data.iloc[:, 0].dropna()]
             
-            # Validate tickers
+            # Validate and process tickers
             valid_tickers, invalid_tickers = validate_tickers(tickers)
             
             if not valid_tickers:
-                st.error("No valid tickers found. Ensure your file contains stock symbols in the first column or 'Symbol'+'Exchange' columns.")
+                st.error("""
+                No valid tickers found. Please ensure:
+                1. For two-column files: Columns are labeled 'Symbol' and 'Exchange'
+                2. For single-column files: Use Yahoo Finance formats (e.g., SAAB-B.ST)
+                """)
                 return
             
             if invalid_tickers:
-                st.warning(f"Ignored invalid tickers: {', '.join(invalid_tickers[:10])}{'...' if len(invalid_tickers) > 10 else ''}")
+                st.warning(f"Invalid tickers skipped: {', '.join(invalid_tickers[:10])}{'...' if len(invalid_tickers) > 10 else ''}")
             
-            if len(valid_tickers) > MAX_TICKERS:
-                st.warning(f"Analyzing first {MAX_TICKERS} tickers (limit for free tier)")
-                valid_tickers = valid_tickers[:MAX_TICKERS]
+            st.success(f"Processing {len(valid_tickers)} valid tickers")
             
-            st.success(f"Analyzing {len(valid_tickers)} stocks")
+            # Process tickers with progress bar
+            progress_bar = st.progress(0)
+            results = []
             
-            # Process tickers
-            results, failed = scan_tickers(
-                valid_tickers, period, discount_method,
-                discount_rate if discount_method == "Manual override" else None,
-                growth_period, terminal_growth,
-                adjust_for_inflation, current_inflation
-            )
+            for i, ticker in enumerate(valid_tickers):
+                progress_bar.progress((i + 1) / len(valid_tickers))
+                data, _ = get_stock_data(
+                    ticker, "1y", discount_method,
+                    discount_rate if discount_method == "Manual override" else None,
+                    growth_period, terminal_growth,
+                    True, DEFAULT_INFLATION
+                )
+                if data:
+                    results.append(data)
+                time.sleep(0.5)  # Rate limiting
             
             # Display results
             if results:
-                display_results(results)
-            
-            if failed:
-                st.warning(f"Failed to analyze: {', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}")
+                df = pd.DataFrame(results)
+                st.subheader("📊 Valuation Results")
+                
+                # Color formatting
+                def color_margin(val):
+                    color = 'green' if val > 0 else 'red'
+                    return f'color: {color}'
+                
+                st.dataframe(
+                    df.style.format({
+                        "Current Price": "${:.2f}",
+                        "FCF (ttm)": "${:,.0f}",
+                        "Intrinsic Value": "${:.2f}",
+                        "Margin of Safety": "{:.1%}",
+                        "Discount Rate": "{:.1f}%"
+                    }).applymap(color_margin, subset=["Margin of Safety"]),
+                    height=600
+                )
+                
+                # Download button
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    df.to_excel(writer, index=False)
+                st.download_button(
+                    "💾 Download Results",
+                    data=output.getvalue(),
+                    file_name="global_stock_valuation.xlsx",
+                    mime="application/vnd.ms-excel"
+                )
         
         except Exception as e:
-            st.error(f"Error processing file: {str(e)}")
-    
+            st.error(f"File processing error: {str(e)}")
+
     # Sample file section
     st.markdown("---")
-    st.subheader("📋 Sample Files")
+    st.subheader("📁 Sample Files")
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("**Single Column Format**")
-        sample1 = pd.DataFrame({"Tickers": ["AAPL", "MSFT", "GOOG", "AMZN"]})
-        st.dataframe(sample1, hide_index=True)
+        st.markdown("**European Stocks**")
+        sample_eu = pd.DataFrame({
+            "Symbol": ["RHM", "LDO", "BA", "SAAB-B", "SAP"],
+            "Exchange": ["DE", "MI", "L", "ST", "DE"]
+        })
+        st.dataframe(sample_eu, hide_index=True)
         st.download_button(
-            "⬇️ Download Single Column Sample",
-            data=sample1.to_csv(index=False).encode('utf-8'),
-            file_name="sample_tickers_single_column.csv",
+            "⬇️ Download European Sample",
+            data=sample_eu.to_csv(index=False).encode('utf-8'),
+            file_name="european_stocks_sample.csv",
             mime="text/csv"
         )
     
     with col2:
-        st.markdown("**Two Column Format**")
-        sample2 = pd.DataFrame({
-            "Symbol": ["SAP", "BMW", "ALV", "ADS"],
-            "Exchange": ["DE", "DE", "DE", "DE"]
+        st.markdown("**Formatted Tickers**")
+        sample_formatted = pd.DataFrame({
+            "Ticker": ["RHM.DE", "LDO.MI", "BA.L", "SAAB-B.ST", "SAP.DE"]
         })
-        st.dataframe(sample2, hide_index=True)
+        st.dataframe(sample_formatted, hide_index=True)
         st.download_button(
-            "⬇️ Download Two Column Sample",
-            data=sample2.to_csv(index=False).encode('utf-8'),
-            file_name="sample_tickers_two_columns.csv",
+            "⬇️ Download Formatted Sample",
+            data=sample_formatted.to_csv(index=False).encode('utf-8'),
+            file_name="formatted_tickers_sample.csv",
             mime="text/csv"
         )
 
