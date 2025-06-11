@@ -44,26 +44,16 @@ with st.sidebar:
 def calculate_dcf(fcf, growth_rate, discount_rate, growth_period, terminal_growth):
     """Calculate intrinsic value using discounted cash flow model"""
     present_value = 0
-    
     # Projected cash flows during growth period
     for year in range(1, growth_period + 1):
         future_fcf = fcf * (1 + growth_rate) ** year
         present_value += future_fcf / ((1 + discount_rate) ** year)
-    
     # Terminal value
     terminal_fcf = fcf * (1 + growth_rate) ** growth_period
     terminal_value = (terminal_fcf * (1 + terminal_growth)) / (discount_rate - terminal_growth)
     present_terminal_value = terminal_value / ((1 + discount_rate) ** growth_period)
-    
     return present_value + present_terminal_value
 
-@st.cache_data(
-    show_spinner="Fetching stock data...",
-    hash_funcs={
-        "builtins.float": lambda x: hash(x),
-        "builtins.int": lambda x: hash(x),
-    }
-)
 def get_stock_data(ticker, period, discount_rate, growth_period, terminal_growth):
     try:
         stock = yf.Ticker(ticker)
