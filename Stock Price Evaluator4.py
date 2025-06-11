@@ -8,7 +8,7 @@ import matplotlib.dates as mdates
 from fredapi import Fred  # For inflation data
 
 # Initialize FRED API (get your free API key at https://fred.stlouisfed.org/docs/api/api_key.html)
-fred = Fred(api_key='YOUR_FRED_API_KEY')  # Replace with your actual FRED API key
+fred = Fred(api_key='a79018b53e3085363528cf148b358708')  # Replace with your actual FRED API key
 
 st.title("📈 Fundamental Stock Evaluator")
 st.markdown("""
