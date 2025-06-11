@@ -8,56 +8,30 @@ from typing import List, Tuple, Optional, Dict
 
 # Configure page settings
 st.set_page_config(
-    page_title="Global Stock Evaluator",
-    page_icon="🌐",
+    page_title="CAC 40 Stock Evaluator",
+    page_icon="🇫🇷",
     layout="wide"
 )
 
-# Constants with Yahoo Finance-compatible exchange suffixes
+# Constants with Yahoo Finance exchange mapping
 YAHOO_EXCHANGE_MAP = {
-    # Europe
-    'DE': '.DE',   # XETRA (Germany)
-    'MI': '.MI',   # Milan
-    'L': '.L',     # London
-    'ST': '.ST',   # Stockholm
-    'PA': '.PA',   # Paris
-    'AS': '.AS',   # Amsterdam
-    'BR': '.BR',   # Brussels
-    'MC': '.MC',   # Madrid
-    'SW': '.SW',   # Switzerland
-    'CO': '.CO',   # Copenhagen
-    'OL': '.OL',   # Oslo
-    'HE': '.HE',   # Helsinki
-    'VI': '.VI',   # Vienna
-    
-    # Americas
-    'TO': '.TO',   # Toronto
-    'V': '.V',     # TSX Venture
-    'MX': '.MX',   # Mexico
-    
-    # Asia/Pacific
-    'T': '.T',     # Tokyo
-    'HK': '.HK',   # Hong Kong
-    'SI': '.SI',   # Singapore
-    'KS': '.KS',   # Korea
-    'TW': '.TW',   # Taiwan
-    'AX': '.AX',   # Australia
-    'NZ': '.NZ',   # New Zealand
-    
-    # Special cases
-    'US': '',      # No suffix for US stocks
-    'NA': ''       # No suffix (fallback)
+    'Euronext Paris': 'PA',
+    'Euronext Amsterdam': 'AS',
+    'XETRA': 'DE',
+    'London Stock Exchange': 'L',
+    'Borsa Italiana': 'MI',
+    'NASDAQ': '',
+    'NYSE': ''
 }
 
 SECTOR_DISCOUNT_RATES = {
-    "Technology": 10.5,
-    "Healthcare": 9.0,
     "Financial Services": 9.5,
-    "Industrial": 9.0,
-    "European": 8.5,
-    "UK": 8.0,
-    "Scandinavian": 8.0,
-    "Asian": 10.0
+    "Energy": 9.0,
+    "Consumer Cyclical": 10.0,
+    "Industrials": 9.0,
+    "Healthcare": 8.5,
+    "Technology": 10.5,
+    "European": 8.0
 }
 
 DEFAULT_INFLATION = 0.025
@@ -68,31 +42,33 @@ def convert_to_yahoo_format(symbol: str, exchange: str) -> str:
     """Convert Symbol+Exchange to proper Yahoo Finance format"""
     # Clean inputs
     symbol = str(symbol).strip().upper()
-    exchange = str(exchange).strip().upper()
+    exchange = str(exchange).strip()
     
     # Remove any existing suffix from symbol
     base_symbol = symbol.split('.')[0]
     
-    # Apply Yahoo Finance suffix mapping
-    suffix = YAHOO_EXCHANGE_MAP.get(exchange, f'.{exchange}')
-    return f"{base_symbol}{suffix}"
+    # Get Yahoo exchange code
+    yahoo_code = YAHOO_EXCHANGE_MAP.get(exchange, '')
+    if yahoo_code:
+        return f"{base_symbol}.{yahoo_code}"
+    return base_symbol
 
 def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
-    """Validate tickers according to Yahoo Finance requirements"""
+    """Validate CAC 40 tickers"""
     valid = []
     invalid = []
     
     for t in tickers:
         t = str(t).strip().upper()
         
-        # Check for already properly formatted tickers (e.g., SAAB-B.ST)
+        # Check for properly formatted tickers (e.g., AC.PA)
         if '.' in t:
             parts = t.split('.')
             if len(parts) == 2 and 1 <= len(parts[0]) <= 8 and 1 <= len(parts[1]) <= 2:
                 valid.append(t)
                 continue
         
-        # Check for simple tickers (will be formatted later)
+        # Check for simple tickers
         if 1 <= len(t) <= 8 and any(c.isalpha() for c in t):
             valid.append(t)
         else:
@@ -100,7 +76,7 @@ def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
     
     return valid[:MAX_TICKERS], invalid
 
-@st.cache_data(show_spinner="Fetching global stock data...", ttl=3600)
+@st.cache_data(show_spinner="Fetching CAC 40 data...", ttl=3600)
 def get_stock_data(
     ticker: str,
     period: str,
@@ -111,42 +87,30 @@ def get_stock_data(
     adjust_inflation: bool,
     inflation: float
 ) -> Tuple[Optional[Dict], Optional[pd.DataFrame]]:
-    """Fetch data with international stock support"""
+    """Fetch data with CAC 40 support"""
     try:
         stock = yf.Ticker(ticker)
-        
-        # Get historical data with international market support
         hist = stock.history(period=period, timeout=TIMEOUT_SECONDS)
+        
         if hist.empty:
-            st.warning(f"No data found for {ticker} - may be delisted or wrong exchange")
+            st.warning(f"No data found for {ticker}")
             return None, None
         
-        # Get info with fallbacks for international stocks
         info = stock.info
         current_price = info.get('currentPrice') or info.get('regularMarketPrice') or hist['Close'].iloc[-1]
         
-        # Determine sector with international fallback
-        sector = info.get('sector', 'Unknown')
-        if '.' in ticker:
-            exchange_suffix = ticker.split('.')[1]
-            if exchange_suffix in ['DE', 'MI', 'PA', 'ST']:
-                sector = sector if sector != 'Unknown' else 'European'
-            elif exchange_suffix == 'L':
-                sector = sector if sector != 'Unknown' else 'UK'
-            elif exchange_suffix in ['SW', 'OL', 'CO', 'HE']:
-                sector = sector if sector != 'Unknown' else 'Scandinavian'
-            elif exchange_suffix in ['T', 'HK', 'KS']:
-                sector = sector if sector != 'Unknown' else 'Asian'
+        # Sector mapping for CAC 40 companies
+        sector = info.get('sector', 'European')
         
         # Get discount rate
         if discount_method == "Use industry default":
-            nominal_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0) / 100
-            suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0)
+            nominal_rate = SECTOR_DISCOUNT_RATES.get(sector, 9.0) / 100
+            suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 9.0)
         else:
             nominal_rate = manual_rate / 100
             suggested_rate = manual_rate
 
-        # Get cash flows with international fallback
+        # Get cash flows
         try:
             cashflow = stock.cashflow
             fcf = cashflow.loc['Free Cash Flow'].iloc[0] if (cashflow is not None and 'Free Cash Flow' in cashflow.index) else np.nan
@@ -155,6 +119,7 @@ def get_stock_data(
         
         data = {
             "Ticker": ticker,
+            "Company": info.get('shortName', ticker),
             "Sector": sector,
             "Discount Rate": suggested_rate,
             "Current Price": current_price,
@@ -163,7 +128,6 @@ def get_stock_data(
             "Inflation Adjusted": "Yes" if adjust_inflation else "No"
         }
         
-        # Calculate valuation if we have valid data
         if not np.isnan(fcf) and fcf > 0:
             growth_rate = info.get('revenueGrowth', 0.05)
             intrinsic_value = calculate_dcf(
@@ -188,33 +152,32 @@ def get_stock_data(
         return None, None
 
 def main():
-    st.title("🌍 Global Stock Evaluator")
+    st.title("🇫🇷 CAC 40 Stock Evaluator")
     st.markdown("""
-    **Analyze international stocks using Yahoo Finance-compatible ticker formats**  
-    Upload an Excel file with 'Symbol' and 'Exchange' columns for accurate valuation.
+    **Analyze CAC 40 stocks using proper Yahoo Finance ticker formats**  
+    Upload your Excel file with 'Symbol' and 'Exchange' columns.
     """)
     
-    with st.expander("ℹ️ Ticker Format Guide"):
+    with st.expander("ℹ️ CAC 40 Ticker Format Guide"):
         st.markdown("""
-        ### Proper Yahoo Finance Ticker Formats:
-        - **US Stocks**: AAPL, MSFT (no suffix needed)
-        - **German Stocks**: SAP.DE, RHM.DE
-        - **UK Stocks**: BA.L, HSBA.L
-        - **Swedish Stocks**: SAAB-B.ST, VOLV-B.ST
-        - **Italian Stocks**: LDO.MI, ENEL.MI
+        ### Proper Yahoo Finance Formats for CAC 40:
+        - **Air Liquide**: `AI.PA`
+        - **LVMH**: `MC.PA`
+        - **TotalEnergies**: `TTE.PA`
+        - **Sanofi**: `SAN.PA`
         
-        ### File Format Requirements:
-        - Either single column of formatted tickers (e.g., `SAAB-B.ST`)
-        - OR two columns labeled 'Symbol' and 'Exchange' (e.g., Symbol=`SAAB-B`, Exchange=`ST`)
+        ### File Requirements:
+        - Must contain 'Symbol' and 'Exchange' columns
+        - Exchange should be 'Euronext Paris' for CAC 40 stocks
         """)
     
     # Sidebar configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         uploaded_file = st.file_uploader(
-            "Upload Excel File", 
+            "Upload CAC 40 Excel File", 
             type=["xlsx"],
-            help="Supports formatted tickers or Symbol+Exchange columns"
+            help="Should contain 'Symbol' and 'Exchange' columns"
         )
         
         st.markdown("---")
@@ -226,12 +189,12 @@ def main():
         )
         
         if discount_method == "Manual override":
-            discount_rate = st.slider("Discount Rate (%)", 5.0, 20.0, 10.0, 0.5)
+            discount_rate = st.slider("Discount Rate (%)", 5.0, 20.0, 9.0, 0.5)
         
         growth_period = st.slider("Growth Period (years)", 1, 10, 5)
-        terminal_growth = st.slider("Terminal Growth Rate (%)", 0.0, 5.0, 2.5, 0.1)
+        terminal_growth = st.slider("Terminal Growth Rate (%)", 0.0, 5.0, 2.0, 0.1)
         
-        if st.button("🔄 Analyze Stocks", use_container_width=True):
+        if st.button("🔄 Analyze CAC 40 Stocks", use_container_width=True):
             st.cache_data.clear()
     
     # Main analysis flow
@@ -239,35 +202,32 @@ def main():
         try:
             excel_data = pd.read_excel(uploaded_file)
             
-            # Handle different file formats
-            if all(col in excel_data.columns for col in ["Symbol", "Exchange"]):
-                tickers = [
-                    convert_to_yahoo_format(s, e) 
-                    for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])
-                    if pd.notna(s)
-                ]
-            elif "Ticker" in excel_data.columns:
-                tickers = [str(t).strip() for t in excel_data["Ticker"].dropna()]
-            else:  # Fallback to first column
-                tickers = [str(t).strip() for t in excel_data.iloc[:, 0].dropna()]
-            
-            # Validate and process tickers
-            valid_tickers, invalid_tickers = validate_tickers(tickers)
-            
-            if not valid_tickers:
+            # Check for required columns
+            if not all(col in excel_data.columns for col in ["Symbol", "Exchange"]):
                 st.error("""
-                No valid tickers found. Please ensure:
-                1. For two-column files: Columns are labeled 'Symbol' and 'Exchange'
-                2. For single-column files: Use Yahoo Finance formats (e.g., SAAB-B.ST)
+                Invalid file format. Required columns:
+                - 'Symbol' (e.g., AI.PA)
+                - 'Exchange' (e.g., Euronext Paris)
                 """)
                 return
             
-            if invalid_tickers:
-                st.warning(f"Invalid tickers skipped: {', '.join(invalid_tickers[:10])}{'...' if len(invalid_tickers) > 10 else ''}")
+            # Convert to Yahoo Finance format
+            tickers = [
+                convert_to_yahoo_format(s, e) 
+                for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])
+                if pd.notna(s)
+            ]
             
-            st.success(f"Processing {len(valid_tickers)} valid tickers")
+            # Validate tickers
+            valid_tickers, invalid_tickers = validate_tickers(tickers)
             
-            # Process tickers with progress bar
+            if not valid_tickers:
+                st.error("No valid CAC 40 tickers found. Please check your file format.")
+                return
+            
+            st.success(f"Processing {len(valid_tickers)} CAC 40 stocks")
+            
+            # Process tickers with progress
             progress_bar = st.progress(0)
             results = []
             
@@ -281,75 +241,46 @@ def main():
                 )
                 if data:
                     results.append(data)
-                time.sleep(0.5)  # Rate limiting
+                time.sleep(0.5)
             
             # Display results
             if results:
                 df = pd.DataFrame(results)
-                st.subheader("📊 Valuation Results")
+                st.subheader("📊 CAC 40 Valuation Results")
                 
-                # Color formatting
+                # Formatting
                 def color_margin(val):
                     color = 'green' if val > 0 else 'red'
                     return f'color: {color}'
                 
                 st.dataframe(
                     df.style.format({
-                        "Current Price": "${:.2f}",
-                        "FCF (ttm)": "${:,.0f}",
-                        "Intrinsic Value": "${:.2f}",
+                        "Current Price": "€{:.2f}",
+                        "FCF (ttm)": "€{:,.0f}",
+                        "Intrinsic Value": "€{:.2f}",
                         "Margin of Safety": "{:.1%}",
                         "Discount Rate": "{:.1f}%"
                     }).applymap(color_margin, subset=["Margin of Safety"]),
-                    height=600
+                    height=600,
+                    column_config={
+                        "Company": st.column_config.TextColumn(width="large"),
+                        "Ticker": st.column_config.TextColumn(width="small")
+                    }
                 )
                 
-                # Download button
+                # Download
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
                 st.download_button(
-                    "💾 Download Results",
+                    "💾 Download CAC 40 Analysis",
                     data=output.getvalue(),
-                    file_name="global_stock_valuation.xlsx",
+                    file_name="cac40_valuation.xlsx",
                     mime="application/vnd.ms-excel"
                 )
         
         except Exception as e:
-            st.error(f"File processing error: {str(e)}")
-
-    # Sample file section
-    st.markdown("---")
-    st.subheader("📁 Sample Files")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**European Stocks**")
-        sample_eu = pd.DataFrame({
-            "Symbol": ["RHM", "LDO", "BA", "SAAB-B", "SAP"],
-            "Exchange": ["DE", "MI", "L", "ST", "DE"]
-        })
-        st.dataframe(sample_eu, hide_index=True)
-        st.download_button(
-            "⬇️ Download European Sample",
-            data=sample_eu.to_csv(index=False).encode('utf-8'),
-            file_name="european_stocks_sample.csv",
-            mime="text/csv"
-        )
-    
-    with col2:
-        st.markdown("**Formatted Tickers**")
-        sample_formatted = pd.DataFrame({
-            "Ticker": ["RHM.DE", "LDO.MI", "BA.L", "SAAB-B.ST", "SAP.DE"]
-        })
-        st.dataframe(sample_formatted, hide_index=True)
-        st.download_button(
-            "⬇️ Download Formatted Sample",
-            data=sample_formatted.to_csv(index=False).encode('utf-8'),
-            file_name="formatted_tickers_sample.csv",
-            mime="text/csv"
-        )
+            st.error(f"Error processing CAC 40 file: {str(e)}")
 
 if __name__ == "__main__":
     main()
