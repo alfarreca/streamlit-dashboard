@@ -1,12 +1,10 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-from io import BytesIO
 import numpy as np
-import matplotlib.dates as mdates
+from io import BytesIO
 import time
-from typing import List, Tuple, Optional, Dict, Union
+from typing import List, Tuple, Optional, Dict
 
 # Configure page settings
 st.set_page_config(
@@ -30,20 +28,32 @@ SECTOR_DISCOUNT_RATES = {
 }
 
 DEFAULT_INFLATION = 0.025  # 2.5%
-MAX_TICKERS = 50  # Limit for free tier usage
-TIMEOUT_SECONDS = 10  # Timeout for API calls
+MAX_TICKERS = 50
+TIMEOUT_SECONDS = 10
 
 def get_inflation_rate() -> float:
     """Return current inflation rate with validation"""
-    return max(0.0, min(DEFAULT_INFLATION, 0.1))  # Clamp between 0-10%
+    return max(0.0, min(DEFAULT_INFLATION, 0.1))
 
 def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
-    """Validate and clean ticker symbols"""
+    """Validate tickers with optional exchange suffixes"""
     valid = []
     invalid = []
     
     for t in tickers:
         t = str(t).strip().upper()
+        
+        # Handle tickers with exchange suffixes (e.g., SAP.DE)
+        if "." in t:
+            parts = t.split(".")
+            if len(parts) == 2:
+                symbol, exchange = parts
+                if (1 <= len(symbol) <= 5 and symbol.isalpha() and 
+                    1 <= len(exchange) <= 2 and exchange.isalpha()):
+                    valid.append(t)
+                    continue
+        
+        # Handle simple tickers without exchange (e.g., AAPL)
         if 1 <= len(t) <= 5 and t.isalpha():
             valid.append(t)
         else:
@@ -59,13 +69,13 @@ def calculate_dcf(
     terminal_growth: float,
     inflation_rate: float = 0.0
 ) -> float:
-    """Calculate intrinsic value using DCF model with validation"""
+    """Calculate intrinsic value using DCF model"""
     if discount_rate <= terminal_growth:
         st.warning("Discount rate must be greater than terminal growth rate")
         return np.nan
     
     if inflation_rate > 0:
-        real_discount = max(0.01, discount_rate - inflation_rate)  # Ensure positive
+        real_discount = max(0.01, discount_rate - inflation_rate)
         real_growth = max(0.0, growth_rate - inflation_rate)
         real_terminal = max(0.0, terminal_growth - inflation_rate)
     else:
@@ -93,11 +103,10 @@ def get_stock_data(
     adjust_inflation: bool,
     inflation: float
 ) -> Tuple[Optional[Dict], Optional[pd.DataFrame]]:
-    """Fetch and process stock data with enhanced error handling"""
+    """Fetch and process stock data"""
     try:
         stock = yf.Ticker(ticker)
         
-        # Get historical data with timeout
         try:
             hist = stock.history(period=period, timeout=TIMEOUT_SECONDS)
             if hist.empty:
@@ -107,7 +116,6 @@ def get_stock_data(
             st.warning(f"Couldn't fetch history for {ticker}: {str(e)}")
             return None, None
         
-        # Get company info
         try:
             info = stock.info
             if not info:
@@ -119,7 +127,6 @@ def get_stock_data(
         
         sector = info.get('sector', 'Technology')
         
-        # Determine discount rate
         if discount_method == "Use industry default":
             nominal_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0) / 100
             suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0)
@@ -127,7 +134,6 @@ def get_stock_data(
             nominal_rate = manual_rate / 100
             suggested_rate = manual_rate
 
-        # Get cash flow data
         try:
             cashflow = stock.cashflow
             fcf = cashflow.loc['Free Cash Flow'].iloc[0] if (cashflow is not None and 'Free Cash Flow' in cashflow.index) else np.nan
@@ -145,7 +151,6 @@ def get_stock_data(
             "Inflation Adjusted": "Yes" if adjust_inflation else "No"
         }
         
-        # Calculate intrinsic value if we have valid data
         if not np.isnan(fcf) and fcf > 0:
             growth_rate = info.get('revenueGrowth', 0.05)
             intrinsic_value = calculate_dcf(
@@ -180,7 +185,7 @@ def scan_tickers(
     adjust_inflation: bool,
     inflation: float
 ) -> Tuple[List[Dict], List[str]]:
-    """Process multiple tickers with progress tracking"""
+    """Process multiple tickers"""
     results = []
     failed = []
     
@@ -209,7 +214,7 @@ def scan_tickers(
     return results, failed
 
 def display_results(results: List[Dict]) -> None:
-    """Display analysis results with enhanced visualization"""
+    """Display analysis results"""
     if not results:
         st.warning("No valid results to display")
         return
@@ -254,8 +259,6 @@ def display_results(results: List[Dict]) -> None:
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df.to_excel(writer, index=False, sheet_name='Valuation')
-        
-        # Add summary sheet
         summary = pd.DataFrame({
             'Metric': ['Total Stocks', 'Undervalued Stocks', 'Average Margin of Safety'],
             'Value': [len(df), len(undervalued), f"{avg_margin:.1f}%"]
@@ -266,8 +269,7 @@ def display_results(results: List[Dict]) -> None:
         "💾 Download Full Analysis",
         data=output.getvalue(),
         file_name="stock_valuation_analysis.xlsx",
-        mime="application/vnd.ms-excel",
-        help="Download complete analysis with summary sheet"
+        mime="application/vnd.ms-excel"
     )
 
 def main() -> None:
@@ -278,18 +280,14 @@ def main() -> None:
     Upload an Excel file with stock tickers to analyze valuation based on cash flow fundamentals.
     """)
     
-    # Help section
     with st.expander("ℹ️ How to use this tool"):
         st.markdown("""
-        1. **Prepare your data**: Create an Excel file with stock tickers in the first column
+        1. **Prepare your data**: Create an Excel file with either:
+           - A single column of tickers, or
+           - Two columns labeled 'Symbol' and 'Exchange'
         2. **Upload**: Use the file uploader in the sidebar
         3. **Configure**: Set your valuation parameters
         4. **Analyze**: View results and download if needed
-        
-        **Notes**:
-        - All financial data is sourced from Yahoo Finance
-        - Free tier is limited to {MAX_TICKERS} tickers per analysis
-        - Results are cached for 1 hour
         """)
     
     # Sidebar configuration
@@ -297,9 +295,9 @@ def main() -> None:
         st.header("⚙️ Configuration")
         
         uploaded_file = st.file_uploader(
-            "Upload Excel File (xlsx)", 
+            "Upload Excel File", 
             type=["xlsx"],
-            help="First column should contain stock tickers"
+            help="Supports single-column tickers or two-column 'Symbol'+'Exchange' format"
         )
         
         st.markdown("---")
@@ -319,12 +317,7 @@ def main() -> None:
         
         st.markdown("---")
         st.subheader("Valuation Settings")
-        
-        adjust_for_inflation = st.checkbox(
-            "Adjust for inflation", 
-            value=True,
-            help="Uses current inflation rate to adjust growth and discount rates"
-        )
+        adjust_for_inflation = st.checkbox("Adjust for inflation", value=True)
         current_inflation = get_inflation_rate()
         if adjust_for_inflation:
             st.markdown(f"Current inflation rate: **{current_inflation:.1%}**")
@@ -332,29 +325,14 @@ def main() -> None:
         discount_method = st.radio(
             "Discount Rate Method",
             ["Use industry default", "Manual override"],
-            index=0,
-            help="Industry defaults are based on typical WACC for each sector"
+            index=0
         )
         
         if discount_method == "Manual override":
-            discount_rate = st.slider(
-                "Discount Rate (%)", 
-                5.0, 20.0, 10.0, 0.5,
-                help="Higher rates mean more conservative valuations"
-            )
-        else:
-            st.markdown("**Suggested by industry:**")
+            discount_rate = st.slider("Discount Rate (%)", 5.0, 20.0, 10.0, 0.5)
         
-        growth_period = st.slider(
-            "Growth Period (years)", 
-            1, 10, 5, 1,
-            help="Number of years for high growth phase"
-        )
-        terminal_growth = st.slider(
-            "Terminal Growth Rate (%)", 
-            0.0, 5.0, 2.5, 0.1,
-            help="Long-term sustainable growth rate after growth period"
-        )
+        growth_period = st.slider("Growth Period (years)", 1, 10, 5, 1)
+        terminal_growth = st.slider("Terminal Growth Rate (%)", 0.0, 5.0, 2.5, 0.1)
         
         if st.button("🔄 Recalculate DCF", use_container_width=True):
             st.cache_data.clear()
@@ -364,30 +342,34 @@ def main() -> None:
     if uploaded_file is not None:
         try:
             excel_data = pd.read_excel(uploaded_file)
-            if excel_data.empty:
-                st.error("Uploaded file is empty")
-                return
             
-            # Get and validate tickers
-            raw_tickers = [str(t).strip() for t in excel_data.iloc[:, 0].dropna().tolist()]
-            tickers, invalid_tickers = validate_tickers(raw_tickers)
+            # Handle two-column format
+            if all(col in excel_data.columns for col in ["Symbol", "Exchange"]):
+                tickers = [f"{s}.{e}" if pd.notna(e) else str(s) 
+                          for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])]
+            else:
+                # Fallback to first column
+                tickers = [str(t).strip() for t in excel_data.iloc[:, 0].dropna().tolist()]
             
-            if not tickers:
-                st.error("No valid tickers found in the file")
+            # Validate tickers
+            valid_tickers, invalid_tickers = validate_tickers(tickers)
+            
+            if not valid_tickers:
+                st.error("No valid tickers found. Ensure your file contains stock symbols in the first column or 'Symbol'+'Exchange' columns.")
                 return
             
             if invalid_tickers:
-                st.warning(f"Invalid tickers ignored: {', '.join(invalid_tickers)}")
+                st.warning(f"Ignored invalid tickers: {', '.join(invalid_tickers[:10])}{'...' if len(invalid_tickers) > 10 else ''}")
             
-            if len(tickers) > MAX_TICKERS:
-                st.warning(f"Limited to first {MAX_TICKERS} tickers (free tier limit)")
-                tickers = tickers[:MAX_TICKERS]
+            if len(valid_tickers) > MAX_TICKERS:
+                st.warning(f"Analyzing first {MAX_TICKERS} tickers (limit for free tier)")
+                valid_tickers = valid_tickers[:MAX_TICKERS]
             
-            st.success(f"Analyzing {len(tickers)} valid tickers")
+            st.success(f"Analyzing {len(valid_tickers)} stocks")
             
             # Process tickers
             results, failed = scan_tickers(
-                tickers, period, discount_method,
+                valid_tickers, period, discount_method,
                 discount_rate if discount_method == "Manual override" else None,
                 growth_period, terminal_growth,
                 adjust_for_inflation, current_inflation
@@ -398,26 +380,40 @@ def main() -> None:
                 display_results(results)
             
             if failed:
-                st.warning(f"Failed to analyze: {', '.join(failed)}")
+                st.warning(f"Failed to analyze: {', '.join(failed[:10])}{'...' if len(failed) > 10 else ''}")
         
         except Exception as e:
             st.error(f"Error processing file: {str(e)}")
     
     # Sample file section
     st.markdown("---")
-    st.subheader("📋 Sample File")
-    sample = pd.DataFrame({"Tickers": ["AAPL", "MSFT", "GOOG", "AMZN", "META", "TSLA", "NVDA", "JPM", "V", "WMT"]})
+    st.subheader("📋 Sample Files")
     
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns(2)
+    
     with col1:
-        st.dataframe(sample, hide_index=True)
-    with col2:
+        st.markdown("**Single Column Format**")
+        sample1 = pd.DataFrame({"Tickers": ["AAPL", "MSFT", "GOOG", "AMZN"]})
+        st.dataframe(sample1, hide_index=True)
         st.download_button(
-            "⬇️ Download Sample",
-            data=sample.to_csv(index=False).encode('utf-8'),
-            file_name="sample_tickers.csv",
-            mime="text/csv",
-            use_container_width=True
+            "⬇️ Download Single Column Sample",
+            data=sample1.to_csv(index=False).encode('utf-8'),
+            file_name="sample_tickers_single_column.csv",
+            mime="text/csv"
+        )
+    
+    with col2:
+        st.markdown("**Two Column Format**")
+        sample2 = pd.DataFrame({
+            "Symbol": ["SAP", "BMW", "ALV", "ADS"],
+            "Exchange": ["DE", "DE", "DE", "DE"]
+        })
+        st.dataframe(sample2, hide_index=True)
+        st.download_button(
+            "⬇️ Download Two Column Sample",
+            data=sample2.to_csv(index=False).encode('utf-8'),
+            file_name="sample_tickers_two_columns.csv",
+            mime="text/csv"
         )
 
 if __name__ == "__main__":
