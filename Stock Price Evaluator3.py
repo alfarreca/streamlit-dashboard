@@ -49,15 +49,13 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("**Valuation Settings**")
     
-    # Dynamic discount rate selection
     st.markdown("### Discount Rate Selection")
     discount_method = st.radio(
         "Discount Rate Method",
         ["Use industry default", "Manual override"],
         index=0
     )
-    
-    # Make discount_rate always defined
+    # Always define discount_rate as float
     if discount_method == "Manual override":
         discount_rate = st.slider(
             "Manual Discount Rate (%)",
@@ -78,8 +76,7 @@ with st.sidebar:
         0.0, 5.0, 2.5, 0.1,
         help="Long-term stable growth rate (typically 2-3%)"
     )
-    
-    # Educational tooltip
+
     with st.expander("💡 Discount Rate Guidance"):
         st.markdown("""
         **2024 Suggested Rates by Industry:**
@@ -95,7 +92,7 @@ with st.sidebar:
         - Equity risk premium: 5-6%
         - Typical WACC range: 7-12%
         """)
-    
+
     if st.button("Recalculate DCF", help="Force refresh all calculations"):
         st.cache_data.clear()
         st.rerun()
@@ -103,17 +100,12 @@ with st.sidebar:
 def calculate_dcf(fcf, growth_rate, discount_rate, growth_period, terminal_growth):
     """Calculate intrinsic value using discounted cash flow model"""
     present_value = 0
-    
-    # Projected cash flows during growth period
     for year in range(1, growth_period + 1):
         future_fcf = fcf * (1 + growth_rate) ** year
         present_value += future_fcf / ((1 + discount_rate) ** year)
-    
-    # Terminal value
     terminal_fcf = fcf * (1 + growth_rate) ** growth_period
     terminal_value = (terminal_fcf * (1 + terminal_growth)) / (discount_rate - terminal_growth)
     present_terminal_value = terminal_value / ((1 + discount_rate) ** growth_period)
-    
     return present_value + present_terminal_value
 
 @st.cache_data(
@@ -129,17 +121,15 @@ def get_stock_data(ticker, period, discount_method, manual_discount_rate, growth
         hist = stock.history(period=period)
         info = stock.info
         sector = info.get('sector', 'Technology')
-        
+
         # Determine discount rate
         if discount_method == "Use industry default":
             discount_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0) / 100
             suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0)
         else:
-            # always pass a float for manual_discount_rate, even if 0.0
             discount_rate = float(manual_discount_rate) / 100
             suggested_rate = manual_discount_rate
 
-        # Get cash flow data
         cashflow = stock.cashflow
         free_cash_flow = cashflow.loc['Free Cash Flow'].iloc[0] if cashflow is not None and 'Free Cash Flow' in cashflow.index else np.nan
         
@@ -156,7 +146,6 @@ def get_stock_data(ticker, period, discount_method, manual_discount_rate, growth
             "Market Cap": info.get('marketCap', np.nan),
             "Beta": info.get('beta', np.nan),
         }
-        
         # Calculate intrinsic value if we have FCF data
         if not np.isnan(free_cash_flow) and free_cash_flow > 0:
             growth_rate = info.get('revenueGrowth', 0.05)  # Default to 5% if not available
@@ -174,7 +163,6 @@ def get_stock_data(ticker, period, discount_method, manual_discount_rate, growth
                     data["Margin of Safety"] = (
                         (data["Intrinsic Value"] - data["Current Price"]) / data["Intrinsic Value"]
                     )
-        
         return data, hist
     except Exception as e:
         st.error(f"Error fetching data for {ticker}: {str(e)}")
@@ -199,8 +187,7 @@ def scan_tickers(tickers, period, discount_method, manual_discount_rate, growth_
             failed_tickers.append(ticker)
     return results, failed_tickers
 
-# ... [keep the rest of your existing functions: get_benchmark_data, get_history] ...
-
+# MAIN LOGIC: File upload and ticker scanning
 if uploaded_file is not None:
     try:
         excel_data = pd.read_excel(uploaded_file)
@@ -211,7 +198,7 @@ if uploaded_file is not None:
         else:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
 
-            # Avoid recursion bug: manual_discount_rate always float
+            # Always define manual_discount_rate as float
             manual_discount_rate = float(discount_rate) if discount_method == "Manual override" else 0.0
 
             # Scan all tickers
@@ -228,7 +215,6 @@ if uploaded_file is not None:
                 df = pd.DataFrame(results)
                 df = df.replace({None: np.nan})
 
-                # Formatting improvements
                 format_dict = {
                     "Current Price": "${:.2f}",
                     "Free Cash Flow (ttm)": "${:,.0f}",
@@ -239,7 +225,6 @@ if uploaded_file is not None:
                     "Market Cap": "${:,.0f}",
                 }
                 
-                # Display sector-aware metrics
                 st.subheader("Valuation Metrics by Sector")
                 st.dataframe(
                     df.style.format(format_dict).background_gradient(
@@ -250,8 +235,6 @@ if uploaded_file is not None:
                     ),
                     height=600
                 )
-
-                # ... [keep your existing download button and visualization code] ...
 
                 # Enhanced DCF Analysis Section
                 st.subheader("Discounted Cash Flow Analysis")
@@ -273,9 +256,6 @@ if uploaded_file is not None:
                     st.metric("Margin of Safety", 
                             f"{selected_data.get('Margin of Safety', 'N/A'):.1%}",
                             delta_color="inverse")
-
-                # ... [rest of your existing code] ...
-
     except Exception as e:
         st.error(f"An error occurred while processing your file: {e}")
 
