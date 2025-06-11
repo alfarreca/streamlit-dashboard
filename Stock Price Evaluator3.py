@@ -57,6 +57,7 @@ with st.sidebar:
         index=0
     )
     
+    # Make discount_rate always defined
     if discount_method == "Manual override":
         discount_rate = st.slider(
             "Manual Discount Rate (%)",
@@ -64,6 +65,7 @@ with st.sidebar:
             help="Higher for risky companies, lower for stable ones"
         )
     else:
+        discount_rate = None
         st.markdown(f"**Suggested by industry:**")
     
     growth_period = st.slider(
@@ -133,7 +135,8 @@ def get_stock_data(ticker, period, discount_method, manual_discount_rate, growth
             discount_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0) / 100
             suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 10.0)
         else:
-            discount_rate = manual_discount_rate / 100
+            # always pass a float for manual_discount_rate, even if 0.0
+            discount_rate = float(manual_discount_rate) / 100
             suggested_rate = manual_discount_rate
 
         # Get cash flow data
@@ -208,12 +211,15 @@ if uploaded_file is not None:
         else:
             st.success(f"Found {len(tickers)} tickers in the uploaded file")
 
+            # Avoid recursion bug: manual_discount_rate always float
+            manual_discount_rate = float(discount_rate) if discount_method == "Manual override" else 0.0
+
             # Scan all tickers
             results, failed_tickers = scan_tickers(
                 tickers, 
                 period, 
                 discount_method,
-                discount_rate if discount_method == "Manual override" else None,
+                manual_discount_rate,
                 growth_period, 
                 terminal_growth
             )
