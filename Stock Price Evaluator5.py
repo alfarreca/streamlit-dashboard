@@ -38,20 +38,40 @@ DEFAULT_INFLATION = 0.025
 MAX_TICKERS = 50
 TIMEOUT_SECONDS = 10
 
+def calculate_dcf(fcf: float, growth_rate: float, discount_rate: float,
+                 growth_period: int, terminal_growth: float,
+                 inflation_rate: float = 0.0) -> float:
+    """Calculate intrinsic value using DCF model"""
+    if discount_rate <= terminal_growth:
+        st.warning("Discount rate must be greater than terminal growth rate")
+        return np.nan
+    
+    if inflation_rate > 0:
+        real_discount = max(0.01, discount_rate - inflation_rate)
+        real_growth = max(0.0, growth_rate - inflation_rate)
+        real_terminal = max(0.0, terminal_growth - inflation_rate)
+    else:
+        real_discount = discount_rate
+        real_growth = growth_rate
+        real_terminal = terminal_growth
+    
+    present_value = 0.0
+    for year in range(1, growth_period + 1):
+        future_fcf = fcf * (1 + real_growth) ** year
+        present_value += future_fcf / ((1 + real_discount) ** year)
+    
+    terminal_fcf = fcf * (1 + real_growth) ** growth_period
+    terminal_value = (terminal_fcf * (1 + real_terminal)) / (real_discount - real_terminal)
+    return present_value + (terminal_value / ((1 + real_discount) ** growth_period))
+
 def convert_to_yahoo_format(symbol: str, exchange: str) -> str:
     """Convert Symbol+Exchange to proper Yahoo Finance format"""
-    # Clean inputs
     symbol = str(symbol).strip().upper()
     exchange = str(exchange).strip()
     
-    # Remove any existing suffix from symbol
     base_symbol = symbol.split('.')[0]
-    
-    # Get Yahoo exchange code
     yahoo_code = YAHOO_EXCHANGE_MAP.get(exchange, '')
-    if yahoo_code:
-        return f"{base_symbol}.{yahoo_code}"
-    return base_symbol
+    return f"{base_symbol}.{yahoo_code}" if yahoo_code else base_symbol
 
 def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
     """Validate CAC 40 tickers"""
@@ -61,14 +81,12 @@ def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
     for t in tickers:
         t = str(t).strip().upper()
         
-        # Check for properly formatted tickers (e.g., AC.PA)
         if '.' in t:
             parts = t.split('.')
             if len(parts) == 2 and 1 <= len(parts[0]) <= 8 and 1 <= len(parts[1]) <= 2:
                 valid.append(t)
                 continue
         
-        # Check for simple tickers
         if 1 <= len(t) <= 8 and any(c.isalpha() for c in t):
             valid.append(t)
         else:
@@ -77,16 +95,10 @@ def validate_tickers(tickers: List[str]) -> Tuple[List[str], List[str]]:
     return valid[:MAX_TICKERS], invalid
 
 @st.cache_data(show_spinner="Fetching CAC 40 data...", ttl=3600)
-def get_stock_data(
-    ticker: str,
-    period: str,
-    discount_method: str,
-    manual_rate: Optional[float],
-    growth_period: int,
-    terminal_growth: float,
-    adjust_inflation: bool,
-    inflation: float
-) -> Tuple[Optional[Dict], Optional[pd.DataFrame]]:
+def get_stock_data(ticker: str, period: str, discount_method: str,
+                  manual_rate: Optional[float], growth_period: int,
+                  terminal_growth: float, adjust_inflation: bool,
+                  inflation: float) -> Tuple[Optional[Dict], Optional[pd.DataFrame]]:
     """Fetch data with CAC 40 support"""
     try:
         stock = yf.Ticker(ticker)
@@ -98,11 +110,8 @@ def get_stock_data(
         
         info = stock.info
         current_price = info.get('currentPrice') or info.get('regularMarketPrice') or hist['Close'].iloc[-1]
-        
-        # Sector mapping for CAC 40 companies
         sector = info.get('sector', 'European')
         
-        # Get discount rate
         if discount_method == "Use industry default":
             nominal_rate = SECTOR_DISCOUNT_RATES.get(sector, 9.0) / 100
             suggested_rate = SECTOR_DISCOUNT_RATES.get(sector, 9.0)
@@ -110,7 +119,6 @@ def get_stock_data(
             nominal_rate = manual_rate / 100
             suggested_rate = manual_rate
 
-        # Get cash flows
         try:
             cashflow = stock.cashflow
             fcf = cashflow.loc['Free Cash Flow'].iloc[0] if (cashflow is not None and 'Free Cash Flow' in cashflow.index) else np.nan
@@ -158,20 +166,6 @@ def main():
     Upload your Excel file with 'Symbol' and 'Exchange' columns.
     """)
     
-    with st.expander("ℹ️ CAC 40 Ticker Format Guide"):
-        st.markdown("""
-        ### Proper Yahoo Finance Formats for CAC 40:
-        - **Air Liquide**: `AI.PA`
-        - **LVMH**: `MC.PA`
-        - **TotalEnergies**: `TTE.PA`
-        - **Sanofi**: `SAN.PA`
-        
-        ### File Requirements:
-        - Must contain 'Symbol' and 'Exchange' columns
-        - Exchange should be 'Euronext Paris' for CAC 40 stocks
-        """)
-    
-    # Sidebar configuration
     with st.sidebar:
         st.header("⚙️ Configuration")
         uploaded_file = st.file_uploader(
@@ -197,12 +191,10 @@ def main():
         if st.button("🔄 Analyze CAC 40 Stocks", use_container_width=True):
             st.cache_data.clear()
     
-    # Main analysis flow
     if uploaded_file is not None:
         try:
             excel_data = pd.read_excel(uploaded_file)
             
-            # Check for required columns
             if not all(col in excel_data.columns for col in ["Symbol", "Exchange"]):
                 st.error("""
                 Invalid file format. Required columns:
@@ -211,14 +203,12 @@ def main():
                 """)
                 return
             
-            # Convert to Yahoo Finance format
             tickers = [
                 convert_to_yahoo_format(s, e) 
                 for s, e in zip(excel_data["Symbol"], excel_data["Exchange"])
                 if pd.notna(s)
             ]
             
-            # Validate tickers
             valid_tickers, invalid_tickers = validate_tickers(tickers)
             
             if not valid_tickers:
@@ -227,7 +217,6 @@ def main():
             
             st.success(f"Processing {len(valid_tickers)} CAC 40 stocks")
             
-            # Process tickers with progress
             progress_bar = st.progress(0)
             results = []
             
@@ -243,12 +232,10 @@ def main():
                     results.append(data)
                 time.sleep(0.5)
             
-            # Display results
             if results:
                 df = pd.DataFrame(results)
                 st.subheader("📊 CAC 40 Valuation Results")
                 
-                # Formatting
                 def color_margin(val):
                     color = 'green' if val > 0 else 'red'
                     return f'color: {color}'
@@ -268,7 +255,6 @@ def main():
                     }
                 )
                 
-                # Download
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     df.to_excel(writer, index=False)
