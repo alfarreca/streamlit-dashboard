@@ -270,4 +270,18 @@ if uploaded_file is not None:
 
                 # ... [rest of your existing code] ...
 
-# ... [keep sample file download section] ...
+    except Exception as e:
+        st.error(f"An error occurred while processing your file: {e}")
+
+# Sample file download section for user guidance
+st.markdown("---")
+st.markdown("**Need a sample Excel file?**")
+sample_df = pd.DataFrame({"Ticker": ["AAPL", "MSFT", "GOOGL", "AMZN"]})
+sample = BytesIO()
+sample_df.to_excel(sample, index=False)
+st.download_button(
+    label="Download sample Excel",
+    data=sample.getvalue(),
+    file_name="sample_tickers.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
