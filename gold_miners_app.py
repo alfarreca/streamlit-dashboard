@@ -274,14 +274,21 @@ def render_multi_company(tickers, selected_miners):
     selected_metrics = st.multiselect("Select metrics", metrics, default=metrics[:3])
     if selected_metrics:
         compare_df = df[['Ticker'] + selected_metrics]
+        # Build format dict only for columns present
+        format_dict = {}
+        for col in compare_df.columns:
+            if col == 'P/E':
+                format_dict[col] = '{:.1f}'
+            elif col == 'P/B':
+                format_dict[col] = '{:.2f}'
+            elif col == 'Debt/Equity':
+                format_dict[col] = '{:.2f}'
+            elif col == 'ROE':
+                format_dict[col] = '{:.1%}'
+            elif col == 'Dividend Yield':
+                format_dict[col] = '{:.2%}'
         st.dataframe(
-            compare_df.style.format({
-                'P/E': '{:.1f}',
-                'P/B': '{:.2f}',
-                'Debt/Equity': '{:.2f}',
-                'ROE': '{:.1%}',
-                'Dividend Yield': '{:.2%}'
-            }),
+            compare_df.style.format(format_dict),
             height=min(400, 50 * len(compare_df))
         )
         st.subheader("Visual Comparison")
