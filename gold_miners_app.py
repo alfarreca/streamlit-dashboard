@@ -111,13 +111,20 @@ def get_news(ticker):
 def load_tickers(uploaded_file):
     try:
         df = pd.read_excel(uploaded_file)
-        if {'Symbol', 'Exchange'}.issubset(df.columns):
-            return {f"{row['Symbol']} ({row['Exchange']})": row['Symbol']
-                    for _, row in df.iterrows()}
-        st.error("File must contain 'Symbol' and 'Exchange' columns")
+        if 'Symbol' not in df.columns or 'Exchange' not in df.columns:
+            st.error("File must contain 'Symbol' and 'Exchange' columns")
+            return None
+        df = df.dropna(subset=['Symbol', 'Exchange'])
+        if df.empty:
+            st.warning("No valid tickers found in uploaded file.")
+            return None
+        tickers_dict = {f"{row['Symbol']} ({row['Exchange']})": row['Symbol']
+                        for _, row in df.iterrows()}
+        st.success(f"{len(tickers_dict)} tickers loaded from file.")
+        return tickers_dict
     except Exception as e:
         st.error(f"Error reading file: {str(e)}")
-    return None
+        return None
 
 def format_metric(value, style='default'):
     if value is None:
@@ -156,14 +163,18 @@ def main():
         )
         if uploaded_file:
             custom_tickers = load_tickers(uploaded_file)
-            tickers = custom_tickers if custom_tickers else DEFAULT_MINERS
+            if custom_tickers:
+                tickers = custom_tickers
+            else:
+                st.warning("Using default list because uploaded file was invalid or empty.")
+                tickers = DEFAULT_MINERS
         else:
             tickers = DEFAULT_MINERS
 
         selected_miners = st.multiselect(
             "Select companies",
             list(tickers.keys()),
-            default=list(tickers.keys())[:2],
+            default=list(tickers.keys())[:min(2, len(tickers))],
             key="miner_select"
         )
         analysis_type = st.radio(
