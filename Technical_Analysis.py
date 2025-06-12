@@ -79,10 +79,16 @@ def load_tickers(uploaded_file):
 @st.cache_data
 def load_stock_data(ticker, start_date, end_date):
     try:
-        data = yf.download(ticker, start=start_date, end=end_date)
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
         if data.empty:
             st.error(f"No data found for {ticker}")
             return None
+        
+        # Ensure the data is clean and has the required columns
+        if 'Close' not in data.columns:
+            st.error(f"Data for {ticker} doesn't contain 'Close' prices")
+            return None
+            
         return data
     except Exception as e:
         st.error(f"Error downloading data for {ticker}: {e}")
@@ -90,32 +96,43 @@ def load_stock_data(ticker, start_date, end_date):
 
 # Calculate technical indicators
 def calculate_indicators(df):
-    # Moving Averages
-    if show_sma:
-        df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
-        df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
+    # Make a copy to avoid modifying the original dataframe
+    df = df.copy()
     
-    if show_ema:
-        df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=20)
+    # Ensure we have enough data points for calculations
+    if len(df) < 50:
+        st.warning("Insufficient data points for some indicators (need at least 50)")
     
-    # RSI
-    if show_rsi:
-        df['RSI_14'] = ta.momentum.rsi(df['Close'], window=14)
-    
-    # MACD
-    if show_macd:
-        macd = ta.trend.MACD(df['Close'])
-        df['MACD'] = macd.macd()
-        df['MACD_Signal'] = macd.macd_signal()
-        df['MACD_Hist'] = macd.macd_diff()
-    
-    # Bollinger Bands
-    if show_bollinger:
-        bollinger = ta.volatility.BollingerBands(df['Close'])
-        df['BB_Upper'] = bollinger.bollinger_hband()
-        df['BB_Lower'] = bollinger.bollinger_lband()
-    
-    return df
+    try:
+        # Moving Averages
+        if show_sma:
+            df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
+            df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
+        
+        if show_ema:
+            df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=20)
+        
+        # RSI
+        if show_rsi:
+            df['RSI_14'] = ta.momentum.rsi(df['Close'], window=14)
+        
+        # MACD
+        if show_macd:
+            macd = ta.trend.MACD(df['Close'])
+            df['MACD'] = macd.macd()
+            df['MACD_Signal'] = macd.macd_signal()
+            df['MACD_Hist'] = macd.macd_diff()
+        
+        # Bollinger Bands
+        if show_bollinger:
+            bollinger = ta.volatility.BollingerBands(df['Close'])
+            df['BB_Upper'] = bollinger.bollinger_hband()
+            df['BB_Lower'] = bollinger.bollinger_lband()
+        
+        return df
+    except Exception as e:
+        st.error(f"Error calculating indicators: {e}")
+        return df  # Return the original df if indicator calculation fails
 
 # Main app logic
 def main():
@@ -162,14 +179,14 @@ def main():
             fig, ax = plt.subplots(figsize=(12, 6))
             ax.plot(stock_data.index, stock_data['Close'], label='Close Price', color='blue')
             
-            if show_sma:
+            if show_sma and 'SMA_20' in stock_data.columns:
                 ax.plot(stock_data.index, stock_data['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
                 ax.plot(stock_data.index, stock_data['SMA_50'], label='SMA 50', color='green', alpha=0.7)
             
-            if show_ema:
+            if show_ema and 'EMA_20' in stock_data.columns:
                 ax.plot(stock_data.index, stock_data['EMA_20'], label='EMA 20', color='purple', alpha=0.7)
             
-            if show_bollinger:
+            if show_bollinger and 'BB_Upper' in stock_data.columns:
                 ax.plot(stock_data.index, stock_data['BB_Upper'], label='Upper Bollinger Band', color='red', alpha=0.5, linestyle='--')
                 ax.plot(stock_data.index, stock_data['BB_Lower'], label='Lower Bollinger Band', color='red', alpha=0.5, linestyle='--')
                 ax.fill_between(stock_data.index, stock_data['BB_Lower'], stock_data['BB_Upper'], color='red', alpha=0.1)
@@ -186,7 +203,7 @@ def main():
                 st.subheader("Technical Indicators")
                 cols = st.columns(2)
                 
-                if show_rsi:
+                if show_rsi and 'RSI_14' in stock_data.columns:
                     with cols[0]:
                         st.markdown("**Relative Strength Index (RSI)**")
                         fig_rsi, ax_rsi = plt.subplots(figsize=(12, 3))
@@ -198,7 +215,7 @@ def main():
                         ax_rsi.grid(True)
                         st.pyplot(fig_rsi)
                 
-                if show_macd:
+                if show_macd and 'MACD' in stock_data.columns:
                     with cols[1]:
                         st.markdown("**Moving Average Convergence Divergence (MACD)**")
                         fig_macd, ax_macd = plt.subplots(figsize=(12, 3))
