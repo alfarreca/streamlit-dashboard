@@ -89,6 +89,8 @@ def load_stock_data(ticker, start_date, end_date):
             st.error(f"Data for {ticker} doesn't contain 'Close' prices")
             return None
             
+        # Convert all columns to float64 to avoid type issues
+        data = data.astype('float64')
         return data
     except Exception as e:
         st.error(f"Error downloading data for {ticker}: {e}")
@@ -104,28 +106,31 @@ def calculate_indicators(df):
         st.warning("Insufficient data points for some indicators (need at least 50)")
     
     try:
+        # Convert Close prices to Series if needed
+        close_prices = pd.Series(df['Close'].values, index=df.index)
+        
         # Moving Averages
         if show_sma:
-            df['SMA_20'] = ta.trend.sma_indicator(df['Close'], window=20)
-            df['SMA_50'] = ta.trend.sma_indicator(df['Close'], window=50)
+            df['SMA_20'] = ta.trend.sma_indicator(close_prices, window=20)
+            df['SMA_50'] = ta.trend.sma_indicator(close_prices, window=50)
         
         if show_ema:
-            df['EMA_20'] = ta.trend.ema_indicator(df['Close'], window=20)
+            df['EMA_20'] = ta.trend.ema_indicator(close_prices, window=20)
         
         # RSI
         if show_rsi:
-            df['RSI_14'] = ta.momentum.rsi(df['Close'], window=14)
+            df['RSI_14'] = ta.momentum.rsi(close_prices, window=14)
         
         # MACD
         if show_macd:
-            macd = ta.trend.MACD(df['Close'])
+            macd = ta.trend.MACD(close_prices)
             df['MACD'] = macd.macd()
             df['MACD_Signal'] = macd.macd_signal()
             df['MACD_Hist'] = macd.macd_diff()
         
         # Bollinger Bands
         if show_bollinger:
-            bollinger = ta.volatility.BollingerBands(df['Close'])
+            bollinger = ta.volatility.BollingerBands(close_prices)
             df['BB_Upper'] = bollinger.bollinger_hband()
             df['BB_Lower'] = bollinger.bollinger_lband()
         
@@ -166,83 +171,92 @@ def main():
             
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("Current Price", f"${stock_data['Close'].iloc[-1]:.2f}")
+                # Safely access the last close price
+                last_close = stock_data['Close'].iloc[-1] if not stock_data.empty else 0
+                st.metric("Current Price", f"${last_close:.2f}" if not stock_data.empty else "N/A")
+            
             with col2:
-                change = stock_data['Close'].iloc[-1] - stock_data['Close'].iloc[-2]
-                pct_change = (change / stock_data['Close'].iloc[-2]) * 100
-                st.metric("Daily Change", f"${change:.2f}", f"{pct_change:.2f}%")
+                if len(stock_data) > 1:
+                    change = stock_data['Close'].iloc[-1] - stock_data['Close'].iloc[-2]
+                    pct_change = (change / stock_data['Close'].iloc[-2]) * 100
+                    st.metric("Daily Change", f"${change:.2f}", f"{pct_change:.2f}%")
+                else:
+                    st.metric("Daily Change", "N/A")
+            
             with col3:
-                st.metric("Volume", f"{stock_data['Volume'].iloc[-1]:,}")
+                last_volume = stock_data['Volume'].iloc[-1] if not stock_data.empty else 0
+                st.metric("Volume", f"{last_volume:,}" if not stock_data.empty else "N/A")
             
             # Plot price chart
-            st.subheader("Price Chart")
-            fig, ax = plt.subplots(figsize=(12, 6))
-            ax.plot(stock_data.index, stock_data['Close'], label='Close Price', color='blue')
-            
-            if show_sma and 'SMA_20' in stock_data.columns:
-                ax.plot(stock_data.index, stock_data['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
-                ax.plot(stock_data.index, stock_data['SMA_50'], label='SMA 50', color='green', alpha=0.7)
-            
-            if show_ema and 'EMA_20' in stock_data.columns:
-                ax.plot(stock_data.index, stock_data['EMA_20'], label='EMA 20', color='purple', alpha=0.7)
-            
-            if show_bollinger and 'BB_Upper' in stock_data.columns:
-                ax.plot(stock_data.index, stock_data['BB_Upper'], label='Upper Bollinger Band', color='red', alpha=0.5, linestyle='--')
-                ax.plot(stock_data.index, stock_data['BB_Lower'], label='Lower Bollinger Band', color='red', alpha=0.5, linestyle='--')
-                ax.fill_between(stock_data.index, stock_data['BB_Lower'], stock_data['BB_Upper'], color='red', alpha=0.1)
-            
-            ax.set_title(f"{selected_ticker} Price and Moving Averages")
-            ax.set_xlabel("Date")
-            ax.set_ylabel("Price")
-            ax.legend()
-            ax.grid(True)
-            st.pyplot(fig)
-            
-            # Plot indicators
-            if show_rsi or show_macd:
-                st.subheader("Technical Indicators")
-                cols = st.columns(2)
+            if not stock_data.empty:
+                st.subheader("Price Chart")
+                fig, ax = plt.subplots(figsize=(12, 6))
+                ax.plot(stock_data.index, stock_data['Close'], label='Close Price', color='blue')
                 
-                if show_rsi and 'RSI_14' in stock_data.columns:
-                    with cols[0]:
-                        st.markdown("**Relative Strength Index (RSI)**")
-                        fig_rsi, ax_rsi = plt.subplots(figsize=(12, 3))
-                        ax_rsi.plot(stock_data.index, stock_data['RSI_14'], label='RSI 14', color='blue')
-                        ax_rsi.axhline(70, color='red', linestyle='--', alpha=0.5)
-                        ax_rsi.axhline(30, color='green', linestyle='--', alpha=0.5)
-                        ax_rsi.set_ylim(0, 100)
-                        ax_rsi.legend()
-                        ax_rsi.grid(True)
-                        st.pyplot(fig_rsi)
+                if show_sma and 'SMA_20' in stock_data.columns:
+                    ax.plot(stock_data.index, stock_data['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
+                    ax.plot(stock_data.index, stock_data['SMA_50'], label='SMA 50', color='green', alpha=0.7)
                 
-                if show_macd and 'MACD' in stock_data.columns:
-                    with cols[1]:
-                        st.markdown("**Moving Average Convergence Divergence (MACD)**")
-                        fig_macd, ax_macd = plt.subplots(figsize=(12, 3))
-                        ax_macd.plot(stock_data.index, stock_data['MACD'], label='MACD', color='blue')
-                        ax_macd.plot(stock_data.index, stock_data['MACD_Signal'], label='Signal', color='orange')
-                        ax_macd.bar(stock_data.index, stock_data['MACD_Hist'], label='Histogram', color='gray', alpha=0.5)
-                        ax_macd.axhline(0, color='black', linestyle='-', alpha=0.5)
-                        ax_macd.legend()
-                        ax_macd.grid(True)
-                        st.pyplot(fig_macd)
-            
-            # Show raw data
-            st.subheader("Raw Data")
-            st.dataframe(stock_data.tail(20))
-            
-            # Download button for the analyzed data
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                stock_data.to_excel(writer, sheet_name='Technical_Analysis')
-            output.seek(0)
-            
-            st.download_button(
-                label="Download Analysis Data",
-                data=output,
-                file_name=f"{selected_ticker}_technical_analysis.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+                if show_ema and 'EMA_20' in stock_data.columns:
+                    ax.plot(stock_data.index, stock_data['EMA_20'], label='EMA 20', color='purple', alpha=0.7)
+                
+                if show_bollinger and 'BB_Upper' in stock_data.columns:
+                    ax.plot(stock_data.index, stock_data['BB_Upper'], label='Upper Bollinger Band', color='red', alpha=0.5, linestyle='--')
+                    ax.plot(stock_data.index, stock_data['BB_Lower'], label='Lower Bollinger Band', color='red', alpha=0.5, linestyle='--')
+                    ax.fill_between(stock_data.index, stock_data['BB_Lower'], stock_data['BB_Upper'], color='red', alpha=0.1)
+                
+                ax.set_title(f"{selected_ticker} Price and Moving Averages")
+                ax.set_xlabel("Date")
+                ax.set_ylabel("Price")
+                ax.legend()
+                ax.grid(True)
+                st.pyplot(fig)
+                
+                # Plot indicators
+                if show_rsi or show_macd:
+                    st.subheader("Technical Indicators")
+                    cols = st.columns(2)
+                    
+                    if show_rsi and 'RSI_14' in stock_data.columns:
+                        with cols[0]:
+                            st.markdown("**Relative Strength Index (RSI)**")
+                            fig_rsi, ax_rsi = plt.subplots(figsize=(12, 3))
+                            ax_rsi.plot(stock_data.index, stock_data['RSI_14'], label='RSI 14', color='blue')
+                            ax_rsi.axhline(70, color='red', linestyle='--', alpha=0.5)
+                            ax_rsi.axhline(30, color='green', linestyle='--', alpha=0.5)
+                            ax_rsi.set_ylim(0, 100)
+                            ax_rsi.legend()
+                            ax_rsi.grid(True)
+                            st.pyplot(fig_rsi)
+                    
+                    if show_macd and 'MACD' in stock_data.columns:
+                        with cols[1]:
+                            st.markdown("**Moving Average Convergence Divergence (MACD)**")
+                            fig_macd, ax_macd = plt.subplots(figsize=(12, 3))
+                            ax_macd.plot(stock_data.index, stock_data['MACD'], label='MACD', color='blue')
+                            ax_macd.plot(stock_data.index, stock_data['MACD_Signal'], label='Signal', color='orange')
+                            ax_macd.bar(stock_data.index, stock_data['MACD_Hist'], label='Histogram', color='gray', alpha=0.5)
+                            ax_macd.axhline(0, color='black', linestyle='-', alpha=0.5)
+                            ax_macd.legend()
+                            ax_macd.grid(True)
+                            st.pyplot(fig_macd)
+                
+                # Show raw data
+                st.subheader("Raw Data")
+                st.dataframe(stock_data.tail(20))
+                
+                # Download button for the analyzed data
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                    stock_data.to_excel(writer, sheet_name='Technical_Analysis')
+                output.seek(0)
+                
+                st.download_button(
+                    label="Download Analysis Data",
+                    data=output,
+                    file_name=f"{selected_ticker}_technical_analysis.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     
     else:
         st.info("Please upload an XLSX file with 'Symbol' and 'Exchange' columns to begin.")
