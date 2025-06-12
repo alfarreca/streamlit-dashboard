@@ -5,6 +5,7 @@ import plotly.express as px
 from datetime import datetime, timedelta
 import requests
 from bs4 import BeautifulSoup
+import io
 
 # App configuration
 st.set_page_config(
@@ -35,18 +36,13 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Gold miners tickers (major gold mining companies)
-GOLD_MINERS = {
+# Default gold miners tickers
+DEFAULT_MINERS = {
     'Newmont Corporation': 'NEM',
     'Barrick Gold': 'GOLD',
     'Franco-Nevada': 'FNV',
     'Agnico Eagle Mines': 'AEM',
-    'Wheaton Precious Metals': 'WPM',
-    'Kinross Gold': 'KGC',
-    'Yamana Gold': 'AUY',
-    'Gold Fields': 'GFI',
-    'Kirkland Lake Gold': 'KL',
-    'Harmony Gold': 'HMY'
+    'Wheaton Precious Metals': 'WPM'
 }
 
 # Gold price data
@@ -77,7 +73,7 @@ def get_fundamentals(ticker):
         'Operating Margin': info.get('operatingMargins', 'N/A'),
         'Dividend Yield': info.get('dividendYield', 'N/A'),
         '5Y Rev Growth': info.get('revenueGrowth', 'N/A'),
-        'Production (oz)': 'N/A',  # Will be scraped or manually entered
+        'Production (oz)': 'N/A',
         'AISC (All-in Sustaining Costs)': 'N/A',
         'Reserves (moz)': 'N/A'
     }
@@ -90,6 +86,25 @@ def get_news(ticker):
     stock = yf.Ticker(ticker)
     news = stock.news
     return news[:5]  # Return top 5 news items
+
+# Load tickers from uploaded file
+def load_tickers(uploaded_file):
+    try:
+        df = pd.read_excel(uploaded_file)
+        if 'Symbol' not in df.columns or 'Exchange' not in df.columns:
+            st.error("The uploaded file must contain 'Symbol' and 'Exchange' columns")
+            return None
+        
+        # Create a dictionary of company names and tickers
+        tickers_dict = {}
+        for _, row in df.iterrows():
+            company_name = f"{row['Symbol']} ({row['Exchange']})"
+            tickers_dict[company_name] = row['Symbol']
+        
+        return tickers_dict
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return None
 
 # Main app
 def main():
@@ -105,8 +120,24 @@ def main():
     
     # Sidebar
     st.sidebar.header("Gold Miners Selection")
+    
+    # File upload
+    uploaded_file = st.sidebar.file_uploader(
+        "Upload your tickers list (Excel with 'Symbol' and 'Exchange' columns)",
+        type=["xlsx"]
+    )
+    
+    if uploaded_file is not None:
+        custom_tickers = load_tickers(uploaded_file)
+        if custom_tickers:
+            GOLD_MINERS = custom_tickers
+        else:
+            GOLD_MINERS = DEFAULT_MINERS
+    else:
+        GOLD_MINERS = DEFAULT_MINERS
+    
     selected_miners = st.sidebar.multiselect(
-        "Select companies to compare",
+        "Select companies to analyze",
         list(GOLD_MINERS.keys()),
         default=list(GOLD_MINERS.keys())[:3]
     )
@@ -140,16 +171,16 @@ def main():
             metrics_col1, metrics_col2 = st.columns(2)
             
             with metrics_col1:
-                st.metric("Market Cap", f"${fundamentals['Market Cap']/1e9:,.2f}B" if fundamentals['Market Cap'] != 'N/A' else 'N/A')
-                st.metric("P/E Ratio", fundamentals['P/E'])
-                st.metric("Debt/Equity", fundamentals['Debt/Equity'])
-                st.metric("ROE", f"{fundamentals['ROE']*100:.2f}%" if fundamentals['ROE'] != 'N/A' else 'N/A')
+                st.metric("Market Cap", f"${fundamentals['Market Cap']/1e9:,.2f}B" if isinstance(fundamentals['Market Cap'], (int, float)) else 'N/A')
+                st.metric("P/E Ratio", f"{fundamentals['P/E']:.2f}" if isinstance(fundamentals['P/E'], (int, float)) else 'N/A')
+                st.metric("Debt/Equity", f"{fundamentals['Debt/Equity']:.2f}" if isinstance(fundamentals['Debt/Equity'], (int, float)) else 'N/A')
+                st.metric("ROE", f"{fundamentals['ROE']*100:.2f}%" if isinstance(fundamentals['ROE'], (int, float)) else 'N/A')
                 
             with metrics_col2:
-                st.metric("Dividend Yield", f"{fundamentals['Dividend Yield']*100:.2f}%" if fundamentals['Dividend Yield'] != 'N/A' else 'N/A')
-                st.metric("P/B Ratio", fundamentals['P/B'])
-                st.metric("Current Ratio", fundamentals['Current Ratio'])
-                st.metric("Profit Margin", f"{fundamentals['Profit Margin']*100:.2f}%" if fundamentals['Profit Margin'] != 'N/A' else 'N/A')
+                st.metric("Dividend Yield", f"{fundamentals['Dividend Yield']*100:.2f}%" if isinstance(fundamentals['Dividend Yield'], (int, float)) else 'N/A')
+                st.metric("P/B Ratio", f"{fundamentals['P/B']:.2f}" if isinstance(fundamentals['P/B'], (int, float)) else 'N/A')
+                st.metric("Current Ratio", f"{fundamentals['Current Ratio']:.2f}" if isinstance(fundamentals['Current Ratio'], (int, float)) else 'N/A')
+                st.metric("Profit Margin", f"{fundamentals['Profit Margin']*100:.2f}%" if isinstance(fundamentals['Profit Margin'], (int, float)) else 'N/A')
         
         with col2:
             # Company news
@@ -163,14 +194,12 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
             
-            # Production and cost metrics (would need to be manually entered or scraped)
+            # Production and cost metrics
             st.subheader("Mining-Specific Metrics")
             st.write("""
             For more accurate production and cost metrics, please refer to company reports.
-            This data would typically be scraped from company websites or financial reports.
             """)
             
-            # Placeholder for production data
             production_data = {
                 'Metric': ['Annual Production (oz)', 'AISC ($/oz)', 'Reserves (moz)'],
                 'Value': ['N/A', 'N/A', 'N/A']
@@ -229,15 +258,18 @@ def main():
         # Correlation analysis
         st.subheader("Correlation Analysis")
         numeric_df = comparison_df.select_dtypes(include=['float64', 'int64'])
-        corr_matrix = numeric_df.corr()
-        
-        fig = px.imshow(
-            corr_matrix,
-            text_auto=True,
-            aspect="auto",
-            title="Correlation Between Metrics"
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        if not numeric_df.empty:
+            corr_matrix = numeric_df.corr()
+            
+            fig = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                aspect="auto",
+                title="Correlation Between Metrics"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("Not enough numeric data for correlation analysis")
 
 if __name__ == "__main__":
     main()
