@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 from concurrent.futures import ThreadPoolExecutor
-import time
+import numpy as np
 from datetime import datetime
 
 # --- Mining metrics database and default miners ---
@@ -142,7 +142,6 @@ def main():
     st.header("Company Analysis")
     # --- Updated ticker parsing and data fetching ---
     def fetch_for_ticker(key):
-        # Parse ticker symbol before any space or parenthesis
         ticker = key.split()[0]
         return (
             ticker,
@@ -175,13 +174,22 @@ def main():
     if 'Market Cap' in df.columns and 'NAV' in df.columns:
         df['NAV Deviation (%)'] = ((df['Market Cap'] - df['NAV']) / df['NAV']) * 100
 
-    # Show Data Table
+    # -------- Robust numeric formatting to avoid TypeError --------
+    num_cols = [
+        'Market Cap', 'P/E', 'P/B', 'Debt/Equity', 'Free Cash Flow', 'EPS Growth',
+        'Analyst Target', 'NAV', 'Reserves (moz)', 'NAV Deviation (%)'
+    ]
+    for col in num_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
     st.dataframe(df.style.format({
         'Market Cap': '${:,.0f}', 'P/E': '{:.1f}', 'P/B': '{:.2f}', 'Debt/Equity': '{:.2f}',
         'Free Cash Flow': '${:,.0f}', 'EPS Growth': '{:.2%}', 'Analyst Target': '${:.2f}',
         'NAV': '${:,.0f}', 'Sentiment Score': '{:+d}', 'Reserves (moz)': '{:.1f}',
         'NAV Deviation (%)': '{:+.1f}%'
     }), height=350)
+    # -------------------------------------------------------------
 
     # Historical Valuation Chart
     st.subheader("Historical Price")
