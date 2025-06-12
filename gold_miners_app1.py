@@ -47,7 +47,6 @@ def setup_app():
     </style>
     """, unsafe_allow_html=True)
 
-# Predefined mining metrics for major gold miners (would normally come from a database)
 MINING_METRICS_DB = {
     'NEM': {
         'Production (koz)': 5970,
@@ -67,7 +66,7 @@ MINING_METRICS_DB = {
         'Production (koz)': 3200,
         'AISC ($/oz)': 900,
         'Reserves (moz)': 42,
-        'Mines': 0,  # Royalty company
+        'Mines': 0,
         'Production Growth (%)': 3.2
     },
     'AEM': {
@@ -129,7 +128,6 @@ def get_fundamentals(ticker):
     return safe_fetch(_fetch)
 
 def get_mining_metrics(ticker):
-    """Get mining-specific metrics from our predefined database"""
     return MINING_METRICS_DB.get(ticker, {
         'Production (koz)': None,
         'AISC ($/oz)': None,
@@ -243,15 +241,17 @@ def main():
         return
 
     if analysis_type == "Single Company":
-        render_single_company(tickers, selected_miners)
+        render_single_company(tickers, selected_miners, gold_price)
     else:
         render_multi_company(tickers, selected_miners)
 
-def render_single_company(tickers, selected_miners):
+def render_single_company(tickers, selected_miners, gold_price):
     selected_company = st.selectbox("Select company", selected_miners)
     ticker = tickers[selected_company]
     st.header(f"{selected_company} Analysis")
     col1, col2 = st.columns([2, 1])
+
+    mining_metrics = get_mining_metrics(ticker)
 
     with col1:
         st.subheader("Price Performance")
@@ -289,7 +289,6 @@ def render_single_company(tickers, selected_miners):
         
         # Mining-specific metrics section
         st.subheader("Mining Operations")
-        mining_metrics = get_mining_metrics(ticker)
         if any(value is not None for value in mining_metrics.values()):
             cols = st.columns(2)
             mining_metrics_list = [
@@ -353,8 +352,6 @@ def render_multi_company(tickers, selected_miners):
     st.header("Company Comparison")
     progress_bar = st.progress(0)
     all_data = []
-    mining_data = []
-    
     for i, company in enumerate(selected_miners):
         progress_bar.progress((i + 1) / len(selected_miners))
         ticker = tickers[company]
@@ -365,24 +362,18 @@ def render_multi_company(tickers, selected_miners):
             combined_data['Company'] = company
             combined_data['Ticker'] = ticker
             all_data.append(combined_data)
-    
     if not all_data:
         st.error("No comparable data available")
         return
-    
     df = pd.DataFrame(all_data).set_index('Company')
-    
     st.subheader("Financial Metrics")
     metrics = ['P/E', 'P/B', 'Debt/Equity', 'ROE', 'Dividend Yield']
     selected_metrics = st.multiselect("Select financial metrics", metrics, default=metrics[:3])
-    
     st.subheader("Mining Metrics")
-    mining_metrics = ['Production (koz)', 'AISC ($/oz)', 'Reserves (moz)', 'Production Growth (%)']
-    selected_mining_metrics = st.multiselect("Select mining metrics", mining_metrics, default=mining_metrics[:2])
-    
+    mining_metrics_list = ['Production (koz)', 'AISC ($/oz)', 'Reserves (moz)', 'Production Growth (%)']
+    selected_mining_metrics = st.multiselect("Select mining metrics", mining_metrics_list, default=mining_metrics_list[:2])
     if selected_metrics or selected_mining_metrics:
         compare_df = df[['Ticker'] + selected_metrics + selected_mining_metrics]
-        
         format_dict = {}
         for col in compare_df.columns:
             if col == 'P/E':
@@ -403,16 +394,13 @@ def render_multi_company(tickers, selected_miners):
                 format_dict[col] = '{:,.1f}'
             elif col == 'Production Growth (%)':
                 format_dict[col] = '{:.1f}%'
-        
         st.dataframe(
             compare_df.style.format(format_dict),
             height=min(400, 50 * len(compare_df))
         )
-        
+        st.subheader("Visual Comparison")
         if selected_metrics or selected_mining_metrics:
-            st.subheader("Visual Comparison")
-            chart_metric = st.selectbox("Select metric to visualize", 
-                                      selected_metrics + selected_mining_metrics)
+            chart_metric = st.selectbox("Select metric to visualize", selected_metrics + selected_mining_metrics)
             try:
                 fig = px.bar(
                     compare_df.reset_index(),
