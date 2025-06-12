@@ -98,31 +98,31 @@ def calculate_indicators(df):
     df = df.copy()
     
     try:
-        # Ensure Close prices are properly formatted as 1D array
-        close_prices = df['Close'].values.flatten()
+        # Convert to pandas Series (not numpy array) for rolling calculations
+        close_prices = pd.Series(df['Close'], index=df.index)
         
         # Moving Averages
         if show_sma:
-            df['SMA_20'] = ta.trend.SMAIndicator(close=close_prices, window=20).sma_indicator()
-            df['SMA_50'] = ta.trend.SMAIndicator(close=close_prices, window=50).sma_indicator()
+            df['SMA_20'] = ta.trend.sma_indicator(close_prices, window=20)
+            df['SMA_50'] = ta.trend.sma_indicator(close_prices, window=50)
         
         if show_ema:
-            df['EMA_20'] = ta.trend.EMAIndicator(close=close_prices, window=20).ema_indicator()
+            df['EMA_20'] = ta.trend.ema_indicator(close_prices, window=20)
         
         # RSI
         if show_rsi:
-            df['RSI_14'] = ta.momentum.RSIIndicator(close=close_prices, window=14).rsi()
+            df['RSI_14'] = ta.momentum.rsi(close_prices, window=14)
         
         # MACD
         if show_macd:
-            macd = ta.trend.MACD(close=close_prices)
+            macd = ta.trend.MACD(close_prices)
             df['MACD'] = macd.macd()
             df['MACD_Signal'] = macd.macd_signal()
             df['MACD_Hist'] = macd.macd_diff()
         
         # Bollinger Bands
         if show_bollinger:
-            bb = ta.volatility.BollingerBands(close=close_prices)
+            bb = ta.volatility.BollingerBands(close_prices)
             df['BB_Upper'] = bb.bollinger_hband()
             df['BB_Lower'] = bb.bollinger_lband()
         
