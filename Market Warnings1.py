@@ -1,4 +1,24 @@
+import streamlit as st
 import pandas as pd
+import yfinance as yf
+from datetime import datetime, timedelta
+
+# Configure page
+st.set_page_config(
+    page_title="Market Warnings Dashboard",
+    page_icon="📊",
+    layout="wide"
+)
+
+# Add title and description
+st.title("📈 ETF Recommendations Based on Jeffrey Gundlach's Themes")
+st.markdown("""
+This dashboard provides investment recommendations aligned with Jeffrey Gundlach's market outlook,
+including gold, emerging markets, and sector-specific ETFs.
+""")
+
+# Add divider
+st.divider()
 
 # ETF data based on Gundlach's themes
 etf_data = {
@@ -35,49 +55,99 @@ etf_data = {
     "Expense Ratio": [
         0.40, 0.25, 0.51, 0.39, 0.52,
         0.62, 0.85, 0.74, 0.94, 0.61, 0.08
-    ],
-    "Role": [
-        "Core ballast for inflation/fiscal shock hedge",
-        "Lower-cost gold exposure",
-        "Large-cap gold miners with leverage to gold prices",
-        "Global gold miners with broader diversification",
-        "Higher-risk junior gold miners",
-        "Broad large/mid-cap India exposure",
-        "Earnings-weighted India strategy",
-        "High-growth India small-cap exposure",
-        "Top 50 Nifty stocks in India",
-        "EM equity exposure without currency risk",
-        "Low-cost diversified EM equities"
     ]
 }
 
 # Create DataFrame
 etf_df = pd.DataFrame(etf_data)
 
-# Print the DataFrame
-print("ETF Recommendations Based on Jeffrey Gundlach's Themes:\n")
-print(etf_df.to_string(index=False))
+# Add performance data
+@st.cache_data(ttl=3600)  # Cache for 1 hour
+def get_performance_data(tickers):
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=365)
+    performance = {}
+    
+    for ticker in tickers:
+        try:
+            data = yf.download(ticker, start=start_date, end=end_date)
+            if not data.empty:
+                perf = (data['Close'][-1] / data['Close'][0] - 1) * 100
+                performance[ticker] = round(perf, 2)
+        except:
+            performance[ticker] = "N/A"
+    
+    return performance
 
-# Portfolio allocation suggestion
+performance_data = get_performance_data(etf_df['Ticker'].tolist())
+etf_df['1Y Performance (%)'] = etf_df['Ticker'].map(performance_data)
+
+# Display ETF table
+st.header("Recommended ETFs")
+st.dataframe(
+    etf_df,
+    column_config={
+        "Ticker": st.column_config.TextColumn("Ticker", width="small"),
+        "Name": st.column_config.TextColumn("ETF Name"),
+        "Expense Ratio": st.column_config.NumberColumn(
+            "Expense Ratio (%)",
+            format="%.2f",
+            help="Annual management fee"
+        ),
+        "1Y Performance (%)": st.column_config.NumberColumn(
+            "1Y Performance",
+            format="%.2f%%",
+            help="1-year price return"
+        )
+    },
+    hide_index=True,
+    use_container_width=True
+)
+
+# Portfolio allocation section
+st.header("Suggested Portfolio Allocation")
 portfolio_allocation = {
     "Core Allocation (50-60%)": ["GLD/IAU (20-25%)", "INDA/VWO (20-25%)", "HEEM (10%)"],
     "Satellite Allocation (30-40%)": ["GDX/RING (10-15%)", "SMIN (10%)", "GDXJ (5-10%)"],
     "Opportunistic (10%)": ["EPI/INDY (5%)", "Other tactical positions (5%)"]
 }
 
-print("\nSuggested Portfolio Allocation Framework:")
 for category, allocations in portfolio_allocation.items():
-    print(f"\n{category}:")
-    for alloc in allocations:
-        print(f"- {alloc}")
+    with st.expander(category):
+        for alloc in allocations:
+            st.write(f"- {alloc}")
 
-print("\nInvestment Rationale:")
-print("""
-1. Gold & miners align with Gundlach's view of gold as the new flight-to-quality asset
-2. India/EM equities tap into secular growth and dollar weakness tailwinds
-3. Currency-hedged EM (HEEM) cushions against FX volatility
-4. Satellite positions provide higher growth potential while core maintains stability
+# Investment rationale
+st.header("Investment Rationale")
+st.markdown("""
+1. **Gold & miners** align with Gundlach's view of gold as the new flight-to-quality asset
+2. **India/EM equities** tap into secular growth and dollar weakness tailwinds
+3. **Currency-hedged EM (HEEM)** cushions against FX volatility
+4. **Satellite positions** provide higher growth potential while core maintains stability
 """)
 
-print("Note: Review each ETF's expense ratio, liquidity, and how it fits your risk profile.")
-print("Consider periodic rebalancing to maintain target allocations.")
+# Performance charts
+st.header("ETF Performance")
+selected_tickers = st.multiselect(
+    "Select ETFs to compare performance",
+    options=etf_df['Ticker'].unique(),
+    default=["GLD", "GDX", "INDA", "VWO"]
+)
+
+if selected_tickers:
+    @st.cache_data
+    def get_historical_data(tickers):
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=365)
+        data = yf.download(tickers, start=start_date, end=end_date)['Close']
+        return data.pct_change().cumsum() * 100
+    
+    performance_chart = get_historical_data(selected_tickers)
+    st.line_chart(performance_chart)
+
+# Notes and disclaimer
+st.divider()
+st.caption("""
+**Note:** Review each ETF's expense ratio, liquidity, and how it fits your risk profile. 
+Consider periodic rebalancing to maintain target allocations. Past performance is not indicative of future results.
+""")
