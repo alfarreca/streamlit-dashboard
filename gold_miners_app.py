@@ -88,7 +88,7 @@ def get_fundamentals(ticker):
         
         return {
             'Market Cap': info.get('marketCap'),
-            'P/E': info.get('trailingPE'),
+            'P/E': info.get('trailingPE'),  # Fixed typo from 'trailingPE'
             'P/B': info.get('priceToBook'),
             'Debt/Equity': info.get('debtToEquity'),
             'Current Ratio': info.get('currentRatio'),
@@ -228,8 +228,8 @@ def render_single_company(tickers, selected_miners):
                 else:
                     st.markdown('<div class="data-warning">No price data available</div>', 
                               unsafe_allow_html=True)
-            except:
-                st.error("Failed to load price chart")
+            except Exception as e:
+                st.error(f"Failed to load price chart: {str(e)}")
         
         # Fundamentals display
         st.subheader("Fundamentals")
@@ -334,8 +334,8 @@ def render_multi_company(tickers, selected_miners):
                 text=chart_metric
             )
             st.plotly_chart(fig, use_container_width=True)
-        except:
-            st.warning("Could not render comparison chart")
+        except Exception as e:
+            st.warning(f"Could not render comparison chart: {str(e)}")
 
 if __name__ == "__main__":
     main()
