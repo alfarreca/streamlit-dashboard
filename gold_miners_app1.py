@@ -374,30 +374,46 @@ def render_multi_company(tickers, selected_miners):
     selected_mining_metrics = st.multiselect("Select mining metrics", mining_metrics_list, default=mining_metrics_list[:2])
     if selected_metrics or selected_mining_metrics:
         compare_df = df[['Ticker'] + selected_metrics + selected_mining_metrics]
+        # Only format columns that are numeric (robust!)
         format_dict = {}
         for col in compare_df.columns:
-            if col == 'P/E':
-                format_dict[col] = '{:.1f}'
-            elif col == 'P/B':
-                format_dict[col] = '{:.2f}'
-            elif col == 'Debt/Equity':
-                format_dict[col] = '{:.2f}'
-            elif col == 'ROE':
-                format_dict[col] = '{:.1%}'
-            elif col == 'Dividend Yield':
-                format_dict[col] = '{:.2%}'
-            elif col == 'Production (koz)':
-                format_dict[col] = '{:,.0f}'
-            elif col == 'AISC ($/oz)':
-                format_dict[col] = '${:,.0f}'
-            elif col == 'Reserves (moz)':
-                format_dict[col] = '{:,.1f}'
-            elif col == 'Production Growth (%)':
-                format_dict[col] = '{:.1f}%'
-        st.dataframe(
-            compare_df.style.format(format_dict),
-            height=min(400, 50 * len(compare_df))
-        )
+            if pd.api.types.is_numeric_dtype(compare_df[col]):
+                if col == 'P/E':
+                    format_dict[col] = '{:.1f}'
+                elif col == 'P/B':
+                    format_dict[col] = '{:.2f}'
+                elif col == 'Debt/Equity':
+                    format_dict[col] = '{:.2f}'
+                elif col == 'ROE':
+                    format_dict[col] = '{:.1%}'
+                elif col == 'Dividend Yield':
+                    format_dict[col] = '{:.2%}'
+                elif col == 'Production (koz)':
+                    format_dict[col] = '{:,.0f}'
+                elif col == 'AISC ($/oz)':
+                    format_dict[col] = '${:,.0f}'
+                elif col == 'Reserves (moz)':
+                    format_dict[col] = '{:,.1f}'
+                elif col == 'Production Growth (%)':
+                    format_dict[col] = '{:.1f}%'
+        # Try to format, else fallback to unformatted if error
+        try:
+            if format_dict:
+                st.dataframe(
+                    compare_df.style.format(format_dict),
+                    height=min(400, 50 * len(compare_df))
+                )
+            else:
+                st.dataframe(
+                    compare_df,
+                    height=min(400, 50 * len(compare_df))
+                )
+        except Exception as e:
+            st.dataframe(
+                compare_df,
+                height=min(400, 50 * len(compare_df))
+            )
+            st.warning(f"Some columns could not be formatted due to data type: {e}")
         st.subheader("Visual Comparison")
         if selected_metrics or selected_mining_metrics:
             chart_metric = st.selectbox("Select metric to visualize", selected_metrics + selected_mining_metrics)
