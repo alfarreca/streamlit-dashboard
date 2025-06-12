@@ -274,23 +274,34 @@ def render_multi_company(tickers, selected_miners):
     selected_metrics = st.multiselect("Select metrics", metrics, default=metrics[:3])
     if selected_metrics:
         compare_df = df[['Ticker'] + selected_metrics]
-        # Build format dict only for columns present
+
+        # Build format dict ONLY for columns present & numeric
         format_dict = {}
         for col in compare_df.columns:
-            if col == 'P/E':
-                format_dict[col] = '{:.1f}'
-            elif col == 'P/B':
-                format_dict[col] = '{:.2f}'
-            elif col == 'Debt/Equity':
-                format_dict[col] = '{:.2f}'
-            elif col == 'ROE':
-                format_dict[col] = '{:.1%}'
-            elif col == 'Dividend Yield':
-                format_dict[col] = '{:.2%}'
-        st.dataframe(
-            compare_df.style.format(format_dict),
-            height=min(400, 50 * len(compare_df))
-        )
+            if pd.api.types.is_numeric_dtype(compare_df[col]):
+                if col == 'P/E':
+                    format_dict[col] = '{:.1f}'
+                elif col == 'P/B':
+                    format_dict[col] = '{:.2f}'
+                elif col == 'Debt/Equity':
+                    format_dict[col] = '{:.2f}'
+                elif col == 'ROE':
+                    format_dict[col] = '{:.1%}'
+                elif col == 'Dividend Yield':
+                    format_dict[col] = '{:.2%}'
+
+        # Show the styled DataFrame only if format_dict is not empty
+        if format_dict:
+            st.dataframe(
+                compare_df.style.format(format_dict),
+                height=min(400, 50 * len(compare_df))
+            )
+        else:
+            st.dataframe(
+                compare_df,
+                height=min(400, 50 * len(compare_df))
+            )
+
         st.subheader("Visual Comparison")
         chart_metric = st.selectbox("Chart metric", selected_metrics)
         try:
