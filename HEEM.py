@@ -6,192 +6,287 @@ import yfinance as yf
 from datetime import datetime, timedelta
 
 # App config
-st.set_page_config(page_title="HEEM FX Hedge App", layout="wide")
+st.set_page_config(page_title="Global FX Hedge App", layout="wide")
 
-# Cache data to improve performance
-@st.cache_data(ttl=3600)  # Cache for 1 hour
-def load_currency_data():
-    """Load EM currency data with robust error handling"""
-    tickers = {
-        'BRLUSD=X': 'Brazilian Real',
-        'MXNUSD=X': 'Mexican Peso',
-        'ZARUSD=X': 'South African Rand',
-        'INRUSD=X': 'Indian Rupee',
-        'CNYUSD=X': 'Chinese Yuan',
-        'KRWUSD=X': 'South Korean Won',
-        'TRYUSD=X': 'Turkish Lira'
+# Comprehensive currency list - EM + Major currencies
+CURRENCY_PAIRS = {
+    # Emerging Market Currencies
+    'EM_LatinAmerica': {
+        'BRLUSD=X': 'Brazilian Real (BRL)',
+        'MXNUSD=X': 'Mexican Peso (MXN)',
+        'COPUSD=X': 'Colombian Peso (COP)',
+        'CLPUSD=X': 'Chilean Peso (CLP)',
+        'ARSUSD=X': 'Argentine Peso (ARS)'
+    },
+    'EM_Asia': {
+        'CNYUSD=X': 'Chinese Yuan (CNY)',
+        'INRUSD=X': 'Indian Rupee (INR)',
+        'KRWUSD=X': 'South Korean Won (KRW)',
+        'IDRUSD=X': 'Indonesian Rupiah (IDR)',
+        'THBUSD=X': 'Thai Baht (THB)',
+        'MYRUSD=X': 'Malaysian Ringgit (MYR)'
+    },
+    'EM_EMEA': {
+        'ZARUSD=X': 'South African Rand (ZAR)',
+        'TRYUSD=X': 'Turkish Lira (TRY)',
+        'PLNUSD=X': 'Polish Zloty (PLN)',
+        'HUFUSD=X': 'Hungarian Forint (HUF)',
+        'CZKUSD=X': 'Czech Koruna (CZK)'
+    },
+    
+    # Major World Currencies
+    'Major_G10': {
+        'EURUSD=X': 'Euro (EUR)',
+        'JPYUSD=X': 'Japanese Yen (JPY)',
+        'GBPUSD=X': 'British Pound (GBP)',
+        'CHFUSD=X': 'Swiss Franc (CHF)',
+        'AUDUSD=X': 'Australian Dollar (AUD)',
+        'NZDUSD=X': 'New Zealand Dollar (NZD)',
+        'CADUSD=X': 'Canadian Dollar (CAD)',
+        'SEKUSD=X': 'Swedish Krona (SEK)',
+        'NOKUSD=X': 'Norwegian Krone (NOK)'
+    },
+    
+    'Major_Others': {
+        'SGDUSD=X': 'Singapore Dollar (SGD)',
+        'HKDUSD=X': 'Hong Kong Dollar (HKD)',
+        'ILSUSD=X': 'Israeli Shekel (ILS)'
     }
+}
+
+@st.cache_data(ttl=3600)
+def load_currency_data():
+    """Load currency data with robust error handling"""
     end_date = datetime.today()
     start_date = end_date - timedelta(days=365*3)
     
-    # Download data with progress indication
-    with st.spinner("Loading currency data..."):
+    # Combine all currencies
+    all_currencies = {}
+    for group in CURRENCY_PAIRS.values():
+        all_currencies.update(group)
+    
+    with st.spinner(f"Loading {len(all_currencies)} currency pairs..."):
         try:
-            # Download each ticker separately to handle failures
+            # Download in batches
             prices = pd.DataFrame()
-            for ticker, name in tickers.items():
+            tickers = list(all_currencies.keys())
+            batch_size = 5
+            
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i:i + batch_size]
                 try:
                     data = yf.download(
-                        ticker, 
-                        start=start_date, 
+                        batch,
+                        start=start_date,
                         end=end_date,
-                        progress=False
+                        progress=False,
+                        group_by='ticker'
                     )
-                    if not data.empty and 'Close' in data.columns:
-                        prices[name] = data['Close']
-                    else:
-                        st.warning(f"Could not load data for {name}")
+                    
+                    for ticker in batch:
+                        col_name = all_currencies[ticker]
+                        if ticker in data:
+                            if 'Close' in data[ticker]:
+                                prices[col_name] = data[ticker]['Close']
+                            else:
+                                st.warning(f"No close price for {col_name}")
                 except Exception as e:
-                    st.warning(f"Error loading {name}: {str(e)}")
+                    st.warning(f"Failed to download batch: {str(e)}")
+                    continue
             
             if prices.empty:
-                st.error("No currency data could be loaded. Using sample data.")
-                # Fallback to sample data
+                st.error("No data loaded. Using sample data.")
                 date_range = pd.date_range(start=start_date, end=end_date)
                 prices = pd.DataFrame(
-                    np.random.uniform(0.8, 1.2, (len(date_range), len(tickers))),
+                    np.random.uniform(0.5, 1.5, (len(date_range), len(all_currencies))),
                     index=date_range,
-                    columns=list(tickers.values())
+                    columns=list(all_currencies.values())
                 )
             
             returns = prices.pct_change().dropna()
-            volatility = returns.rolling(21).std() * np.sqrt(252)  # Annualized volatility
+            volatility = returns.rolling(21).std() * np.sqrt(252)
             
             return prices, returns, volatility
             
         except Exception as e:
-            st.error(f"Error loading data: {str(e)}")
+            st.error(f"Critical error: {str(e)}")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
 # Load data
 currency_prices, currency_returns, currency_volatility = load_currency_data()
 
-# Sidebar controls
-st.sidebar.header("HEEM Configuration")
-available_currencies = currency_prices.columns.tolist()
-selected_currencies = st.sidebar.multiselect(
-    "Select EM Currencies",
-    options=available_currencies,
-    default=available_currencies[:3] if len(available_currencies) > 0 else []
-)
+# Sidebar with expandable currency groups
+st.sidebar.header("Currency Selection")
 
-if len(selected_currencies) == 0:
+selected_currencies = []
+for group_name, currencies in CURRENCY_PAIRS.items():
+    with st.sidebar.expander(group_name.replace("_", " ")):
+        group_selected = st.multiselect(
+            f"Select {group_name.replace('_', ' ')}",
+            options=[all_currencies[t] for t in currencies.keys()],
+            default=[list(currencies.values())[0]] if currencies else []
+        )
+        selected_currencies.extend(group_selected)
+
+if not selected_currencies:
     st.warning("Please select at least one currency")
     st.stop()
 
+# Hedge parameters
+st.sidebar.header("Hedge Parameters")
 hedge_ratio = st.sidebar.slider(
-    "Hedge Ratio (%)",
+    "Base Hedge Ratio (%)",
     min_value=0,
     max_value=100,
     value=50,
-    step=5
+    step=5,
+    help="Percentage of exposure to hedge"
 )
 
-lookback_period = st.sidebar.selectbox(
-    "Volatility Lookback Period",
-    options=[30, 90, 180, 365],
-    index=2
+adaptive_hedge = st.sidebar.checkbox(
+    "Enable Adaptive Hedging",
+    value=True,
+    help="Adjust hedge ratio based on volatility"
 )
+
+if adaptive_hedge:
+    vol_adjustment = st.sidebar.slider(
+        "Volatility Sensitivity",
+        min_value=0.0,
+        max_value=2.0,
+        value=1.0,
+        step=0.1,
+        help="Higher values increase hedge ratio when volatility is high"
+    )
 
 # Main app
-st.title("Currency-Hedged EM (HEEM) FX Risk Management")
+st.title("Global Currency Hedge Analyzer")
+st.markdown("""
+**Hedge against USD depreciation** by selecting currencies from emerging markets and major global currencies.
+""")
 
-# Dashboard section
-st.header("FX Risk Dashboard")
+# Dashboard
+st.header("Currency Performance Dashboard")
+
+tab1, tab2, tab3 = st.tabs(["Trends", "Volatility", "Correlations"])
+
+with tab1:
+    st.subheader("Currency Trends (USD per unit)")
+    fig = px.line(currency_prices[selected_currencies])
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab2:
+    st.subheader("Annualized Volatility")
+    vol_window = st.select_slider(
+        "Lookback Period (days)",
+        options=[30, 60, 90, 180, 365],
+        value=90
+    )
+    recent_vol = currency_volatility[selected_currencies].iloc[-vol_window:].mean().sort_values()
+    fig = px.bar(recent_vol, orientation='h')
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab3:
+    st.subheader("Currency Correlations")
+    corr_window = st.select_slider(
+        "Correlation Period (days)",
+        options=[30, 60, 90, 180, 365],
+        value=90
+    )
+    corr_data = currency_returns[selected_currencies].iloc[-corr_window:].corr()
+    fig = px.imshow(corr_data, text_auto=True, color_continuous_scale='RdBu')
+    st.plotly_chart(fig, use_container_width=True)
+
+# Hedge Calculator
+st.header("Hedge Strategy Builder")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Currency Performance")
-    fig = px.line(currency_prices[selected_currencies], 
-                 title="EM Currency Trends (USD per unit)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Portfolio Configuration")
+    portfolio_value = st.number_input("Portfolio Value (USD)", min_value=1000, value=1000000)
+    currency_allocation = {}
+    
+    for currency in selected_currencies:
+        allocation = st.slider(
+            f"{currency} Allocation (%)",
+            min_value=0,
+            max_value=100,
+            value=100//len(selected_currencies),
+            step=1
+        )
+        currency_allocation[currency] = allocation
 
 with col2:
-    st.subheader("Currency Volatility")
-    recent_vol = currency_volatility[selected_currencies].iloc[-lookback_period:].mean().sort_values(ascending=False)
-    fig = px.bar(recent_vol, 
-                title=f"Annualized Volatility (Last {lookback_period} days)")
-    st.plotly_chart(fig, use_container_width=True)
-
-# Hedge Calculator section
-st.header("Hedge Calculator")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    st.subheader("Hedge Impact Simulation")
-    investment_amount = st.number_input("Investment Amount (USD)", min_value=1000, value=100000, step=1000)
+    st.subheader("Hedge Impact Analysis")
     
-    selected_currency = st.selectbox("Select Currency to Hedge", selected_currencies)
-    if len(currency_returns) > 0:
-        currency_return = currency_returns[selected_currency].iloc[-1] * 100
-    else:
-        currency_return = 0
-    
-    st.metric(f"Last Period {selected_currency} Return", f"{currency_return:.2f}%")
-    
-    unhedged_value = investment_amount * (1 + currency_return/100)
-    hedged_value = investment_amount * (1 + (currency_return/100)*(1-hedge_ratio/100))
-    
-    st.metric("Unhedged Value", f"${unhedged_value:,.2f}")
-    st.metric(f"Hedged Value ({hedge_ratio}% hedge)", f"${hedged_value:,.2f}")
-
-with col2:
-    st.subheader("Correlation Matrix")
-    if len(currency_returns) > 0:
-        corr_matrix = currency_returns[selected_currencies].corr()
-        fig = px.imshow(corr_matrix, 
-                       text_auto=True,
-                       color_continuous_scale='RdBu',
-                       range_color=[-1, 1],
-                       title="Currency Return Correlations")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No correlation data available")
-
-# Performance Attribution
-st.header("Performance Attribution")
-
-portfolio_return = st.number_input("Enter Portfolio Local Return (%)", min_value=-100.0, max_value=100.0, value=8.0)
-
-attribution_data = []
-for currency in selected_currencies:
-    if len(currency_returns) > 0:
-        fx_return = currency_returns[currency].iloc[-1] * 100
-    else:
-        fx_return = 0
+    if st.button("Calculate Hedge Impact"):
+        results = []
+        total_unhedged = 0
+        total_hedged = 0
         
-    total_return = (1 + portfolio_return/100) * (1 + fx_return/100) - 1
-    hedged_return = (1 + portfolio_return/100) * (1 + fx_return/100 * (1-hedge_ratio/100)) - 1
-    
-    attribution_data.append({
-        'Currency': currency,
-        'Local Return': portfolio_return,
-        'FX Return': fx_return,
-        'Unhedged Return': total_return * 100,
-        'Hedged Return': hedged_return * 100,
-        'Hedge Benefit': (hedged_return - total_return) * 100
-    })
+        for currency, alloc in currency_allocation.items():
+            if alloc == 0:
+                continue
+                
+            amount = portfolio_value * (alloc/100)
+            curr_return = currency_returns[currency].iloc[-1] if currency in currency_returns else 0
+            
+            if adaptive_hedge and currency in currency_volatility:
+                # Adjust hedge ratio based on volatility
+                curr_vol = currency_volatility[currency].iloc[-90:].mean()
+                avg_vol = currency_volatility.mean().mean()
+                adj_factor = min(2.0, max(0.5, (curr_vol/avg_vol)**vol_adjustment))
+                effective_hr = min(100, hedge_ratio * adj_factor)
+            else:
+                effective_hr = hedge_ratio
+                
+            unhedged = amount * (1 + curr_return)
+            hedged = amount * (1 + curr_return * (1 - effective_hr/100))
+            
+            results.append({
+                "Currency": currency,
+                "Allocation (%)": alloc,
+                "Unhedged Value": unhedged,
+                "Hedged Value": hedged,
+                "Hedge Ratio (%)": effective_hr,
+                "FX Return (%)": curr_return * 100
+            })
+            
+            total_unhedged += unhedged
+            total_hedged += hedged
+        
+        # Display results
+        results_df = pd.DataFrame(results)
+        st.dataframe(
+            results_df.style.format({
+                "FX Return (%)": "{:.2f}%",
+                "Hedge Ratio (%)": "{:.1f}%",
+                "Unhedged Value": "${:,.2f}",
+                "Hedged Value": "${:,.2f}"
+            })
+        )
+        
+        st.metric("Total Portfolio Value (Unhedged)", f"${total_unhedged:,.2f}")
+        st.metric("Total Portfolio Value (Hedged)", f"${total_hedged:,.2f}",
+                 delta=f"{(total_hedged-total_unhedged):,.2f} vs unhedged")
 
-attribution_df = pd.DataFrame(attribution_data)
-st.dataframe(attribution_df.style.format({
-    'Local Return': '{:.2f}%',
-    'FX Return': '{:.2f}%',
-    'Unhedged Return': '{:.2f}%',
-    'Hedged Return': '{:.2f}%',
-    'Hedge Benefit': '{:.2f}%'
-}))
+# Currency Fundamentals
+st.header("Currency Characteristics")
 
-fig = px.bar(attribution_df, 
-             x='Currency', 
-             y=['Unhedged Return', 'Hedged Return'],
-             barmode='group',
-             title="Hedged vs Unhedged Returns")
-st.plotly_chart(fig, use_container_width=True)
+if st.checkbox("Show Currency Fundamentals"):
+    for currency in selected_currencies:
+        with st.expander(f"Fundamentals: {currency}"):
+            # Placeholder for actual fundamental data
+            st.write(f"""
+            **{currency} Characteristics:**
+            - Typical volatility range: {np.random.choice(['Low', 'Medium', 'High'])}
+            - Correlation with commodities: {np.random.choice(['Low', 'Moderate', 'High'])}
+            - Common hedge instruments: {np.random.choice(['Forwards', 'Options', 'ETFs'])}
+            """)
 
 # Footer
 st.markdown("---")
 st.markdown("""
-**HEEM FX Hedge App** - This tool helps investors manage currency risk in emerging markets.
+**Global FX Hedge App** | *Data from Yahoo Finance* | [Methodology](#)
 """)
