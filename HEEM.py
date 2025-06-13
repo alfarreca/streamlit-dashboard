@@ -5,6 +5,10 @@ import plotly.express as px
 import yfinance as yf
 from datetime import datetime, timedelta
 
+# Suppress yfinance warnings
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 # App config
 st.set_page_config(page_title="Global FX Hedge App", layout="wide")
 
@@ -80,7 +84,8 @@ def load_currency_data():
                         start=start_date,
                         end=end_date,
                         progress=False,
-                        group_by='ticker'
+                        group_by='ticker',
+                        auto_adjust=True  # Explicitly set to avoid warning
                     )
                     
                     for ticker in batch:
@@ -132,5 +137,147 @@ if not selected_currencies:
     st.warning("Please select at least one currency")
     st.stop()
 
-# Rest of the app remains the same...
-# [Include all the remaining code from the previous implementation]
+# Hedge parameters
+st.sidebar.header("Hedge Parameters")
+hedge_ratio = st.sidebar.slider(
+    "Base Hedge Ratio (%)",
+    min_value=0,
+    max_value=100,
+    value=50,
+    step=5,
+    help="Percentage of exposure to hedge"
+)
+
+adaptive_hedge = st.sidebar.checkbox(
+    "Enable Adaptive Hedging",
+    value=True,
+    help="Adjust hedge ratio based on volatility"
+)
+
+if adaptive_hedge:
+    vol_adjustment = st.sidebar.slider(
+        "Volatility Sensitivity",
+        min_value=0.0,
+        max_value=2.0,
+        value=1.0,
+        step=0.1,
+        help="Higher values increase hedge ratio when volatility is high"
+    )
+
+# Main app
+st.title("Global Currency Hedge Analyzer")
+st.markdown("""
+**Hedge against USD depreciation** by selecting currencies from emerging markets and major global currencies.
+""")
+
+# Dashboard
+st.header("Currency Performance Dashboard")
+
+tab1, tab2, tab3 = st.tabs(["Trends", "Volatility", "Correlations"])
+
+with tab1:
+    st.subheader("Currency Trends (USD per unit)")
+    fig = px.line(currency_prices[selected_currencies])
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab2:
+    st.subheader("Annualized Volatility")
+    vol_window = st.select_slider(
+        "Lookback Period (days)",
+        options=[30, 60, 90, 180, 365],
+        value=90
+    )
+    recent_vol = currency_volatility[selected_currencies].iloc[-vol_window:].mean().sort_values()
+    fig = px.bar(recent_vol, orientation='h')
+    st.plotly_chart(fig, use_container_width=True)
+
+with tab3:
+    st.subheader("Currency Correlations")
+    corr_window = st.select_slider(
+        "Correlation Period (days)",
+        options=[30, 60, 90, 180, 365],
+        value=90
+    )
+    corr_data = currency_returns[selected_currencies].iloc[-corr_window:].corr()
+    fig = px.imshow(corr_data, text_auto=True, color_continuous_scale='RdBu')
+    st.plotly_chart(fig, use_container_width=True)
+
+# Hedge Calculator
+st.header("Hedge Strategy Builder")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Portfolio Configuration")
+    portfolio_value = st.number_input("Portfolio Value (USD)", min_value=1000, value=1000000)
+    currency_allocation = {}
+    
+    for currency in selected_currencies:
+        allocation = st.slider(
+            f"{currency} Allocation (%)",
+            min_value=0,
+            max_value=100,
+            value=100//len(selected_currencies),
+            step=1
+        )
+        currency_allocation[currency] = allocation
+
+with col2:
+    st.subheader("Hedge Impact Analysis")
+    
+    if st.button("Calculate Hedge Impact"):
+        results = []
+        total_unhedged = 0
+        total_hedged = 0
+        
+        for currency, alloc in currency_allocation.items():
+            if alloc == 0:
+                continue
+                
+            amount = portfolio_value * (alloc/100)
+            curr_return = currency_returns[currency].iloc[-1] if currency in currency_returns else 0
+            
+            if adaptive_hedge and currency in currency_volatility:
+                # Adjust hedge ratio based on volatility
+                curr_vol = currency_volatility[currency].iloc[-90:].mean()
+                avg_vol = currency_volatility.mean().mean()
+                adj_factor = min(2.0, max(0.5, (curr_vol/avg_vol)**vol_adjustment))
+                effective_hr = min(100, hedge_ratio * adj_factor)
+            else:
+                effective_hr = hedge_ratio
+                
+            unhedged = amount * (1 + curr_return)
+            hedged = amount * (1 + curr_return * (1 - effective_hr/100))
+            
+            results.append({
+                "Currency": currency,
+                "Allocation (%)": alloc,
+                "Unhedged Value": unhedged,
+                "Hedged Value": hedged,
+                "Hedge Ratio (%)": effective_hr,
+                "FX Return (%)": curr_return * 100
+            })
+            
+            total_unhedged += unhedged
+            total_hedged += hedged
+        
+        # Display results
+        results_df = pd.DataFrame(results)
+        st.dataframe(
+            results_df.style.format({
+                "FX Return (%)": "{:.2f}%",
+                "Hedge Ratio (%)": "{:.1f}%",
+                "Unhedged Value": "${:,.2f}",
+                "Hedged Value": "${:,.2f}"
+            })
+        )
+        
+        st.metric("Total Portfolio Value (Unhedged)", f"${total_unhedged:,.2f}")
+        st.metric("Total Portfolio Value (Hedged)", f"${total_hedged:,.2f}",
+                 delta=f"{(total_hedged-total_unhedged):,.2f} vs unhedged")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+**Global FX Hedge App** | *Data from Yahoo Finance* | [Methodology](#)
+""")
