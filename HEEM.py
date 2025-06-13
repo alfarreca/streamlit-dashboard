@@ -52,6 +52,7 @@ def load_currency_data():
                     np.random.uniform(0.8, 1.2, (len(date_range), len(tickers))),
                     index=date_range,
                     columns=list(tickers.values())
+                )
             
             returns = prices.pct_change().dropna()
             volatility = returns.rolling(21).std() * np.sqrt(252)  # Annualized volatility
