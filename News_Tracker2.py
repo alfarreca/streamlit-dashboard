@@ -1,19 +1,18 @@
-# --- NLTK Resource Check Block (place at top of script) ---
+# --- NLTK Download-in-Code Block for Streamlit Cloud ---
 import nltk
 
-def ensure_nltk_resource(resource_path):
+def safe_nltk_download(package):
     try:
-        nltk.data.find(resource_path)
+        if package == "vader_lexicon":
+            nltk.data.find("sentiment/vader_lexicon")
+        elif package == "punkt":
+            nltk.data.find("tokenizers/punkt")
     except LookupError:
-        raise RuntimeError(
-            f"Required NLTK resource '{resource_path}' not found. "
-            "Please pre-install it in your environment using: "
-            "python -m nltk.downloader vader_lexicon punkt"
-        )
+        nltk.download(package, quiet=True)
 
-ensure_nltk_resource('sentiment/vader_lexicon')
-ensure_nltk_resource('tokenizers/punkt')
-# ----------------------------------------------------------
+safe_nltk_download("vader_lexicon")
+safe_nltk_download("punkt")
+# --------------------------------------------------------
 
 import streamlit as st
 import feedparser
