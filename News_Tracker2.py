@@ -1,19 +1,19 @@
-# NLTK Safe Download Block
+# --- NLTK Resource Check Block (place at top of script) ---
 import nltk
 
-def safe_nltk_download(package):
+def ensure_nltk_resource(resource_path):
     try:
-        if package == "vader_lexicon":
-            nltk.data.find("sentiment/vader_lexicon")
-        elif package == "punkt":
-            nltk.data.find("tokenizers/punkt")
-        else:
-            nltk.data.find(package)
+        nltk.data.find(resource_path)
     except LookupError:
-        nltk.download(package)
+        raise RuntimeError(
+            f"Required NLTK resource '{resource_path}' not found. "
+            "Please pre-install it in your environment using: "
+            "python -m nltk.downloader vader_lexicon punkt"
+        )
 
-safe_nltk_download("vader_lexicon")
-safe_nltk_download("punkt")
+ensure_nltk_resource('sentiment/vader_lexicon')
+ensure_nltk_resource('tokenizers/punkt')
+# ----------------------------------------------------------
 
 import streamlit as st
 import feedparser
@@ -26,14 +26,12 @@ import requests
 from bs4 import BeautifulSoup
 import re
 
-# Set up the app
 st.set_page_config(page_title="Global News & Market Tracker", layout="wide")
 st.title("🌍 Global News & Market Impact Tracker")
 st.markdown("""
 Tracking the most important financial, monetary and geopolitical news from the last 24 hours with market impact analysis.
 """)
 
-# Session state
 if 'processed' not in st.session_state:
     st.session_state.processed = False
 if 'all_news' not in st.session_state:
@@ -41,7 +39,6 @@ if 'all_news' not in st.session_state:
 if 'market_data' not in st.session_state:
     st.session_state.market_data = {}
 
-# News categories and sources (please fill out keywords/sources as you need)
 NEWS_CATEGORIES = {
     'financial': {
         'keywords': [
@@ -86,8 +83,6 @@ NEWS_CATEGORIES = {
     }
 }
 
-# --- BEGIN: Expanded Asset/Event Mapping ---
-
 GEOPOLITICAL_RISK_ASSET_MAP = {
     'war': ['GC=F', 'SI=F', 'USD=X', 'JPY=X', 'TLT', 'RTX', 'LMT', 'GD', 'NOC', 'BA', 'ITA', 'OIL', 'CL=F'],
     'conflict': ['GC=F', 'USD=X', 'TLT', 'LMT', 'RTX', 'OIL', 'CL=F'],
@@ -99,7 +94,6 @@ GEOPOLITICAL_RISK_ASSET_MAP = {
     'north korea': ['GC=F', 'USD=X', 'JPY=X', 'TLT'],
     'iran': ['CL=F', 'USO', 'GC=F', 'USD=X'],
     'middle east': ['CL=F', 'USO', 'GC=F', 'USD=X', 'EIS', 'KSA'],
-    # ... add other mappings as needed
 }
 
 FINANCIAL_RISK_ASSET_MAP = {
@@ -109,7 +103,6 @@ FINANCIAL_RISK_ASSET_MAP = {
     'fed rate hike': ['^TNX', 'USD=X', 'TBT', 'XLF', 'KRE', 'JPM', 'GS'],
     'bank failure': ['GLD', 'BTC-USD', 'TLT', 'USD=X', 'XLF'],
     'earnings season': ['SPY', 'QQQ', 'DIA'],
-    # ... add other mappings as needed
 }
 
 MONETARY_EVENT_ASSET_MAP = {
@@ -121,13 +114,11 @@ MONETARY_EVENT_ASSET_MAP = {
     'quantitative tightening': ['USD=X', '^TNX', 'TBT', 'IEF'],
     'monetary stimulus': ['GLD', 'SPY', 'QQQ', 'BTC-USD', 'TLT'],
     'yield curve inversion': ['TLT', 'IEF', 'USD=X', 'GLD', 'XLP', 'XLU'],
-    # ... add other mappings as needed
 }
 
 def extract_assets_from_event(text):
     detected_assets = set()
     text_lower = text.lower()
-
     for keyword, assets in GEOPOLITICAL_RISK_ASSET_MAP.items():
         if keyword in text_lower:
             detected_assets.update(assets)
@@ -139,8 +130,6 @@ def extract_assets_from_event(text):
             detected_assets.update(assets)
     return list(detected_assets)
 
-# --- END: Expanded Asset/Event Mapping ---
-
 TICKER_PATTERN = r'\b([A-Z]{2,4})\b(?=\s*\(?\d*\)?)'
 
 @st.cache_data
@@ -149,13 +138,11 @@ def get_sp500_tickers():
     df = table[0]
     return df['Symbol'].tolist()
 
-# News fetching logic with event-based asset mapping
 @st.cache_data(ttl=3600, show_spinner="Fetching latest news...")
 def fetch_all_news():
     sp500_tickers = get_sp500_tickers()
     all_news = []
     cutoff_time = datetime.now() - timedelta(hours=24)
-    # Financial news
     for source, url in NEWS_CATEGORIES['financial']['sources'].items():
         feed = feedparser.parse(url)
         for entry in feed.entries[:50]:
@@ -171,7 +158,6 @@ def fetch_all_news():
                     'category': 'financial',
                     'has_market_data': len(tickers) > 0
                 })
-    # Geopolitical news
     for source, url in NEWS_CATEGORIES['geopolitical']['sources'].items():
         feed = feedparser.parse(url)
         for entry in feed.entries[:50]:
@@ -190,5 +176,4 @@ def fetch_all_news():
     all_news.sort(key=lambda x: x['published'], reverse=True)
     return all_news
 
-# --- Rest of your app (market data fetch, sentiment, Streamlit UI, etc.) remains the same ---
-
+# ...rest of your app (market data, sentiment, Streamlit UI, etc.) remains unchanged
