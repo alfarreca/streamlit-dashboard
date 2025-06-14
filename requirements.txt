@@ -17,3 +17,4 @@ xlsxwriter
 curl_cffi
 lxml
 vaderSentiment
+seaborn
