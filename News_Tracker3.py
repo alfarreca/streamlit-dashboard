@@ -28,7 +28,7 @@ import re
 st.set_page_config(page_title="Global News & Market Tracker", layout="wide")
 st.title("🌍 Global News & Market Impact Tracker")
 st.markdown("""
-Tracking the most important financial, monetary, and geopolitical news from the last 24 hours with market impact analysis.
+Tracking the most important financial, monetary, and geopolitical news from the last 24 hours with market impact analysis and actionable AI trade suggestions.
 """)
 
 if 'processed' not in st.session_state:
@@ -204,9 +204,6 @@ def analyze_news_sentiment(news_items, market_data):
 
 # --- AI AGENT LOGIC ---
 def ai_trade_advice(news_sentiment, market_change, asset_type=None):
-    """
-    Returns AI trade advice based on news sentiment, daily price change, and (optional) asset class.
-    """
     if news_sentiment is None:
         return "No clear action"
     if news_sentiment > 0.4 and (market_change is None or market_change > -1):
@@ -308,7 +305,6 @@ else:
                                 """,
                                 unsafe_allow_html=True
                             )
-                            # --- AI Advice Display ---
                             advice = ai_trade_advice(
                                 data.get('news_sentiment'),
                                 data.get('change'),
@@ -325,4 +321,39 @@ if st.session_state.market_data:
     st.header("Global Market Impact Analysis")
     impact_data = []
     for ticker, data in st.session_state.market_data.items():
-        if data['type'] in asset_types and (data['news_sentiment'] is None or data['news_sentiment'] >= min_sent
+        if data['type'] in asset_types and (data['news_sentiment'] is None or data['news_sentiment'] >= min_sentiment):
+            impact_data.append({
+                'Ticker': ticker,
+                'Name': data['name'],
+                'Price': data['price'],
+                'Daily Change (%)': data['change'],
+                'P/E Ratio': data['pe_ratio'],
+                'News Sentiment': data['news_sentiment'] if data['news_sentiment'] is not None else 0,
+                'Type': data['type'],
+                'Sector': data['sector']
+            })
+    if impact_data:
+        df = pd.DataFrame(impact_data)
+        st.subheader("News Sentiment vs Price Movement")
+        fig = px.scatter(
+            df,
+            x='News Sentiment',
+            y='Daily Change (%)',
+            color='Type',
+            hover_data=['Name', 'Sector'],
+            title="How News Correlates with Market Movements",
+            color_discrete_map={
+                'stock': '#636EFA',
+                'commodity': '#EF553B',
+                'index': '#00CC96'
+            }
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Top Market Movers by Category")
+        for asset_type in asset_types:
+            if asset_type in df['Type'].unique():
+                st.markdown(f"**{asset_type.capitalize()}s**")
+                type_df = df[df['Type'] == asset_type].sort_values('Daily Change (%)', key=abs, ascending=False)
+                st.dataframe(type_df.head(10), hide_index=True)
+    else:
+        st.warning("No market impact data meets the current criteria.")
