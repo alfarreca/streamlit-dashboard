@@ -242,6 +242,12 @@ def analyze_news_sentiment(news_items, market_data):
     
     return market_data
 
+# Format price display
+def format_price(price):
+    if isinstance(price, float):
+        return f"${price:.2f}"
+    return f"${price}"
+
 # Main processing function
 def process_news():
     with st.spinner("Processing global news and market data..."):
@@ -339,7 +345,7 @@ else:
                             st.markdown(
                                 f"""
                                 **{ticker}** ({data['name']})
-                                - Price: ${data['price']:.2f if isinstance(data['price'], float) else data['price']}
+                                - Price: {format_price(data['price'])}
                                 - Change: <span style='color:{change_color}'>{change_icon} {abs(data['change']):.2f}%</span>
                                 - Type: {data['type'].capitalize()}
                                 - Sentiment: {data['news_sentiment']:.2f if data['news_sentiment'] is not None else 'N/A'}
