@@ -238,7 +238,7 @@ def analyze_news_sentiment(news_items, market_data):
     
     # Calculate average sentiment per ticker
     for ticker, scores in ticker_sentiments.items():
-        market_data[ticker]['news_sentiment'] = sum(scores) / len(scores) if scores else 0
+        market_data[ticker]['news_sentiment'] = sum(scores) / len(scores) if scores else None
     
     return market_data
 
@@ -247,6 +247,12 @@ def format_price(price):
     if isinstance(price, float):
         return f"${price:.2f}"
     return f"${price}"
+
+# Format sentiment display
+def format_sentiment(sentiment):
+    if sentiment is None:
+        return "N/A"
+    return f"{sentiment:.2f}"
 
 # Main processing function
 def process_news():
@@ -348,7 +354,7 @@ else:
                                 - Price: {format_price(data['price'])}
                                 - Change: <span style='color:{change_color}'>{change_icon} {abs(data['change']):.2f}%</span>
                                 - Type: {data['type'].capitalize()}
-                                - Sentiment: {data['news_sentiment']:.2f if data['news_sentiment'] is not None else 'N/A'}
+                                - Sentiment: {format_sentiment(data['news_sentiment'])}
                                 """,
                                 unsafe_allow_html=True
                             )
