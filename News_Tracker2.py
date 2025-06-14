@@ -28,7 +28,7 @@ import re
 st.set_page_config(page_title="Global News & Market Tracker", layout="wide")
 st.title("🌍 Global News & Market Impact Tracker")
 st.markdown("""
-Tracking the most important financial, monetary and geopolitical news from the last 24 hours with market impact analysis.
+Tracking the most important financial, monetary, and geopolitical news from the last 24 hours with market impact analysis.
 """)
 
 if 'processed' not in st.session_state:
@@ -142,37 +142,199 @@ def fetch_all_news():
     sp500_tickers = get_sp500_tickers()
     all_news = []
     cutoff_time = datetime.now() - timedelta(hours=24)
-    for source, url in NEWS_CATEGORIES['financial']['sources'].items():
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:50]:
-            pub_date = datetime(*entry.published_parsed[:6])
-            if pub_date >= cutoff_time and any(keyword in entry.title.lower() for keyword in NEWS_CATEGORIES['financial']['keywords']):
-                tickers = extract_assets_from_event(entry.title + " " + entry.get('summary', ''))
-                all_news.append({
-                    'title': entry.title,
-                    'link': entry.link,
-                    'published': pub_date.strftime('%Y-%m-%d %H:%M'),
-                    'source': source,
-                    'tickers': list(set(tickers)),
-                    'category': 'financial',
-                    'has_market_data': len(tickers) > 0
-                })
-    for source, url in NEWS_CATEGORIES['geopolitical']['sources'].items():
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:50]:
-            pub_date = datetime(*entry.published_parsed[:6])
-            if pub_date >= cutoff_time and any(keyword in entry.title.lower() for keyword in NEWS_CATEGORIES['geopolitical']['keywords']):
-                tickers = extract_assets_from_event(entry.title + " " + entry.get('summary', ''))
-                all_news.append({
-                    'title': entry.title,
-                    'link': entry.link,
-                    'published': pub_date.strftime('%Y-%m-%d %H:%M'),
-                    'source': source,
-                    'tickers': list(set(tickers)),
-                    'category': 'geopolitical',
-                    'has_market_data': len(tickers) > 0
-                })
+    for category in NEWS_CATEGORIES:
+        for source, url in NEWS_CATEGORIES[category]['sources'].items():
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:50]:
+                pub_date = datetime(*entry.published_parsed[:6])
+                if pub_date >= cutoff_time and any(keyword in entry.title.lower() for keyword in NEWS_CATEGORIES[category]['keywords']):
+                    tickers = extract_assets_from_event(entry.title + " " + entry.get('summary', ''))
+                    all_news.append({
+                        'title': entry.title,
+                        'link': entry.link,
+                        'published': pub_date.strftime('%Y-%m-%d %H:%M'),
+                        'source': source,
+                        'tickers': list(set(tickers)),
+                        'category': category,
+                        'has_market_data': len(tickers) > 0
+                    })
     all_news.sort(key=lambda x: x['published'], reverse=True)
     return all_news
 
-# ...rest of your app (market data, sentiment, Streamlit UI, etc.) remains unchanged
+@st.cache_data(ttl=1800, show_spinner="Fetching market data...")
+def get_market_data(tickers):
+    data = {}
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="1d")
+            info = stock.info
+            if not hist.empty:
+                current_price = hist['Close'].iloc[-1]
+                prev_close = info.get('previousClose', hist['Close'].iloc[-1] if len(hist) > 1 else current_price)
+                change_pct = ((current_price - prev_close) / prev_close) * 100 if prev_close else 0
+                data[ticker] = {
+                    'price': current_price,
+                    'change': change_pct,
+                    'name': info.get('shortName', ticker),
+                    'pe_ratio': info.get('trailingPE'),
+                    'sector': info.get('sector', 'Commodity' if '=F' in ticker else 'Index'),
+                    'news_sentiment': None,
+                    'type': 'commodity' if '=F' in ticker else ('index' if '^' in ticker else 'stock')
+                }
+        except Exception as e:
+            continue
+    return data
+
+def analyze_news_sentiment(news_items, market_data):
+    sia = SentimentIntensityAnalyzer()
+    ticker_sentiments = {}
+    for item in news_items:
+        if not item['tickers']:
+            continue
+        sentiment = sia.polarity_scores(item['title'])
+        for ticker in item['tickers']:
+            if ticker in market_data:
+                if ticker not in ticker_sentiments:
+                    ticker_sentiments[ticker] = []
+                ticker_sentiments[ticker].append(sentiment['compound'])
+    for ticker, scores in ticker_sentiments.items():
+        market_data[ticker]['news_sentiment'] = sum(scores) / len(scores) if scores else None
+    return market_data
+
+def format_price(price):
+    if isinstance(price, float):
+        return f"${price:.2f}"
+    return f"${price}"
+
+def format_sentiment(sentiment):
+    if sentiment is None:
+        return "N/A"
+    return f"{sentiment:.2f}"
+
+def process_news():
+    with st.spinner("Processing global news and market data..."):
+        all_news = fetch_all_news()
+        all_tickers = list(set(ticker for item in all_news for ticker in item['tickers']))
+        market_data = get_market_data(all_tickers) if all_tickers else {}
+        if market_data:
+            market_data = analyze_news_sentiment(all_news, market_data)
+        st.session_state.all_news = all_news
+        st.session_state.market_data = market_data
+        st.session_state.processed = True
+
+if not st.session_state.processed:
+    process_news()
+
+# --- SIDEBAR ---
+with st.sidebar:
+    st.header("Filters")
+    news_category = st.multiselect(
+        "News Categories",
+        ['financial', 'geopolitical'],
+        default=['financial', 'geopolitical']
+    )
+    show_only_market_news = st.checkbox("Only show news with market data", True)
+    min_sentiment = st.slider("Minimum sentiment score", -1.0, 1.0, -1.0, 0.1)
+    asset_types = st.multiselect(
+        "Asset Types",
+        ['stock', 'commodity', 'index'],
+        default=['stock', 'commodity', 'index']
+    )
+    if st.button("Refresh Data"):
+        st.cache_data.clear()
+        st.session_state.processed = False
+        st.rerun()
+
+# --- MAIN NEWS VIEW ---
+st.header("Global News & Market Impact (Last 24 Hours)")
+if not st.session_state.all_news:
+    st.warning("No relevant news found in the last 24 hours.")
+else:
+    displayed_count = 0
+    for item in st.session_state.all_news:
+        if item['category'] not in news_category:
+            continue
+        if show_only_market_news and not item['tickers']:
+            continue
+        with st.expander(f"{item['title']} ({item['source']} - {item['published']})"):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                try:
+                    response = requests.get(item['link'], timeout=5)
+                    soup = BeautifulSoup(response.text, 'html.parser')
+                    paragraphs = soup.find_all('p')
+                    summary = ' '.join(p.get_text() for p in paragraphs[:3])
+                    st.markdown(f"**Summary**: {summary[:500]}...")
+                except:
+                    st.markdown("*Could not fetch article content*")
+                st.markdown(f"[Read full article]({item['link']})")
+                st.markdown(f"**Category**: {item['category'].capitalize()}")
+            with col2:
+                if item['tickers']:
+                    st.markdown("**Related Assets:**")
+                    for ticker in item['tickers']:
+                        if ticker in st.session_state.market_data:
+                            data = st.session_state.market_data[ticker]
+                            if data['type'] not in asset_types:
+                                continue
+                            change_color = "green" if data['change'] >= 0 else "red"
+                            change_icon = "↑" if data['change'] >= 0 else "↓"
+                            st.markdown(
+                                f"""
+                                **{ticker}** ({data['name']})
+                                - Price: {format_price(data['price'])}
+                                - Change: <span style='color:{change_color}'>{change_icon} {abs(data['change']):.2f}%</span>
+                                - Type: {data['type'].capitalize()}
+                                - Sentiment: {format_sentiment(data['news_sentiment'])}
+                                """,
+                                unsafe_allow_html=True
+                            )
+                        else:
+                            st.markdown(f"- {ticker} (data unavailable)")
+            displayed_count += 1
+    if displayed_count == 0:
+        st.warning("No news matches current filters.")
+
+# --- CHARTS & IMPACT TABLES ---
+if st.session_state.market_data:
+    st.header("Global Market Impact Analysis")
+    impact_data = []
+    for ticker, data in st.session_state.market_data.items():
+        if data['type'] in asset_types and (data['news_sentiment'] is None or data['news_sentiment'] >= min_sentiment):
+            impact_data.append({
+                'Ticker': ticker,
+                'Name': data['name'],
+                'Price': data['price'],
+                'Daily Change (%)': data['change'],
+                'P/E Ratio': data['pe_ratio'],
+                'News Sentiment': data['news_sentiment'] if data['news_sentiment'] is not None else 0,
+                'Type': data['type'],
+                'Sector': data['sector']
+            })
+    if impact_data:
+        df = pd.DataFrame(impact_data)
+        st.subheader("News Sentiment vs Price Movement")
+        fig = px.scatter(
+            df,
+            x='News Sentiment',
+            y='Daily Change (%)',
+            color='Type',
+            hover_data=['Name', 'Sector'],
+            title="How News Correlates with Market Movements",
+            color_discrete_map={
+                'stock': '#636EFA',
+                'commodity': '#EF553B',
+                'index': '#00CC96'
+            }
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.subheader("Top Market Movers by Category")
+        for asset_type in asset_types:
+            if asset_type in df['Type'].unique():
+                st.markdown(f"**{asset_type.capitalize()}s**")
+                type_df = df[df['Type'] == asset_type].sort_values('Daily Change (%)', key=abs, ascending=False)
+                st.dataframe(type_df.head(10), hide_index=True)
+    else:
+        st.warning("No market impact data meets the current criteria.")
+
