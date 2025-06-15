@@ -174,11 +174,25 @@ with tab2:
                 else:
                     st.write("_No recent price data available for this symbol._")
 
+                # Robust earnings date logic
+                earnings_shown = False
                 cal = data.calendar
                 if isinstance(cal, pd.DataFrame) and not cal.empty and 'Earnings Date' in cal.index:
                     earnings = cal.loc['Earnings Date'][0]
                     st.write(f"**Next Earnings Date:** {earnings.strftime('%Y-%m-%d') if isinstance(earnings, pd.Timestamp) else earnings}")
+                    earnings_shown = True
                 else:
+                    try:
+                        edf = data.earnings_dates
+                        if isinstance(edf, pd.DataFrame) and not edf.empty:
+                            next_earning = edf.index[0] if hasattr(edf, "index") and len(edf.index) > 0 else None
+                            if next_earning:
+                                st.write(f"**Next Earnings Date:** {pd.to_datetime(next_earning).strftime('%Y-%m-%d')}")
+                                earnings_shown = True
+                    except Exception:
+                        pass
+
+                if not earnings_shown:
                     st.write("_Earnings date unavailable._")
             except Exception as e:
                 st.warning(f"Could not retrieve data for {ticker}: {e}")
