@@ -25,6 +25,43 @@ if "watchlist" not in st.session_state:
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = None
 
+# --- Demo Data Fallback ---
+def get_demo_data():
+    """Fallback demo data when API fails"""
+    return {
+        "results": [
+            {
+                "ticker": "NVDA",
+                "reportDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
+                "epsEstimate": 3.34,
+                "eps": 3.71,
+                "surprisePercent": 11.08
+            },
+            {
+                "ticker": "TSLA",
+                "reportDate": (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"),
+                "epsEstimate": 0.73,
+                "eps": 0.85,
+                "surprisePercent": 16.44
+            }
+        ]
+    }
+
+# --- Market Data Functions ---
+def calculate_iv_rank(ticker):
+    """Calculate IV percentile (mock for demo)"""
+    return min(100, int(np.random.normal(60, 20)))
+
+def get_stock_price(ticker):
+    """Get stock price (mock for demo)"""
+    prices = {
+        "NVDA": 450.50,
+        "TSLA": 210.75,
+        "AAPL": 175.25,
+        "MSFT": 310.40
+    }
+    return prices.get(ticker, 100.00)
+
 # --- Optimized Data Fetching ---
 @st.cache_data(ttl=300, show_spinner="Fetching market data...")
 def fetch_market_data():
@@ -55,7 +92,7 @@ def fetch_market_data():
         "last_updated": datetime.now()
     }
 
-# --- UI Components with Error Boundaries ---
+# --- UI Components ---
 def safe_render_earnings_card(ticker, data):
     try:
         with st.expander(f"{ticker}", expanded=False):
