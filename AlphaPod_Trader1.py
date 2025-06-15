@@ -4,6 +4,7 @@ import requests
 from datetime import datetime, timedelta
 import numpy as np
 import time
+import io
 
 # --- Configuration ---
 st.set_page_config(layout="wide", page_title="AlphaPod Trader", page_icon="📈")
@@ -127,7 +128,23 @@ def main():
                   st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M:%S")
                   if st.session_state.last_refresh else "Never")
 
+        # --- XLSX Watchlist Upload ---
         st.header("Watchlist Management")
+        uploaded_file = st.file_uploader("Upload Watchlist (.xlsx)", type=["xlsx"])
+        if uploaded_file is not None:
+            try:
+                df_watchlist = pd.read_excel(uploaded_file)
+                if "Symbol" in df_watchlist.columns and "Exchange" in df_watchlist.columns:
+                    tickers = df_watchlist["Symbol"].astype(str).str.upper().tolist()
+                    # Only add new tickers
+                    new_tickers = [t for t in tickers if t not in st.session_state.watchlist]
+                    st.session_state.watchlist.extend(new_tickers)
+                    st.success(f"Added {len(new_tickers)} tickers to watchlist!")
+                else:
+                    st.error("Excel file must contain columns: 'Symbol' and 'Exchange'.")
+            except Exception as e:
+                st.error(f"Failed to read file: {e}")
+
         if st.session_state.watchlist:
             for ticker in st.session_state.watchlist:
                 col1, col2 = st.columns([4, 1])
