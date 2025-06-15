@@ -96,22 +96,23 @@ with dashboard_tab:
                 data = yf.Ticker(ticker)
                 hist = data.history(period="1mo")
                 info = data.info
+
                 # Price, change, etc.
-                last_quote = hist['Close'][-1] if not hist.empty else None
-                prev_quote = hist['Close'][-2] if len(hist) > 1 else last_quote
+                last_quote = hist['Close'][-1] if isinstance(hist, pd.DataFrame) and not hist.empty else None
+                prev_quote = hist['Close'][-2] if isinstance(hist, pd.DataFrame) and len(hist) > 1 else last_quote
                 pct_change = ((last_quote - prev_quote) / prev_quote * 100) if last_quote and prev_quote else 0
                 st.metric("Last Price", f"${last_quote:.2f}" if last_quote else "N/A", 
                           f"{pct_change:+.2f}%" if last_quote and prev_quote else "N/A")
 
                 # Chart
-                if not hist.empty:
+                if isinstance(hist, pd.DataFrame) and not hist.empty:
                     st.line_chart(hist['Close'], use_container_width=True)
                 else:
                     st.write("_No recent price data available for this symbol._")
 
-                # Earnings date
+                # Earnings date (robust)
                 cal = data.calendar
-                if not cal.empty and 'Earnings Date' in cal.index:
+                if isinstance(cal, pd.DataFrame) and not cal.empty and 'Earnings Date' in cal.index:
                     earnings = cal.loc['Earnings Date'][0]
                     st.write(f"**Next Earnings Date:** {earnings.strftime('%Y-%m-%d') if isinstance(earnings, pd.Timestamp) else earnings}")
                 else:
