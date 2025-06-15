@@ -1,23 +1,17 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import yfinance as yf
 import requests
 from datetime import datetime, timedelta
+import numpy as np
 import time
 
 # --- Configuration ---
-st.set_page_config(
-    layout="wide",
-    page_title="AlphaPod Trader Pro",
-    page_icon="📊",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(layout="wide", page_title="AlphaPod Trader", page_icon="📈")
 
 # --- API Setup ---
 POLYGON_KEY = st.secrets.get("POLYGON_KEY", "demo_key")
-TIMEOUT = 5  # Reduced timeout for faster fallback
-MAX_RETRIES = 2
+TIMEOUT = 10
+MAX_RETRIES = 3
 
 # --- Session State ---
 if "trades" not in st.session_state:
@@ -27,128 +21,118 @@ if "watchlist" not in st.session_state:
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = None
 
-# --- Optimized Data Fetching ---
-@st.cache_data(ttl=300, show_spinner=False)  # Disable spinner to prevent hangs
-def fetch_market_data():
-    """Safe API call with multiple fallbacks"""
-    def _fetch_polygon():
+# --- Market Data Fetching ---
+@st.cache_data(ttl=300, show_spinner="Fetching market data...")
+def fetch_data(url, params):
+    for attempt in range(MAX_RETRIES):
         try:
-            url = "https://api.polygon.io/v2/reference/earnings"
-            params = {
-                "apiKey": POLYGON_KEY,
-                "date.gte": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
-                "date.lte": (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d"),
-                "limit": 15  # Reduced for stability
-            }
             response = requests.get(url, params=params, timeout=TIMEOUT)
-            return response.json() if response.status_code == 200 else None
-        except:
-            return None
+            if response.status_code == 200:
+                return response.json()
+            time.sleep(2 ** attempt)
+        except requests.RequestException:
+            time.sleep(1)
+    return None
 
-    def _fetch_yfinance(tickers):
-        data = []
-        for ticker in tickers:
-            try:
-                stock = yf.Ticker(ticker)
-                calendar = stock.calendar
-                if not calendar.empty:
-                    eps = calendar.iloc[0]['Earnings']
-                    date = calendar.index[0]
-                    data.append({
-                        "ticker": ticker,
-                        "reportDate": date.strftime('%Y-%m-%d'),
-                        "epsEstimate": eps
-                    })
-            except:
-                continue
-        return {"results": data} if data else None
-
-    # Try Polygon first
-    data = _fetch_polygon()
-    
-    # Fallback to yfinance for top 10 S&P 500 stocks
-    if not data or 'results' not in data:
-        data = _fetch_yfinance(['NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL'])
-    
-    # Final fallback to hardcoded data
-    if not data:
-        data = {
-            "results": [
-                {
-                    "ticker": "NVDA",
-                    "reportDate": "2025-07-23",
-                    "epsEstimate": 3.45,
-                    "eps": 3.71,
-                    "surprisePercent": 7.5
-                },
-                {
-                    "ticker": "TSLA",
-                    "reportDate": "2025-07-21",
-                    "epsEstimate": 0.85,
-                    "eps": 0.92,
-                    "surprisePercent": 8.2
-                }
-            ]
-        }
-    
-    return {
-        "earnings": data,
-        "last_updated": datetime.now()
+def get_earnings_data():
+    url = "https://api.polygon.io/v2/reference/earnings"
+    params = {
+        "apiKey": POLYGON_KEY,
+        "date.gte": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
+        "date.lte": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
+        "limit": 20
     }
+    return fetch_data(url, params) or {"results": []}
 
-# --- UI Rendering ---
-def render_stock_card(ticker, data):
-    """Safe card rendering with error boundaries"""
-    try:
-        with st.expander(f"{ticker}", expanded=False):
-            cols = st.columns(2)
-            
-            with cols[0]:
-                st.metric("EPS Estimate", f"${data.get('epsEstimate', 0):.2f}")
-                st.metric("Last Surprise", f"{data.get('surprisePercent', 0):.2f}%")
-                
-            with cols[1]:
-                st.metric("Earnings Date", data.get('reportDate', 'N/A'))
-                if st.button("Refresh Data", key=f"refresh_{ticker}"):
-                    st.cache_data.clear()
-            
-            if st.button("Add to Watchlist", key=f"watch_{ticker}"):
+def get_stock_quote(ticker):
+    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
+    params = {"apiKey": POLYGON_KEY}
+    data = fetch_data(url, params)
+    if data and "results" in data:
+        return data["results"][0]["c"]
+    return None
+
+def calculate_iv_rank(ticker):
+    # Mock function for IV Rank (replace with real data as needed)
+    return np.clip(np.random.normal(50, 20), 0, 100)
+
+# --- UI Components ---
+def render_earnings_card(ticker, data):
+    with st.expander(f"{ticker}", expanded=False):
+        cols = st.columns([1, 1, 2])
+
+        with cols[0]:
+            st.metric("EPS Surprise", f"{data['surprise_pct']:.2f}%")
+            st.metric("IV Rank", f"{data['iv_rank']:.0f}%")
+
+        with cols[1]:
+            price = data.get('price', 'N/A')
+            st.metric("Price", f"${price:.2f}" if price != 'N/A' else price)
+            st.metric("Volume", f"{data['volume_ratio']:.1f}x")
+
+        with cols[2]:
+            if st.button("📊 Analyze", key=f"analyze_{ticker}"):
+                st.session_state.current_ticker = ticker
+            if st.button("➕ Add to Watchlist", key=f"watch_{ticker}"):
                 if ticker not in st.session_state.watchlist:
                     st.session_state.watchlist.append(ticker)
-                    st.toast(f"Added {ticker} to watchlist")
-    except Exception:
-        st.error("Error rendering card")
+                    st.toast(f"{ticker} added to watchlist")
+                else:
+                    st.toast(f"{ticker} already in watchlist")
 
-# --- Main App ---
+def remove_from_watchlist(ticker):
+    if ticker in st.session_state.watchlist:
+        st.session_state.watchlist.remove(ticker)
+        st.toast(f"{ticker} removed from watchlist")
+
+# --- Main Application ---
 def main():
-    st.title("📈 AlphaPod Trader Pro")
-    
-    # Control Panel
+    st.title("📈 AlphaPod Trader")
+
+    # Sidebar controls
     with st.sidebar:
         st.header("Controls")
-        if st.button("🔄 Refresh All Data", type="primary"):
+        if st.button("🔄 Refresh Data"):
             st.cache_data.clear()
             st.session_state.last_refresh = datetime.now()
-            st.rerun()
-        
-        st.divider()
-        st.write("Last Refresh:", st.session_state.last_refresh.strftime("%H:%M:%S") 
-                 if st.session_state.last_refresh else "Never")
-    
-    # Data Loading
-    try:
-        with st.spinner("Loading market data..."):
-            market_data = fetch_market_data()
-            st.session_state.last_refresh = market_data["last_updated"]
-            
-            # Main Display
-            st.header("Upcoming Earnings")
-            for play in market_data["earnings"].get("results", []):
-                render_stock_card(play["ticker"], play)
-                
-    except Exception as e:
-        st.error(f"Critical error: {str(e)}")
-        st.stop()
+
+        st.metric("Last Refresh",
+                  st.session_state.last_refresh.strftime("%Y-%m-%d %H:%M:%S")
+                  if st.session_state.last_refresh else "Never")
+
+        st.header("Watchlist Management")
+        if st.session_state.watchlist:
+            for ticker in st.session_state.watchlist:
+                col1, col2 = st.columns([4, 1])
+                col1.write(ticker)
+                if col2.button("❌", key=f"remove_{ticker}"):
+                    remove_from_watchlist(ticker)
+        else:
+            st.write("Watchlist is empty.")
+
+    # Fetch data
+    earnings_data = get_earnings_data()
+    st.session_state.last_refresh = datetime.now()
+
+    # Tabs for data display
+    earnings_tab, portfolio_tab = st.tabs(["📅 Earnings Plays", "💼 Portfolio"])
+
+    with earnings_tab:
+        st.header("Upcoming Earnings Opportunities")
+        for play in earnings_data["results"][:15]:
+            ticker = play["ticker"]
+            price = get_stock_quote(ticker)
+            data = {
+                "surprise_pct": play.get("surprisePercent", 0),
+                "iv_rank": calculate_iv_rank(ticker),
+                "price": price,
+                "volume_ratio": np.random.uniform(0.8, 2.0)  # Replace with actual data when available
+            }
+            render_earnings_card(ticker, data)
+
+    with portfolio_tab:
+        st.header("Trade History")
+        st.dataframe(st.session_state.trades, use_container_width=True)
 
 if __name__ == "__main__":
     main()
