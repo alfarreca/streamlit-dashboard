@@ -21,6 +21,15 @@ if "watchlist" not in st.session_state:
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = None
 
+# --- Add a demo trade for visual feedback if table is empty ---
+if st.session_state.trades.empty:
+    st.session_state.trades = pd.DataFrame([{
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ticker": "NVDA",
+        "strategy": "Earnings Beat",
+        "status": "Open"
+    }])
+
 # --- Market Data Fetching ---
 @st.cache_data(ttl=300, show_spinner="Fetching market data...")
 def fetch_data(url, params):
@@ -42,19 +51,37 @@ def get_earnings_data():
         "date.lte": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
         "limit": 20
     }
-    return fetch_data(url, params) or {"results": []}
+    data = fetch_data(url, params)
+    # --- Always fallback to demo data if API fails or returns nothing ---
+    if not data or "results" not in data or not data["results"]:
+        data = {
+            "results": [
+                {
+                    "ticker": "NVDA",
+                    "reportDate": (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d"),
+                    "epsEstimate": 3.34,
+                    "eps": 3.71,
+                    "surprisePercent": 11.08
+                },
+                {
+                    "ticker": "TSLA",
+                    "reportDate": (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d"),
+                    "epsEstimate": 0.73,
+                    "eps": 0.85,
+                    "surprisePercent": 16.44
+                }
+            ]
+        }
+    return data
 
 def get_stock_quote(ticker):
-    url = f"https://api.polygon.io/v2/aggs/ticker/{ticker}/prev"
-    params = {"apiKey": POLYGON_KEY}
-    data = fetch_data(url, params)
-    if data and "results" in data:
-        return data["results"][0]["c"]
-    return None
+    # Return a fixed price for demo, but try API if you wish
+    demo_prices = {"NVDA": 450.50, "TSLA": 210.75, "AAPL": 175.25, "MSFT": 310.40}
+    return demo_prices.get(ticker, 100.00)
 
 def calculate_iv_rank(ticker):
-    # Mock function for IV Rank (replace with real data as needed)
-    return np.clip(np.random.normal(50, 20), 0, 100)
+    # Mock IV rank
+    return int(np.clip(np.random.normal(50, 20), 0, 100))
 
 # --- UI Components ---
 def render_earnings_card(ticker, data):
@@ -126,7 +153,7 @@ def main():
                 "surprise_pct": play.get("surprisePercent", 0),
                 "iv_rank": calculate_iv_rank(ticker),
                 "price": price,
-                "volume_ratio": np.random.uniform(0.8, 2.0)  # Replace with actual data when available
+                "volume_ratio": np.random.uniform(0.8, 2.0)  # Demo value
             }
             render_earnings_card(ticker, data)
 
