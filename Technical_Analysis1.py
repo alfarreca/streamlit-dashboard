@@ -60,22 +60,22 @@ with st.sidebar:
     show_macd = st.checkbox("Show MACD", value=True)
     show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
 
-# Load ticker data from uploaded file with multi-sheet support
-@st.cache_data
-def load_tickers(uploaded_file):
+# Get sheet names from uploaded file
+def get_sheet_names(uploaded_file):
     if uploaded_file is not None:
         try:
-            # Get all sheet names
             xls = pd.ExcelFile(uploaded_file)
-            sheet_names = xls.sheet_names
-            
-            # Let user select which sheet to use
-            if len(sheet_names) > 1:
-                selected_sheet = st.selectbox("Select sheet to use", sheet_names, key="sheet_selector")
-                st.markdown(f"<div class='sheet-selector'>Using sheet: <strong>{selected_sheet}</strong></div>", unsafe_allow_html=True)
-            else:
-                selected_sheet = sheet_names[0]
-            
+            return xls.sheet_names
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            return []
+    return []
+
+# Load ticker data from specific sheet
+@st.cache_data
+def load_tickers_from_sheet(uploaded_file, selected_sheet):
+    if uploaded_file is not None and selected_sheet is not None:
+        try:
             df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
             
             if 'Symbol' not in df.columns or 'Exchange' not in df.columns:
@@ -92,13 +92,9 @@ def load_tickers(uploaded_file):
                 f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
                 f"{row['Symbol']}.{row['Exchange']}", axis=1)
             
-            # Show available sheets info
-            if len(sheet_names) > 1:
-                st.info(f"Available sheets: {', '.join(sheet_names)}")
-            
             return df
         except Exception as e:
-            st.error(f"Error reading file: {e}")
+            st.error(f"Error reading sheet {selected_sheet}: {e}")
             return None
     return None
 
@@ -174,7 +170,24 @@ def calculate_indicators(df):
 
 # Main app logic
 def main():
-    tickers_df = load_tickers(uploaded_file)
+    # Get sheet names first (not cached)
+    sheet_names = get_sheet_names(uploaded_file)
+    
+    # Let user select which sheet to use (outside cached function)
+    if len(sheet_names) > 1:
+        selected_sheet = st.selectbox("Select sheet to use", sheet_names, key="sheet_selector")
+        st.markdown(f"<div class='sheet-selector'>Using sheet: <strong>{selected_sheet}</strong></div>", unsafe_allow_html=True)
+    elif len(sheet_names) == 1:
+        selected_sheet = sheet_names[0]
+    else:
+        selected_sheet = None
+    
+    # Show available sheets info
+    if len(sheet_names) > 1:
+        st.info(f"Available sheets: {', '.join(sheet_names)}")
+    
+    # Load tickers from selected sheet (cached)
+    tickers_df = load_tickers_from_sheet(uploaded_file, selected_sheet)
     
     if tickers_df is not None:
         selected_display = st.selectbox("Select a ticker to analyze", tickers_df['Display_Name'])
@@ -284,7 +297,10 @@ def main():
                     st.error(f"Error plotting charts: {str(e)}")
     
     else:
-        st.info("Please upload an XLSX file with 'Symbol' and 'Exchange' columns to begin.")
+        if uploaded_file is not None:
+            st.info("Please select a valid sheet with 'Symbol' and 'Exchange' columns")
+        else:
+            st.info("Please upload an XLSX file with 'Symbol' and 'Exchange' columns to begin.")
 
 if __name__ == "__main__":
     main()
