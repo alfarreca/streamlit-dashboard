@@ -32,6 +32,9 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 15px;
     }
+    .sheet-selector {
+        margin-bottom: 15px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,14 +60,26 @@ with st.sidebar:
     show_macd = st.checkbox("Show MACD", value=True)
     show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
 
-# Load ticker data from uploaded file
+# Load ticker data from uploaded file with multi-sheet support
 @st.cache_data
 def load_tickers(uploaded_file):
     if uploaded_file is not None:
         try:
-            df = pd.read_excel(uploaded_file)
+            # Get all sheet names
+            xls = pd.ExcelFile(uploaded_file)
+            sheet_names = xls.sheet_names
+            
+            # Let user select which sheet to use
+            if len(sheet_names) > 1:
+                selected_sheet = st.selectbox("Select sheet to use", sheet_names, key="sheet_selector")
+                st.markdown(f"<div class='sheet-selector'>Using sheet: <strong>{selected_sheet}</strong></div>", unsafe_allow_html=True)
+            else:
+                selected_sheet = sheet_names[0]
+            
+            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+            
             if 'Symbol' not in df.columns or 'Exchange' not in df.columns:
-                st.error("The uploaded file must contain 'Symbol' and 'Exchange' columns.")
+                st.error("The selected sheet must contain 'Symbol' and 'Exchange' columns.")
                 return None
             
             # Create proper symbols for yfinance based on exchange
@@ -76,6 +91,10 @@ def load_tickers(uploaded_file):
             df['Display_Name'] = df.apply(lambda row: 
                 f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
                 f"{row['Symbol']}.{row['Exchange']}", axis=1)
+            
+            # Show available sheets info
+            if len(sheet_names) > 1:
+                st.info(f"Available sheets: {', '.join(sheet_names)}")
             
             return df
         except Exception as e:
