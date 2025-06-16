@@ -72,8 +72,10 @@ def load_tickers(uploaded_file):
                 f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
                 f"{row['Symbol']}", axis=1)
             
-            # Create display names
-            df['Display_Name'] = df['Symbol'] + '.' + df['Exchange']
+            # Create display names (without double .HK)
+            df['Display_Name'] = df.apply(lambda row: 
+                f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
+                f"{row['Symbol']}.{row['Exchange']}", axis=1)
             
             return df
         except Exception as e:
@@ -85,9 +87,15 @@ def load_tickers(uploaded_file):
 @st.cache_data
 def load_stock_data(ticker, start_date, end_date):
     try:
+        # Remove any duplicate .HK suffix if present
+        if ticker.endswith('.HK.HK'):
+            ticker = ticker.replace('.HK.HK', '.HK')
+            
         data = yf.download(ticker, start=start_date, end=end_date, progress=False)
         if data.empty:
-            st.error(f"No data found for {ticker}. Please check if the ticker symbol is correct.")
+            st.error(f"No data found for {ticker}. Please verify:")
+            st.error("- For HKEX stocks, use format 'XXXX.HK' (e.g., '9618.HK')")
+            st.error("- Check if the ticker exists on Yahoo Finance")
             return None
         
         # Ensure we have numeric data and proper formatting
