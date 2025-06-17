@@ -75,6 +75,7 @@ def fetch_market_data():
 def render_watchlist():
     st.header("Watchlist")
     for ticker in st.session_state.watchlist:
+        st.subheader(ticker)  # Display ticker symbol as section heading
         cols = st.columns([1, 1, 2])
         cols[0].metric("Price", f"${get_stock_price(ticker):.2f}")
         cols[0].metric("IV Rank", f"{calculate_iv_rank(ticker):.2f}%")
@@ -116,6 +117,7 @@ def main():
         st.header("Earnings Opportunities")
         for play in market_data["earnings"].get("results", []):
             ticker = play["ticker"]
+            st.subheader(ticker)  # Show ticker in earnings section too
             cols = st.columns([1,1,2])
             cols[0].metric("EPS Surprise", f"{play.get('surprisePercent', 0):.2f}%")
             cols[0].metric("IV Rank", f"{calculate_iv_rank(ticker):.2f}%")
