@@ -79,7 +79,8 @@ def render_watchlist():
         cols[0].metric("Price", f"${get_stock_price(ticker):.2f}")
         cols[0].metric("IV Rank", f"{calculate_iv_rank(ticker):.2f}%")
 
-        eps_surprise = get_demo_data(ticker).get("surprisePercent", "N/A")
+        demo = get_demo_data(ticker)
+        eps_surprise = demo.get("surprisePercent", "N/A") if demo else "N/A"
         cols[1].metric("EPS Surprise", f"{eps_surprise}%")
         cols[1].metric("Volume", "1.0x")
 
