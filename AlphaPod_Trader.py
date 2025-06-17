@@ -4,7 +4,7 @@ import requests
 from datetime import datetime, timedelta
 import numpy as np
 import time
-import yfinance as yf  # Added yfinance as fallback
+import yfinance as yf
 
 # --- Configuration ---
 st.set_page_config(
@@ -59,20 +59,6 @@ def get_demo_data(ticker=None):
                 "epsEstimate": 0.15,
                 "eps": 0.18,
                 "surprisePercent": 20.00
-            },
-            {
-                "ticker": "SMR",
-                "reportDate": (datetime.now() + timedelta(days=5)).strftime("%Y-%m-%d"),
-                "epsEstimate": -0.10,
-                "eps": -0.08,
-                "surprisePercent": 20.00
-            },
-            {
-                "ticker": "OKLO",
-                "reportDate": (datetime.now() + timedelta(days=6)).strftime("%Y-%m-%d"),
-                "epsEstimate": -0.20,
-                "eps": -0.15,
-                "surprisePercent": 25.00
             }
         ]
     }
@@ -127,23 +113,23 @@ def fetch_market_data():
                 if response.status_code == 200:
                     return response.json()
                 elif response.status_code == 429:
-                    st.warning(f"Rate limited. Waiting {RATE_LIMIT_DELAY} seconds...")
                     time.sleep(RATE_LIMIT_DELAY)
                     continue
+                elif response.status_code == 404:
+                    st.warning(f"Data not found for this request")
+                    return None
                 else:
                     st.warning(f"API error: {response.status_code}")
-                    break
+                    return None
             except Exception as e:
                 st.warning(f"Request failed: {str(e)}")
                 time.sleep(1)
         return None
     
-    # Earnings data
+    # Earnings data - using a more reliable endpoint
     earnings_url = "https://api.polygon.io/v2/reference/earnings"
     earnings_params = {
         "apiKey": POLYGON_KEY,
-        "date.gte": (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d"),
-        "date.lte": (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d"),
         "limit": 10  # Reduced for stability
     }
     
@@ -156,13 +142,12 @@ def fetch_market_data():
 
 # --- UI Components ---
 def render_watchlist():
-    """Render the watchlist section"""
+    """Render the watchlist section with unique keys"""
     st.header("Watchlist Overview")
     
-    for ticker in st.session_state.watchlist:
+    for i, ticker in enumerate(st.session_state.watchlist):
         with st.expander(f"### {ticker}", expanded=False):
             try:
-                # Get data with fallback
                 demo_data = get_demo_data(ticker)
                 price = get_stock_price(ticker)
                 iv_rank = calculate_iv_rank(ticker)
@@ -180,20 +165,21 @@ def render_watchlist():
                     else:
                         st.metric("EPS Surprise", "N/A")
                     
-                    st.metric("Volume", "1.0x")  # Simplified for demo
+                    st.metric("Volume", "1.0x")
                 
                 with cols[2]:
-                    if st.button("📊 Analyze", key=f"analyze_{ticker}"):
+                    # Use index in key to ensure uniqueness
+                    if st.button("📊 Analyze", key=f"analyze_{ticker}_{i}"):
                         st.session_state.current_ticker = ticker
-                    if st.button("❌ Remove", key=f"remove_{ticker}"):
+                    if st.button("❌ Remove", key=f"remove_{ticker}_{i}"):
                         st.session_state.watchlist.remove(ticker)
                         st.rerun()
             
             except Exception as e:
                 st.error(f"Error displaying {ticker}: {str(e)}")
 
-def safe_render_earnings_card(ticker, data):
-    """Render earnings cards with error handling"""
+def safe_render_earnings_card(ticker, data, index):
+    """Render earnings cards with unique keys"""
     try:
         with st.expander(f"{ticker}", expanded=False):
             cols = st.columns([1,1,2])
@@ -207,9 +193,10 @@ def safe_render_earnings_card(ticker, data):
                 st.metric("Volume", f"{data.get('volume_ratio', 0):.1f}x")
                 
             with cols[2]:
-                if st.button("📊 Analyze", key=f"analyze_{ticker}"):
+                # Include index in key to ensure uniqueness
+                if st.button("📊 Analyze", key=f"analyze_earn_{ticker}_{index}"):
                     st.session_state.current_ticker = ticker
-                if st.button("➕ Watchlist", key=f"watch_{ticker}"):
+                if st.button("➕ Watchlist", key=f"watch_{ticker}_{index}"):
                     if ticker not in st.session_state.watchlist:
                         st.session_state.watchlist.append(ticker)
                         st.toast(f"Added {ticker} to watchlist")
@@ -255,13 +242,13 @@ def main():
     
     with tab1:
         st.header("Earnings Opportunities")
-        for play in market_data["earnings"].get("results", [])[:15]:  # Limit to 15 items
+        for i, play in enumerate(market_data["earnings"].get("results", [])[:15]):
             safe_render_earnings_card(play["ticker"], {
                 "surprise_pct": play.get("surprisePercent", 0),
                 "iv_rank": calculate_iv_rank(play["ticker"]),
                 "price": get_stock_price(play["ticker"]),
-                "volume_ratio": 1.0  # Simplified for demo
-            })
+                "volume_ratio": 1.0
+            }, i)  # Pass index for unique keys
     
     with tab2:
         st.header("Your Portfolio")
