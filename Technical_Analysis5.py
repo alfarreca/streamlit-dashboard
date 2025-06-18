@@ -1,42 +1,79 @@
-# In the sidebar section (around line 50), add this:
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import matplotlib.pyplot as plt
+import ta  # Technical analysis library
+from io import BytesIO
+import numpy as np
+
+# Set page configuration
+st.set_page_config(
+    page_title="Stock Technical Analysis",
+    page_icon="📈",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for better appearance
+st.markdown("""
+    <style>
+    .main {
+        max-width: 1200px;
+    }
+    .stSelectbox {
+        margin-bottom: 20px;
+    }
+    .stFileUploader {
+        margin-bottom: 20px;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    .sheet-selector {
+        margin-bottom: 15px;
+    }
+    .company-comparison {
+        margin-top: 30px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# App title
+st.title("📊 Stock Technical Analysis Dashboard")
+
+# Sidebar for file upload and settings
+with st.sidebar:
+    st.header("Upload Ticker List")
+    uploaded_file = st.file_uploader(
+        "Choose an XLSX file with 'Symbol' and 'Exchange' columns",
+        type=["xlsx"]
+    )
+    
+    st.header("OR")
+    manual_ticker = st.text_input("Enter a single ticker (e.g. SPY, AAPL, 9618.HK)", 
+                                help="For HKEX stocks use format XXXX.HK (e.g. 9618.HK)")
+    
+    st.header("Analysis Settings")
+    analysis_type = st.radio("Analysis Type", ["Single Company", "Multi-Company Compare"])
+    start_date = st.date_input("Start date", pd.to_datetime("2020-01-01"))
+    end_date = st.date_input("End date", pd.to_datetime("today"))
+    
     st.header("Data Granularity")
     data_granularity = st.radio("Time Resolution", ["Daily", "Intraday (15min)"], index=0)
+    
+    st.header("Technical Indicators")
+    show_sma = st.checkbox("Show SMA (20, 50)", value=True)
+    show_ema = st.checkbox("Show EMA (20)", value=True)
+    show_rsi = st.checkbox("Show RSI (14)", value=True)
+    show_macd = st.checkbox("Show MACD", value=True)
+    show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
 
-# Replace the load_stock_data function with this:
-@st.cache_data
-def load_stock_data(ticker, start_date, end_date, granularity="Daily"):
-    try:
-        # Remove any duplicate .HK suffix if present
-        if ticker.endswith('.HK.HK'):
-            ticker = ticker.replace('.HK.HK', '.HK')
-            
-        if granularity == "Daily":
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-        else:  # Intraday (15min)
-            data = yf.download(ticker, start=start_date, end=end_date, interval="15m", progress=False)
-            
-        if data.empty:
-            st.error(f"No data found for {ticker}. Please verify:")
-            st.error("- For HKEX stocks, use format 'XXXX.HK' (e.g., '9618.HK')")
-            st.error("- Check if the ticker exists on Yahoo Finance")
-            st.error("- Note: Intraday data is typically only available for recent periods")
-            return None
-        
-        # Ensure we have numeric data and proper formatting
-        data = data.apply(pd.to_numeric, errors='coerce')
-        data = data.dropna()
-        
-        # Ensure Close prices are properly formatted
-        if isinstance(data['Close'], pd.DataFrame):
-            data['Close'] = data['Close'].squeeze()
-            
-        return data
-    except Exception as e:
-        st.error(f"Error downloading data for {ticker}: {e}")
-        return None
+# [Rest of your code remains exactly the same as in your original script]
+# [All the function definitions and main() implementation should follow]
+# [Make sure to maintain consistent indentation throughout]
 
-# In the main logic where stock_data is loaded (around line 300), modify to:
-            stock_data = load_stock_data(base_symbol, start_date, end_date, data_granularity)
-
-# And in the comparison section (around line 380), modify to:
-                        stock_data = load_stock_data(base_symbol, start_date, end_date, data_granularity)
+if __name__ == "__main__":
+    main()
