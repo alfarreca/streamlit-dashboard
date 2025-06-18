@@ -41,7 +41,6 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# App title
 st.title("📊 Stock Technical Analysis Dashboard")
 
 # Sidebar for file upload and settings
@@ -61,15 +60,21 @@ with st.sidebar:
     start_date = st.date_input("Start date", pd.to_datetime("2020-01-01"))
     end_date = st.date_input("End date", pd.to_datetime("today"))
     
-    st.header("Data Granularity")
-    data_granularity = st.radio("Time Resolution", ["Daily", "Intraday (15min)"], index=0)
-    
     st.header("Technical Indicators")
     show_sma = st.checkbox("Show SMA (20, 50)", value=True)
     show_ema = st.checkbox("Show EMA (20)", value=True)
     show_rsi = st.checkbox("Show RSI (14)", value=True)
     show_macd = st.checkbox("Show MACD", value=True)
     show_bollinger = st.checkbox("Show Bollinger Bands", value=True)
+
+# --- ADDED: Fetch live price function ---
+def fetch_live_price(ticker):
+    try:
+        info = yf.Ticker(ticker)
+        price = info.fast_info['last_price']
+        return price
+    except Exception:
+        return None
 
 # Get sheet names from uploaded file
 def get_sheet_names(uploaded_file):
@@ -111,22 +116,17 @@ def load_tickers_from_sheet(uploaded_file, selected_sheet):
 
 # Download stock data
 @st.cache_data
-def load_stock_data(ticker, start_date, end_date, granularity="Daily"):
+def load_stock_data(ticker, start_date, end_date):
     try:
         # Remove any duplicate .HK suffix if present
         if ticker.endswith('.HK.HK'):
             ticker = ticker.replace('.HK.HK', '.HK')
             
-        if granularity == "Daily":
-            data = yf.download(ticker, start=start_date, end=end_date, progress=False)
-        else:  # Intraday (15min)
-            data = yf.download(ticker, start=start_date, end=end_date, interval="15m", progress=False)
-            
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
         if data.empty:
             st.error(f"No data found for {ticker}. Please verify:")
             st.error("- For HKEX stocks, use format 'XXXX.HK' (e.g., '9618.HK')")
             st.error("- Check if the ticker exists on Yahoo Finance")
-            st.error("- Note: Intraday data is typically only available for recent periods")
             return None
         
         # Ensure we have numeric data and proper formatting
@@ -142,7 +142,6 @@ def load_stock_data(ticker, start_date, end_date, granularity="Daily"):
         st.error(f"Error downloading data for {ticker}: {e}")
         return None
 
-# Calculate technical indicators with proper data formatting
 def calculate_indicators(df):
     if df is None or df.empty:
         return df
@@ -184,7 +183,6 @@ def calculate_indicators(df):
         st.error(f"Error calculating indicators: {str(e)}")
         return df
 
-# Plot price chart for a single company
 def plot_single_price_chart(stock_data, selected_display):
     st.subheader(f"{selected_display} Price Chart")
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -207,7 +205,6 @@ def plot_single_price_chart(stock_data, selected_display):
     ax.grid(True)
     st.pyplot(fig)
 
-# Plot comparison chart for multiple companies
 def plot_comparison_chart(comparison_data, selected_companies):
     st.subheader("Price Comparison")
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -223,32 +220,37 @@ def plot_comparison_chart(comparison_data, selected_companies):
     ax.grid(True)
     st.pyplot(fig)
 
-# Display metrics for a single company
-def display_single_metrics(stock_data, selected_display):
+# --- UPDATED: Show both Live Price and Last Close ---
+def display_single_metrics(stock_data, selected_display, ticker_symbol):
     try:
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            last_close = float(stock_data['Close'].iloc[-1]) if not stock_data.empty else np.nan
-            st.metric(f"{selected_display} Current Price", 
-                     f"${last_close:.2f}" if not np.isnan(last_close) else "N/A")
+        col1, col2, col3, col4 = st.columns(4)
         
+        last_close = float(stock_data['Close'].iloc[-1]) if not stock_data.empty else np.nan
+        
+        # Fetch live price (real-time quote)
+        live_price = fetch_live_price(ticker_symbol)
+        
+        with col1:
+            st.metric(f"{selected_display} Live Price", 
+                      f"${live_price:.2f}" if live_price is not None else "N/A")
         with col2:
+            st.metric(f"{selected_display} Last Close", 
+                      f"${last_close:.2f}" if not np.isnan(last_close) else "N/A")
+        with col3:
             if len(stock_data) > 1:
                 prev_close = float(stock_data['Close'].iloc[-2])
-                change = float(stock_data['Close'].iloc[-1]) - prev_close
+                change = last_close - prev_close
                 pct_change = (change / prev_close) * 100
                 st.metric("Daily Change", f"${change:.2f}", f"{pct_change:.2f}%")
             else:
                 st.metric("Daily Change", "N/A")
-        
-        with col3:
+        with col4:
             last_volume = int(stock_data['Volume'].iloc[-1]) if not stock_data.empty else 0
             st.metric("Volume", f"{last_volume:,}" if last_volume > 0 else "N/A")
     
     except Exception as e:
         st.error(f"Error displaying metrics: {str(e)}")
 
-# Display comparison metrics for multiple companies
 def display_comparison_metrics(comparison_data, selected_companies):
     st.subheader("Comparison Metrics")
     
@@ -280,9 +282,7 @@ def display_comparison_metrics(comparison_data, selected_companies):
     else:
         st.warning("No metrics available for the selected companies")
 
-# Main app logic
 def main():
-    # Get sheet names first (not cached)
     sheet_names = get_sheet_names(uploaded_file)
     
     # Let user select which sheet to use (outside cached function)
@@ -294,26 +294,22 @@ def main():
     else:
         selected_sheet = None
     
-    # Show available sheets info
     if len(sheet_names) > 1:
         st.info(f"Available sheets: {', '.join(sheet_names)}")
     
-    # Load tickers from selected sheet (cached) or use manual ticker
     if manual_ticker and not uploaded_file:
-        # Create a dummy DataFrame for manual ticker entry
         tickers_df = pd.DataFrame({
             'Symbol': [manual_ticker],
             'Exchange': ['MANUAL'],
             'YFinance_Symbol': [manual_ticker],
             'Display_Name': [manual_ticker]
         })
-        analysis_type = "Single Company"  # Force single company mode for manual entry
+        analysis_type = "Single Company"
     else:
         tickers_df = load_tickers_from_sheet(uploaded_file, selected_sheet)
     
     if tickers_df is not None:
         if analysis_type == "Single Company":
-            # Single company analysis mode
             if manual_ticker and not uploaded_file:
                 selected_display = manual_ticker
                 base_symbol = manual_ticker
@@ -322,16 +318,16 @@ def main():
                 selected_row = tickers_df[tickers_df['Display_Name'] == selected_display].iloc[0]
                 base_symbol = selected_row['YFinance_Symbol']
             
-            stock_data = load_stock_data(base_symbol, start_date, end_date, data_granularity)
+            stock_data = load_stock_data(base_symbol, start_date, end_date)
             
             if stock_data is not None:
                 stock_data = calculate_indicators(stock_data)
-                display_single_metrics(stock_data, selected_display)
+                # --- UPDATED: Pass ticker symbol for live price ---
+                display_single_metrics(stock_data, selected_display, base_symbol)
                 
                 if not stock_data.empty:
                     plot_single_price_chart(stock_data, selected_display)
                     
-                    # Plot indicators
                     if show_rsi or show_macd:
                         st.subheader("Technical Indicators")
                         cols = st.columns(2)
@@ -360,11 +356,9 @@ def main():
                                 ax_macd.grid(True)
                                 st.pyplot(fig_macd)
                     
-                    # Show data
                     st.subheader("Recent Data")
                     st.dataframe(stock_data.tail(20))
                     
-                    # Download option
                     output = BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                         stock_data.to_excel(writer, sheet_name='Technical_Analysis')
@@ -378,7 +372,6 @@ def main():
                     )
         
         elif analysis_type == "Multi-Company Compare":
-            # Multi-company comparison mode
             if manual_ticker and not uploaded_file:
                 st.warning("Multi-company comparison requires an uploaded file with multiple tickers")
             else:
@@ -398,7 +391,7 @@ def main():
                     for company in selected_companies:
                         selected_row = tickers_df[tickers_df['Display_Name'] == company].iloc[0]
                         base_symbol = selected_row['YFinance_Symbol']
-                        stock_data = load_stock_data(base_symbol, start_date, end_date, data_granularity)
+                        stock_data = load_stock_data(base_symbol, start_date, end_date)
                         
                         if stock_data is not None:
                             comparison_data[company] = stock_data
