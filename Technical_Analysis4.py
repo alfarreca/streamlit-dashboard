@@ -93,9 +93,154 @@ def get_live_price(ticker):
         st.error(f"Error fetching live price for {ticker}: {e}")
         return None
 
-# ... [keep all the existing functions unchanged until display_single_metrics] ...
+# Get sheet names from uploaded file
+def get_sheet_names(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            xls = pd.ExcelFile(uploaded_file)
+            return xls.sheet_names
+        except Exception as e:
+            st.error(f"Error reading file: {e}")
+            return []
+    return []
 
-# Display metrics for a single company - UPDATED to include live price
+# Load ticker data from specific sheet
+@st.cache_data
+def load_tickers_from_sheet(uploaded_file, selected_sheet):
+    if uploaded_file is not None and selected_sheet is not None:
+        try:
+            df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+            
+            if 'Symbol' not in df.columns or 'Exchange' not in df.columns:
+                st.error("The selected sheet must contain 'Symbol' and 'Exchange' columns.")
+                return None
+            
+            # Create proper symbols for yfinance based on exchange
+            df['YFinance_Symbol'] = df.apply(lambda row: 
+                f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
+                f"{row['Symbol']}", axis=1)
+            
+            # Create display names (without double .HK)
+            df['Display_Name'] = df.apply(lambda row: 
+                f"{row['Symbol']}.HK" if row['Exchange'] == 'HKEX' else 
+                f"{row['Symbol']}.{row['Exchange']}", axis=1)
+            
+            return df
+        except Exception as e:
+            st.error(f"Error reading sheet {selected_sheet}: {e}")
+            return None
+    return None
+
+# Download stock data
+@st.cache_data
+def load_stock_data(ticker, start_date, end_date):
+    try:
+        # Remove any duplicate .HK suffix if present
+        if ticker.endswith('.HK.HK'):
+            ticker = ticker.replace('.HK.HK', '.HK')
+            
+        data = yf.download(ticker, start=start_date, end=end_date, progress=False)
+        if data.empty:
+            st.error(f"No data found for {ticker}. Please verify:")
+            st.error("- For HKEX stocks, use format 'XXXX.HK' (e.g., '9618.HK')")
+            st.error("- Check if the ticker exists on Yahoo Finance")
+            return None
+        
+        # Ensure we have numeric data and proper formatting
+        data = data.apply(pd.to_numeric, errors='coerce')
+        data = data.dropna()
+        
+        # Ensure Close prices are properly formatted
+        if isinstance(data['Close'], pd.DataFrame):
+            data['Close'] = data['Close'].squeeze()
+            
+        return data
+    except Exception as e:
+        st.error(f"Error downloading data for {ticker}: {e}")
+        return None
+
+# Calculate technical indicators with proper data formatting
+def calculate_indicators(df):
+    if df is None or df.empty:
+        return df
+    
+    # Create a copy to avoid SettingWithCopyWarning
+    df = df.copy()
+    
+    try:
+        # Ensure Close prices are properly formatted as 1D pandas Series
+        close_prices = df['Close'].squeeze()  # Convert to Series if it's a DataFrame column
+        
+        # Moving Averages
+        if show_sma:
+            df['SMA_20'] = ta.trend.sma_indicator(close=close_prices, window=20)
+            df['SMA_50'] = ta.trend.sma_indicator(close=close_prices, window=50)
+        
+        if show_ema:
+            df['EMA_20'] = ta.trend.ema_indicator(close=close_prices, window=20)
+        
+        # RSI
+        if show_rsi:
+            df['RSI_14'] = ta.momentum.rsi(close=close_prices, window=14)
+        
+        # MACD
+        if show_macd:
+            macd = ta.trend.MACD(close=close_prices)
+            df['MACD'] = macd.macd()
+            df['MACD_Signal'] = macd.macd_signal()
+            df['MACD_Hist'] = macd.macd_diff()
+        
+        # Bollinger Bands
+        if show_bollinger:
+            bb = ta.volatility.BollingerBands(close=close_prices)
+            df['BB_Upper'] = bb.bollinger_hband()
+            df['BB_Lower'] = bb.bollinger_lband()
+        
+        return df
+    except Exception as e:
+        st.error(f"Error calculating indicators: {str(e)}")
+        return df
+
+# Plot price chart for a single company
+def plot_single_price_chart(stock_data, selected_display):
+    st.subheader(f"{selected_display} Price Chart")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(stock_data.index, stock_data['Close'], label='Close Price', color='blue')
+    
+    if show_sma and 'SMA_20' in stock_data.columns:
+        ax.plot(stock_data.index, stock_data['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
+        ax.plot(stock_data.index, stock_data['SMA_50'], label='SMA 50', color='green', alpha=0.7)
+    
+    if show_ema and 'EMA_20' in stock_data.columns:
+        ax.plot(stock_data.index, stock_data['EMA_20'], label='EMA 20', color='purple', alpha=0.7)
+    
+    if show_bollinger and 'BB_Upper' in stock_data.columns:
+        ax.plot(stock_data.index, stock_data['BB_Upper'], label='Upper Band', color='red', alpha=0.5, linestyle='--')
+        ax.plot(stock_data.index, stock_data['BB_Lower'], label='Lower Band', color='red', alpha=0.5, linestyle='--')
+        ax.fill_between(stock_data.index, stock_data['BB_Lower'], stock_data['BB_Upper'], color='red', alpha=0.1)
+    
+    ax.set_title(f"{selected_display} Price Chart")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
+# Plot comparison chart for multiple companies
+def plot_comparison_chart(comparison_data, selected_companies):
+    st.subheader("Price Comparison")
+    fig, ax = plt.subplots(figsize=(12, 6))
+    
+    # Normalize prices to percentage change for fair comparison
+    for company in selected_companies:
+        if company in comparison_data:
+            normalized_prices = (comparison_data[company]['Close'] / comparison_data[company]['Close'].iloc[0]) * 100
+            ax.plot(comparison_data[company].index, normalized_prices, label=company)
+    
+    ax.set_title("Normalized Price Comparison (Base=100)")
+    ax.legend()
+    ax.grid(True)
+    st.pyplot(fig)
+
+# Display metrics for a single company
 def display_single_metrics(stock_data, selected_display, base_symbol):
     try:
         col1, col2, col3, col4 = st.columns(4)
@@ -144,9 +289,39 @@ def display_single_metrics(stock_data, selected_display, base_symbol):
     except Exception as e:
         st.error(f"Error displaying metrics: {str(e)}")
 
-# ... [keep all the remaining functions unchanged] ...
+# Display comparison metrics for multiple companies
+def display_comparison_metrics(comparison_data, selected_companies):
+    st.subheader("Comparison Metrics")
+    
+    # Create metrics for each company
+    metrics = []
+    for company in selected_companies:
+        if company in comparison_data:
+            data = comparison_data[company]
+            if not data.empty:
+                try:
+                    last_close = float(data['Close'].iloc[-1])
+                    prev_close = float(data['Close'].iloc[-2]) if len(data) > 1 else last_close
+                    change = last_close - prev_close
+                    pct_change = (change / prev_close) * 100 if prev_close != 0 else 0
+                    last_volume = int(data['Volume'].iloc[-1])
+                    
+                    metrics.append({
+                        'Company': company,
+                        'Price': f"${last_close:.2f}",
+                        'Change': f"${change:.2f}",
+                        'Pct Change': f"{pct_change:.2f}%",
+                        'Volume': f"{last_volume:,}"
+                    })
+                except Exception as e:
+                    st.error(f"Error processing metrics for {company}: {str(e)}")
+    
+    if metrics:
+        st.table(pd.DataFrame(metrics))
+    else:
+        st.warning("No metrics available for the selected companies")
 
-# Main app logic - MODIFIED to pass base_symbol to display_single_metrics
+# Main app logic
 def main():
     # Get sheet names first (not cached)
     sheet_names = get_sheet_names(uploaded_file)
@@ -192,7 +367,7 @@ def main():
             
             if stock_data is not None:
                 stock_data = calculate_indicators(stock_data)
-                display_single_metrics(stock_data, selected_display, base_symbol)  # Updated to pass base_symbol
+                display_single_metrics(stock_data, selected_display, base_symbol)
                 
                 if not stock_data.empty:
                     plot_single_price_chart(stock_data, selected_display)
@@ -244,7 +419,36 @@ def main():
                     )
         
         elif analysis_type == "Multi-Company Compare":
-            # ... [keep the multi-company comparison code unchanged] ...
+            # Multi-company comparison mode
+            if manual_ticker and not uploaded_file:
+                st.warning("Multi-company comparison requires an uploaded file with multiple tickers")
+            else:
+                st.markdown("<div class='company-comparison'>", unsafe_allow_html=True)
+                selected_companies = st.multiselect(
+                    "Select companies to compare (2-5)", 
+                    tickers_df['Display_Name'],
+                    default=tickers_df['Display_Name'].head(2).tolist()
+                )
+                
+                if len(selected_companies) < 2:
+                    st.warning("Please select at least 2 companies for comparison")
+                elif len(selected_companies) > 5:
+                    st.warning("Please select no more than 5 companies for better visualization")
+                else:
+                    comparison_data = {}
+                    for company in selected_companies:
+                        selected_row = tickers_df[tickers_df['Display_Name'] == company].iloc[0]
+                        base_symbol = selected_row['YFinance_Symbol']
+                        stock_data = load_stock_data(base_symbol, start_date, end_date)
+                        
+                        if stock_data is not None:
+                            comparison_data[company] = stock_data
+                    
+                    if len(comparison_data) >= 2:
+                        display_comparison_metrics(comparison_data, selected_companies)
+                        plot_comparison_chart(comparison_data, selected_companies)
+                
+                st.markdown("</div>", unsafe_allow_html=True)
     
     else:
         if not manual_ticker:
