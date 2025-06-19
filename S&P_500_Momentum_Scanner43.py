@@ -184,7 +184,6 @@ def calculate_momentum(hist):
         "minus_di_last": round(minus_di_c.iloc[-1], 1) if not np.isnan(minus_di_c.iloc[-1]) else None,
     }
 
-
 # ========== TICKER PROCESSING ==========
 @st.cache_data(ttl=CACHE_TTL, show_spinner=False)
 def get_ticker_data(_ticker, exchange, yf_symbol):
@@ -311,6 +310,16 @@ def main():
     st.session_state.filtered_results = filtered
 
     display_results(filtered)
+
+    # --- Download CSV feature ---
+    if not filtered.empty:
+        csv = filtered.to_csv(index=False)
+        st.download_button(
+            label="Download Filtered Results as CSV",
+            data=csv,
+            file_name="momentum_scanner_results.csv",
+            mime="text/csv",
+        )
 
     # --- Sticky selectbox for ticker selection (fixed logic) ---
     if not filtered.empty:
