@@ -5,6 +5,7 @@ from datetime import datetime
 import time
 import matplotlib.pyplot as plt
 from curl_cffi.requests.exceptions import HTTPError
+import random  # For optional randomized sleep
 
 # --- CONFIGURATION ---
 SCORE_WEIGHTS = {
@@ -98,6 +99,11 @@ def calculate_scores(fundamentals_list):
     if not fundamentals_list:
         return []
     df = pd.DataFrame(fundamentals_list)
+
+    # Ensure all scoring metric columns are numeric (coerce errors to NaN)
+    for metric in SCORE_WEIGHTS:
+        df[metric] = pd.to_numeric(df[metric], errors='coerce')
+
     metrics = {metric: {
         'min': df[metric].min(),
         'max': df[metric].max(),
@@ -300,7 +306,9 @@ def main():
                     else:
                         st.info(f"Skipping {t} due to data fetch issues.")
                     progress.progress((i + 1) / len(tickers))
-                    time.sleep(0.1)
+                    time.sleep(1.5)  # <--- KEY CHANGE: SLOW DOWN REQUESTS (you can try 1.0-2.0 seconds)
+                    # Or use the randomized version below (uncomment if desired):
+                    # time.sleep(random.uniform(1.2, 2.0))
                 progress.empty()
                 if not data:
                     st.error("No data was fetched. Please check your ticker list or your internet connection.")
