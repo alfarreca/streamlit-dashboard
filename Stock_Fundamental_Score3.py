@@ -5,9 +5,11 @@ from datetime import datetime
 import time
 import matplotlib.pyplot as plt
 from curl_cffi.requests.exceptions import HTTPError
-import random  # For optional randomized sleep
+import os
 
-# --- CONFIGURATION ---
+BATCH_SIZE = 100   # <- Adjust this to process 50, 100, 200 at a time, etc.
+SLEEP_BETWEEN = 1.5   # <- Sleep per request (sec)
+
 SCORE_WEIGHTS = {
     'pe_ratio': 0.15,
     'peg_ratio': 0.15,
@@ -34,14 +36,14 @@ EXTRA_METRICS_LABELS = {
     'gross_margin': 'Gross Margin',
 }
 
+PROGRESS_FILE = "progress_results.csv"
+
 def clean_ticker(ticker):
-    """Auto-correct common ticker issues for Yahoo Finance."""
     if not isinstance(ticker, str) or ticker.strip() == "":
         return ""
     ticker = ticker.replace('..', '.').strip()
     if ticker.endswith('.E'):
         ticker = ticker[:-2] + '.IS'
-    # Add more mappings as needed
     return ticker
 
 @st.cache_data(ttl=3600)
@@ -99,11 +101,8 @@ def calculate_scores(fundamentals_list):
     if not fundamentals_list:
         return []
     df = pd.DataFrame(fundamentals_list)
-
-    # Ensure all scoring metric columns are numeric (coerce errors to NaN)
     for metric in SCORE_WEIGHTS:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
-
     metrics = {metric: {
         'min': df[metric].min(),
         'max': df[metric].max(),
@@ -280,22 +279,27 @@ def main():
 
     uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
 
+    # Load previously processed results if available
+    if os.path.exists(PROGRESS_FILE):
+        all_data = pd.read_csv(PROGRESS_FILE)
+        processed_tickers = set(all_data['ticker'].astype(str).tolist())
+    else:
+        all_data = pd.DataFrame()
+        processed_tickers = set()
+
     if uploaded_file is not None:
-        if "tickers" not in st.session_state or st.session_state.uploaded_file_name != uploaded_file.name:
-            tickers = get_tickers_from_excel(uploaded_file)
-            st.session_state.tickers = tickers
-            st.session_state.uploaded_file_name = uploaded_file.name
-            st.session_state.results = None
-        else:
-            tickers = st.session_state.tickers
+        tickers = get_tickers_from_excel(uploaded_file)
+        st.success(f"Loaded {len(tickers)} tickers from file.")
 
-        st.success(f"Loaded {len(tickers)} tickers from file")
+        to_process = [t for t in tickers if clean_ticker(t) not in processed_tickers]
+        st.info(f"{len(processed_tickers)} tickers already processed, {len(to_process)} remain in this run.")
 
-        if st.button("Analyze Stocks"):
-            with st.spinner("Fetching data and calculating scores..."):
+        if st.button("Analyze Next Batch"):
+            with st.spinner(f"Fetching data for next {BATCH_SIZE} tickers..."):
+                batch = to_process[:BATCH_SIZE]
                 data = []
                 progress = st.progress(0)
-                for i, t in enumerate(tickers):
+                for i, t in enumerate(batch):
                     cleaned_ticker = clean_ticker(t)
                     if cleaned_ticker:
                         fundamentals = get_fundamentals(cleaned_ticker)
@@ -305,25 +309,34 @@ def main():
                         data.append(fundamentals)
                     else:
                         st.info(f"Skipping {t} due to data fetch issues.")
-                    progress.progress((i + 1) / len(tickers))
-                    time.sleep(1.5)  # <--- KEY CHANGE: SLOW DOWN REQUESTS (you can try 1.0-2.0 seconds)
-                    # Or use the randomized version below (uncomment if desired):
-                    # time.sleep(random.uniform(1.2, 2.0))
+                    progress.progress((i + 1) / len(batch))
+                    time.sleep(SLEEP_BETWEEN)
                 progress.empty()
-                if not data:
-                    st.error("No data was fetched. Please check your ticker list or your internet connection.")
-                    st.session_state.results = None
+                if data:
+                    batch_df = pd.DataFrame(data)
+                    # Merge to all_data and drop duplicates by 'ticker'
+                    if not all_data.empty:
+                        all_data = pd.concat([all_data, batch_df], ignore_index=True)
+                        all_data = all_data.drop_duplicates(subset='ticker', keep='last')
+                    else:
+                        all_data = batch_df
+                    # Save after every batch
+                    all_data.to_csv(PROGRESS_FILE, index=False)
+                    st.success(f"Batch processed and saved. {len(all_data)} total tickers now processed.")
                 else:
-                    results = calculate_scores(data)
-                    st.session_state.results = results
+                    st.error("No data was fetched in this batch.")
 
-        if st.session_state.get("results") is not None:
-            display_results(st.session_state.results)
+        # Show results if any available
+        if not all_data.empty:
+            results = calculate_scores(all_data.to_dict('records'))
+            display_results(results)
+
     else:
         st.info("Please upload an Excel file with tickers in the first column.")
 
-    if st.session_state.get("results") is not None:
-        df = pd.DataFrame(st.session_state.results)
+    # Show sector averages in sidebar if results available
+    if not all_data.empty:
+        df = pd.DataFrame(calculate_scores(all_data.to_dict('records')))
         with st.sidebar:
             st.markdown("### S&P 500 Sector Averages")
             for m in EXTRA_METRICS:
