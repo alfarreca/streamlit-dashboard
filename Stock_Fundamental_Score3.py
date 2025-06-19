@@ -7,9 +7,19 @@ import matplotlib.pyplot as plt
 from curl_cffi.requests.exceptions import HTTPError
 import os
 
-BATCH_SIZE = 100   # <- Adjust this to process 50, 100, 200 at a time, etc.
-SLEEP_BETWEEN = 1.5   # <- Sleep per request (sec)
-
+# --- STATIC CONFIG ---
+PROGRESS_FILE = "progress_results.csv"
+EXTRA_METRICS = [
+    'dividend_yield', 'eps', 'revenue', 'free_cash_flow', 'ebitda', 'gross_margin'
+]
+EXTRA_METRICS_LABELS = {
+    'dividend_yield': 'Dividend Yield',
+    'eps': 'EPS (TTM)',
+    'revenue': 'Revenue',
+    'free_cash_flow': 'Free Cash Flow',
+    'ebitda': 'EBITDA',
+    'gross_margin': 'Gross Margin',
+}
 SCORE_WEIGHTS = {
     'pe_ratio': 0.15,
     'peg_ratio': 0.15,
@@ -24,19 +34,6 @@ SCORE_WEIGHTS = {
     'ebitda': 0.05,
     'gross_margin': 0.05,
 }
-EXTRA_METRICS = [
-    'dividend_yield', 'eps', 'revenue', 'free_cash_flow', 'ebitda', 'gross_margin'
-]
-EXTRA_METRICS_LABELS = {
-    'dividend_yield': 'Dividend Yield',
-    'eps': 'EPS (TTM)',
-    'revenue': 'Revenue',
-    'free_cash_flow': 'Free Cash Flow',
-    'ebitda': 'EBITDA',
-    'gross_margin': 'Gross Margin',
-}
-
-PROGRESS_FILE = "progress_results.csv"
 
 def clean_ticker(ticker):
     if not isinstance(ticker, str) or ticker.strip() == "":
@@ -277,7 +274,11 @@ def main():
     st.set_page_config(page_title="Stock Analyzer", layout="wide")
     st.title("📈 S&P 500 Fundamental Analysis (Pro Dashboard)")
 
-    uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
+    # --- UI: Sidebar controls for batch size and sleep interval ---
+    with st.sidebar:
+        st.markdown("### Batch Processing Settings")
+        batch_size = st.number_input("Batch Size", min_value=10, max_value=500, value=100, step=10)
+        sleep_between = st.slider("Sleep Between Requests (sec)", 0.5, 10.0, 1.5, step=0.1)
 
     # Load previously processed results if available
     if os.path.exists(PROGRESS_FILE):
@@ -287,6 +288,8 @@ def main():
         all_data = pd.DataFrame()
         processed_tickers = set()
 
+    uploaded_file = st.file_uploader("Upload your S&P 500 Excel (.xlsx) file", type=["xlsx"])
+
     if uploaded_file is not None:
         tickers = get_tickers_from_excel(uploaded_file)
         st.success(f"Loaded {len(tickers)} tickers from file.")
@@ -294,9 +297,9 @@ def main():
         to_process = [t for t in tickers if clean_ticker(t) not in processed_tickers]
         st.info(f"{len(processed_tickers)} tickers already processed, {len(to_process)} remain in this run.")
 
-        if st.button("Analyze Next Batch"):
-            with st.spinner(f"Fetching data for next {BATCH_SIZE} tickers..."):
-                batch = to_process[:BATCH_SIZE]
+        if st.button(f"Analyze Next Batch (Size: {batch_size})"):
+            with st.spinner(f"Fetching data for next {batch_size} tickers..."):
+                batch = to_process[:batch_size]
                 data = []
                 progress = st.progress(0)
                 for i, t in enumerate(batch):
@@ -310,7 +313,7 @@ def main():
                     else:
                         st.info(f"Skipping {t} due to data fetch issues.")
                     progress.progress((i + 1) / len(batch))
-                    time.sleep(SLEEP_BETWEEN)
+                    time.sleep(sleep_between)
                 progress.empty()
                 if data:
                     batch_df = pd.DataFrame(data)
