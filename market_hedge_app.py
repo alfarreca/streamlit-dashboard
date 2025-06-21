@@ -79,7 +79,7 @@ main_data['Close'] = main_data[close_col]
 main_data['Returns'] = main_data['Close'].pct_change()
 main_data['Cumulative'] = (1 + main_data['Returns']).cumprod()
 
-# --- STRATEGY LOGIC ---
+# --- PUT OPTIONS STRATEGY ---
 if strategy == "Put Options":
     if not has_scipy:
         st.error("scipy is required for Black-Scholes option pricing. Please add 'scipy' to your requirements.txt.")
@@ -136,6 +136,35 @@ if strategy == "Put Options":
 
     main_data['Strategy_Returns'] = main_data['Returns'] - main_data['Put_Cost']/expiration_days*30 + main_data['Hedge_Payoff']
 
+# --- GOLD ALLOCATION STRATEGY ---
+if strategy == "Gold Allocation":
+    gold_weight = st.sidebar.slider("Gold allocation (%)", 0, 50, 20, step=5)
+    gold_weight = gold_weight / 100
+    asset_weight = 1 - gold_weight
+
+    # Download gold data (GLD ETF, same date range)
+    gold_data = yf.download("GLD", start=start_date, end=end_date, auto_adjust=True)
+    if gold_data.empty:
+        st.error("Could not download gold (GLD) data for the selected range.")
+    else:
+        if isinstance(gold_data.columns, pd.MultiIndex):
+            gold_data.columns = ['_'.join([str(c) for c in col if c]) for col in gold_data.columns.values]
+        gold_close_candidates = [c for c in gold_data.columns if "close" in str(c).lower()]
+        if not gold_close_candidates:
+            st.error("Could not find usable close column in gold data.")
+        else:
+            gold_col = gold_close_candidates[0]
+            combined = pd.DataFrame({
+                "Asset": main_data['Close'],
+                "Gold": gold_data[gold_col]
+            }).dropna()
+            combined["Asset_Ret"] = combined["Asset"].pct_change()
+            combined["Gold_Ret"] = combined["Gold"].pct_change()
+            combined["Strategy_Returns"] = asset_weight * combined["Asset_Ret"] + gold_weight * combined["Gold_Ret"]
+            combined["Cumulative"] = (1 + combined["Asset_Ret"]).cumprod()
+            combined["Strategy_Cumulative"] = (1 + combined["Strategy_Returns"]).cumprod()
+            main_data = combined
+
 # --- METRICS, CHARTS, AND DOWNLOAD: Only run if Strategy_Returns exists! ---
 if 'Strategy_Returns' in main_data.columns:
     main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
@@ -175,7 +204,7 @@ if 'Strategy_Returns' in main_data.columns:
     csv = main_data.to_csv().encode('utf-8')
     st.download_button("📥 Download Results CSV", csv, "results.csv")
 else:
-    st.info("This demo version only implements the Put Options strategy in detail for demonstration. Contact support for the full multi-strategy version.")
+    st.info("This demo version only implements the Put Options and Gold Allocation strategies in detail for demonstration. Contact support for the full multi-strategy version.")
     st.write(main_data.head())
 
 # --- STRATEGY FOOTER ---
@@ -183,6 +212,7 @@ st.info("""
 **🔍 Strategy Insights:**
 
 - **Put Options:** Protect your portfolio from sharp declines by using options as insurance.
+- **Gold Allocation:** Add gold to reduce drawdowns and diversify risk. Adjust allocation to balance risk and return.
 - **Sharpe & Sortino Ratios:** Evaluate risk-adjusted returns. Sharpe measures overall volatility, while Sortino focuses specifically on downside risk.
 
 *Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs and market conditions for practical applications.*
