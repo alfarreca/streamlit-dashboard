@@ -14,7 +14,6 @@ except ImportError:
 
 st.set_page_config(page_title="Enhanced Market Hedge Simulator", layout="wide")
 
-# Black-Scholes Model for Put Options Pricing
 def black_scholes_put(S, K, T, r, sigma):
     from math import log, sqrt, exp
     # Defensive: Only compute if all parameters valid
@@ -69,15 +68,31 @@ if strategy == "Put Options":
     annual_volatility = main_data['Returns'].std() * np.sqrt(252)
     risk_free_rate = 0.03
 
-    # Row-wise calculation with captured parameters (robust to scoping issues)
+    # Ensure columns are flat and "Close" is unique
+    if isinstance(main_data.columns, pd.MultiIndex):
+        main_data.columns = ['_'.join(str(l) for l in col if l) for col in main_data.columns.values]
+    if 'Close' not in main_data.columns:
+        st.error("The data does not contain a 'Close' column. Please check the ticker or data source.")
+        st.stop()
+
     def safe_black_scholes(
         row,
-        strike_offset=strike_offset,
-        expiration_days=expiration_days,
-        risk_free_rate=risk_free_rate,
-        annual_volatility=annual_volatility
+        strike_offset,
+        expiration_days,
+        risk_free_rate,
+        annual_volatility
     ):
         S = row['Close']
+        # Defensive: flatten any non-scalar/Series value
+        if hasattr(S, '__len__') and not isinstance(S, str):
+            if len(S) > 0:
+                S = S.iloc[0] if hasattr(S, 'iloc') else S[0]
+            else:
+                S = np.nan
+        try:
+            S = float(S)
+        except Exception:
+            S = np.nan
         if pd.isnull(S) or S <= 0:
             return np.nan
         K = S * (1 - strike_offset / 100)
@@ -88,7 +103,14 @@ if strategy == "Put Options":
             return np.nan
         return black_scholes_put(S, K, T, r, sigma)
 
-    main_data['Put_Price'] = main_data.apply(safe_black_scholes, axis=1)
+    main_data['Put_Price'] = main_data.apply(
+        safe_black_scholes,
+        axis=1,
+        strike_offset=strike_offset,
+        expiration_days=expiration_days,
+        risk_free_rate=risk_free_rate,
+        annual_volatility=annual_volatility
+    )
 
     # Robust put cost calculation
     main_data['Put_Cost'] = np.where(
