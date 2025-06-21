@@ -4,6 +4,7 @@ import numpy as np
 import yfinance as yf
 import plotly.express as px
 from datetime import datetime, timedelta
+
 import re
 
 # Check for scipy
@@ -55,21 +56,21 @@ if main_data.empty:
     st.error("No data available for the selected ticker/date.")
     st.stop()
 
-# --- FLEXIBLE PRICE COLUMN DETECTION ---
-close_candidates = [c for c in main_data.columns if "close" in c.lower()]
+# --- FLEXIBLE PRICE COLUMN DETECTION (robust to tuple and non-string column names) ---
+close_candidates = [c for c in main_data.columns if "close" in str(c).lower()]
 if not close_candidates:
     st.error(
         "The data does not contain a usable price column (e.g., 'Close', 'Adj Close', 'Close_SPY'). "
         "Please check the ticker or data source."
     )
-    st.write("Raw data columns:", list(main_data.columns))
+    st.write("Raw data columns:", [str(c) for c in main_data.columns])
     st.write(main_data.head())
     st.stop()
 elif len(close_candidates) == 1:
     close_col = close_candidates[0]
     st.success(f"Using '{close_col}' as the price column.")
 else:
-    close_col = st.sidebar.selectbox("Select price column", close_candidates)
+    close_col = st.sidebar.selectbox("Select price column", [str(c) for c in close_candidates])
     st.success(f"Using '{close_col}' as the price column.")
 
 main_data['Close'] = main_data[close_col]
