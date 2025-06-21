@@ -351,4 +351,9 @@ st.info("""
 - **Put Options:** Protect your portfolio from sharp declines by using options as insurance.
 - **Gold Allocation:** Add gold to reduce drawdowns and diversify risk. Adjust allocation to balance risk and return.
 - **Inverse ETF:** Allocate to inverse ETFs to profit from market downturns and hedge long exposure.
-- **Dynamic Allocation:** Automatically shifts to hedges when
+- **Dynamic Allocation:** Automatically shifts to hedges when a risk signal (e.g., price below SMA) is triggered.
+- **Volatility Index (VIX):** Allocates to a hedge when volatility spikes (e.g., VIX > 25), helping protect during market stress.
+- **Sharpe & Sortino Ratios:** Evaluate risk-adjusted returns. Sharpe measures overall volatility, while Sortino focuses specifically on downside risk.
+
+*Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs, ETF decay, and market conditions for practical applications.*
+""")
