@@ -55,29 +55,22 @@ if main_data.empty:
     st.error("No data available for the selected ticker/date.")
     st.stop()
 
-# --- PRICE COLUMN DETECTION ---
-close_col = None
-if 'Close' in main_data.columns:
-    close_col = 'Close'
-elif 'Adj Close' in main_data.columns:
-    close_col = 'Adj Close'
+# --- FLEXIBLE PRICE COLUMN DETECTION ---
+close_candidates = [c for c in main_data.columns if "close" in c.lower()]
+if not close_candidates:
+    st.error(
+        "The data does not contain a usable price column (e.g., 'Close', 'Adj Close', 'Close_SPY'). "
+        "Please check the ticker or data source."
+    )
+    st.write("Raw data columns:", list(main_data.columns))
+    st.write(main_data.head())
+    st.stop()
+elif len(close_candidates) == 1:
+    close_col = close_candidates[0]
+    st.success(f"Using '{close_col}' as the price column.")
 else:
-    # Try columns like 'Close_SPY', 'Adj Close_SPY', etc.
-    close_like = [c for c in main_data.columns if re.match(r'^(Adj\s)?Close', c)]
-    if len(close_like) == 1:
-        close_col = close_like[0]
-        st.warning(f"Using '{close_col}' as the price column.")
-    elif len(close_like) > 1:
-        close_col = st.sidebar.selectbox("Select price column", close_like)
-        st.warning(f"Using '{close_col}' as the price column.")
-    else:
-        st.error(
-            "The data does not contain a usable price column (e.g., 'Close', 'Adj Close', 'Close_SPY'). "
-            "Please check the ticker or data source."
-        )
-        st.write("Raw data columns:", list(main_data.columns))
-        st.write(main_data.head())
-        st.stop()
+    close_col = st.sidebar.selectbox("Select price column", close_candidates)
+    st.success(f"Using '{close_col}' as the price column.")
 
 main_data['Close'] = main_data[close_col]
 
