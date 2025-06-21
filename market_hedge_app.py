@@ -55,6 +55,25 @@ if main_data.empty:
     st.error("No data available for the selected ticker/date.")
     st.stop()
 
+# Fix: Use "Adj Close" if "Close" is missing, and always show the user what's available
+close_col = None
+if 'Close' in main_data.columns:
+    close_col = 'Close'
+elif 'Adj Close' in main_data.columns:
+    close_col = 'Adj Close'
+    st.warning("The data did not have a 'Close' column. Using 'Adj Close' (Adjusted Close) instead.")
+else:
+    st.error(
+        "The data does not contain a 'Close' or 'Adj Close' column. "
+        "Please check the ticker or data source."
+    )
+    st.write("Raw data columns:", list(main_data.columns))
+    st.write(main_data.head())
+    st.stop()
+
+if close_col != 'Close':
+    main_data['Close'] = main_data[close_col]
+
 main_data['Returns'] = main_data['Close'].pct_change()
 main_data['Cumulative'] = (1 + main_data['Returns']).cumprod()
 
@@ -68,11 +87,12 @@ if strategy == "Put Options":
     annual_volatility = main_data['Returns'].std() * np.sqrt(252)
     risk_free_rate = 0.03
 
-    # Ensure columns are flat and "Close" is unique
+    # Defensive: flatten columns, double check "Close"
     if isinstance(main_data.columns, pd.MultiIndex):
         main_data.columns = ['_'.join(str(l) for l in col if l) for col in main_data.columns.values]
     if 'Close' not in main_data.columns:
-        st.error("The data does not contain a 'Close' column. Please check the ticker or data source.")
+        st.error("The data does not contain a usable price column. Please check the ticker or data source.")
+        st.write(main_data.head())
         st.stop()
 
     def safe_black_scholes(
