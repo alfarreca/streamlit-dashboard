@@ -165,6 +165,37 @@ if strategy == "Gold Allocation":
             combined["Strategy_Cumulative"] = (1 + combined["Strategy_Returns"]).cumprod()
             main_data = combined
 
+# --- INVERSE ETF STRATEGY ---
+if strategy == "Inverse ETFs":
+    st.sidebar.markdown("Examples: `SH` (SPY), `SQQQ` (QQQ), `DOG` (DIA), `PSQ` (QQQ, non-levered)")
+    inverse_ticker = st.sidebar.text_input("Inverse ETF Ticker", value="SH")
+    inverse_weight = st.sidebar.slider("Inverse ETF allocation (%)", 0, 50, 20, step=5)
+    inverse_weight = inverse_weight / 100
+    asset_weight = 1 - inverse_weight
+
+    # Download inverse ETF data (same date range)
+    inv_data = yf.download(inverse_ticker, start=start_date, end=end_date, auto_adjust=True)
+    if inv_data.empty:
+        st.error(f"Could not download {inverse_ticker} data for the selected range.")
+    else:
+        if isinstance(inv_data.columns, pd.MultiIndex):
+            inv_data.columns = ['_'.join([str(c) for c in col if c]) for c in inv_data.columns.values]
+        inv_close_candidates = [c for c in inv_data.columns if "close" in str(c).lower()]
+        if not inv_close_candidates:
+            st.error(f"Could not find usable close column in {inverse_ticker} data.")
+        else:
+            inv_col = inv_close_candidates[0]
+            combined = pd.DataFrame({
+                "Asset": main_data['Close'],
+                "Inverse": inv_data[inv_col]
+            }).dropna()
+            combined["Asset_Ret"] = combined["Asset"].pct_change()
+            combined["Inverse_Ret"] = combined["Inverse"].pct_change()
+            combined["Strategy_Returns"] = asset_weight * combined["Asset_Ret"] + inverse_weight * combined["Inverse_Ret"]
+            combined["Cumulative"] = (1 + combined["Asset_Ret"]).cumprod()
+            combined["Strategy_Cumulative"] = (1 + combined["Strategy_Returns"]).cumprod()
+            main_data = combined
+
 # --- METRICS, CHARTS, AND DOWNLOAD: Only run if Strategy_Returns exists! ---
 if 'Strategy_Returns' in main_data.columns:
     main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
@@ -204,7 +235,7 @@ if 'Strategy_Returns' in main_data.columns:
     csv = main_data.to_csv().encode('utf-8')
     st.download_button("📥 Download Results CSV", csv, "results.csv")
 else:
-    st.info("This demo version only implements the Put Options and Gold Allocation strategies in detail for demonstration. Contact support for the full multi-strategy version.")
+    st.info("This demo version implements Put Options, Gold Allocation, and Inverse ETF strategies in detail. Contact support for full multi-strategy version.")
     st.write(main_data.head())
 
 # --- STRATEGY FOOTER ---
@@ -213,7 +244,8 @@ st.info("""
 
 - **Put Options:** Protect your portfolio from sharp declines by using options as insurance.
 - **Gold Allocation:** Add gold to reduce drawdowns and diversify risk. Adjust allocation to balance risk and return.
+- **Inverse ETF:** Allocate to inverse ETFs to profit from market downturns and hedge long exposure.
 - **Sharpe & Sortino Ratios:** Evaluate risk-adjusted returns. Sharpe measures overall volatility, while Sortino focuses specifically on downside risk.
 
-*Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs and market conditions for practical applications.*
+*Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs, ETF decay, and market conditions for practical applications.*
 """)
