@@ -5,7 +5,6 @@ import yfinance as yf
 import plotly.express as px
 from datetime import datetime, timedelta
 
-# Optional: If using Black-Scholes, import norm from scipy.stats
 try:
     from scipy.stats import norm
     has_scipy = True
@@ -68,18 +67,21 @@ if strategy == "Put Options":
     annual_volatility = main_data['Returns'].std() * np.sqrt(252)
     risk_free_rate = 0.03
 
-    # Calculate put option price for each day
-    main_data['Put_Price'] = main_data['Close'].apply(
-        lambda S: black_scholes_put(
-            S,
-            S * (1 - strike_offset / 100),
-            expiration_days / 365,
-            risk_free_rate,
-            annual_volatility
-        )
-    )
+    # Calculate put option price for each day (row-wise, robust)
+    def safe_black_scholes(row):
+        S = row['Close']
+        K = S * (1 - strike_offset / 100) if pd.notnull(S) else np.nan
+        T = expiration_days / 365
+        r = risk_free_rate
+        sigma = annual_volatility
+        if pd.notnull(S) and S > 0 and K > 0 and T > 0 and sigma > 0:
+            return black_scholes_put(S, K, T, r, sigma)
+        else:
+            return np.nan
 
-    # Robust put cost calculation with error handling
+    main_data['Put_Price'] = main_data.apply(safe_black_scholes, axis=1)
+
+    # Robust put cost calculation
     main_data['Put_Cost'] = np.where(
         (main_data['Close'] > 0) & (~main_data['Put_Price'].isna()),
         main_data['Put_Price'] / main_data['Close'],
