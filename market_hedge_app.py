@@ -178,8 +178,9 @@ if strategy == "Inverse ETFs":
     if inv_data.empty:
         st.error(f"Could not download {inverse_ticker} data for the selected range.")
     else:
+        # --- FIXED MultiIndex FLATTENING ---
         if isinstance(inv_data.columns, pd.MultiIndex):
-            inv_data.columns = ['_'.join([str(c) for c in col if c]) for c in inv_data.columns.values]
+            inv_data.columns = ['_'.join([str(c) for c in col if c]) for col in inv_data.columns.values]
         inv_close_candidates = [c for c in inv_data.columns if "close" in str(c).lower()]
         if not inv_close_candidates:
             st.error(f"Could not find usable close column in {inverse_ticker} data.")
