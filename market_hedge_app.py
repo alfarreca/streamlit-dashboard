@@ -5,9 +5,7 @@ import yfinance as yf
 import plotly.express as px
 from datetime import datetime, timedelta
 
-import re
-
-# Check for scipy
+# Try importing scipy for Black-Scholes
 try:
     from scipy.stats import norm
     has_scipy = True
@@ -56,7 +54,11 @@ if main_data.empty:
     st.error("No data available for the selected ticker/date.")
     st.stop()
 
-# --- FLEXIBLE PRICE COLUMN DETECTION (robust to tuple and non-string column names) ---
+# --- FLATTEN MULTIINDEX COLUMNS ---
+if isinstance(main_data.columns, pd.MultiIndex):
+    main_data.columns = ['_'.join([str(c) for c in col if c]) for col in main_data.columns.values]
+
+# --- FLEXIBLE PRICE COLUMN DETECTION ---
 close_candidates = [c for c in main_data.columns if "close" in str(c).lower()]
 if not close_candidates:
     st.error(
@@ -87,13 +89,6 @@ if strategy == "Put Options":
     annual_volatility = main_data['Returns'].std() * np.sqrt(252)
     risk_free_rate = 0.03
 
-    if isinstance(main_data.columns, pd.MultiIndex):
-        main_data.columns = ['_'.join(str(l) for l in col if l) for col in main_data.columns.values]
-    if 'Close' not in main_data.columns:
-        st.error("The data does not contain a usable price column. Please check the ticker or data source.")
-        st.write(main_data.head())
-        st.stop()
-
     def safe_black_scholes(
         row,
         strike_offset,
@@ -102,11 +97,6 @@ if strategy == "Put Options":
         annual_volatility
     ):
         S = row['Close']
-        if hasattr(S, '__len__') and not isinstance(S, str):
-            if len(S) > 0:
-                S = S.iloc[0] if hasattr(S, 'iloc') else S[0]
-            else:
-                S = np.nan
         try:
             S = float(S)
         except Exception:
