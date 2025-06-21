@@ -45,13 +45,40 @@ start_date = st.sidebar.date_input(
     max_value=end_date - timedelta(days=1)
 )
 
+# --- UPLOAD SECTION ---
+st.sidebar.markdown("### Or upload your own data")
+uploaded_file = st.sidebar.file_uploader("Upload CSV or Excel", type=["csv", "xlsx"])
+
+def load_uploaded_data(uploaded_file):
+    if uploaded_file is None:
+        return None
+    if uploaded_file.name.endswith(".csv"):
+        df = pd.read_csv(uploaded_file)
+    else:
+        df = pd.read_excel(uploaded_file)
+    df.columns = [str(c).strip() for c in df.columns]
+    # Handle possible date column
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"])
+        df = df.set_index("Date")
+    else:
+        df.index = pd.to_datetime(df.index)
+    return df
+
 @st.cache_data
 def load_data(ticker, start_date, end_date):
     return yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
 
-main_data = load_data(ticker, start_date, end_date)
-if main_data.empty:
-    st.error("No data available for the selected ticker/date.")
+# --- DATA INGESTION ---
+if uploaded_file:
+    main_data = load_uploaded_data(uploaded_file)
+    st.success("✅ Using uploaded data!")
+else:
+    main_data = load_data(ticker, start_date, end_date)
+    st.info("ℹ️ Using Yahoo Finance data.")
+
+if main_data is None or main_data.empty:
+    st.error("No data available for the selected input or date range.")
     st.stop()
 
 # --- FLATTEN MULTIINDEX COLUMNS ---
@@ -63,7 +90,7 @@ close_candidates = [c for c in main_data.columns if "close" in str(c).lower()]
 if not close_candidates:
     st.error(
         "The data does not contain a usable price column (e.g., 'Close', 'Adj Close', 'Close_SPY'). "
-        "Please check the ticker or data source."
+        "Please check the data source or upload a file with a price column."
     )
     st.write("Raw data columns:", [str(c) for c in main_data.columns])
     st.write(main_data.head())
@@ -178,7 +205,6 @@ if strategy == "Inverse ETFs":
     if inv_data.empty:
         st.error(f"Could not download {inverse_ticker} data for the selected range.")
     else:
-        # --- FIXED MultiIndex FLATTENING ---
         if isinstance(inv_data.columns, pd.MultiIndex):
             inv_data.columns = ['_'.join([str(c) for c in col if c]) for col in inv_data.columns.values]
         inv_close_candidates = [c for c in inv_data.columns if "close" in str(c).lower()]
@@ -325,9 +351,4 @@ st.info("""
 - **Put Options:** Protect your portfolio from sharp declines by using options as insurance.
 - **Gold Allocation:** Add gold to reduce drawdowns and diversify risk. Adjust allocation to balance risk and return.
 - **Inverse ETF:** Allocate to inverse ETFs to profit from market downturns and hedge long exposure.
-- **Dynamic Allocation:** Automatically shifts to hedges when a risk signal (e.g., price below SMA) is triggered.
-- **Volatility Index (VIX):** Allocates to a hedge when volatility spikes (e.g., VIX > 25), helping protect during market stress.
-- **Sharpe & Sortino Ratios:** Evaluate risk-adjusted returns. Sharpe measures overall volatility, while Sortino focuses specifically on downside risk.
-
-*Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs, ETF decay, and market conditions for practical applications.*
-""")
+- **Dynamic Allocation:** Automatically shifts to hedges when
