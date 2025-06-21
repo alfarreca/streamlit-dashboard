@@ -5,6 +5,7 @@ import yfinance as yf
 import plotly.express as px
 from datetime import datetime, timedelta
 
+# Check for scipy
 try:
     from scipy.stats import norm
     has_scipy = True
@@ -16,7 +17,8 @@ st.set_page_config(page_title="Enhanced Market Hedge Simulator", layout="wide")
 # Black-Scholes Model for Put Options Pricing
 def black_scholes_put(S, K, T, r, sigma):
     from math import log, sqrt, exp
-    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
+    # Defensive: Only compute if all parameters valid
+    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0 or np.isnan(S) or np.isnan(K) or np.isnan(T) or np.isnan(r) or np.isnan(sigma):
         return 0
     d1 = (log(S / K) + (r + sigma ** 2 / 2.) * T) / (sigma * sqrt(T))
     d2 = d1 - sigma * sqrt(T)
@@ -57,7 +59,7 @@ if main_data.empty:
 main_data['Returns'] = main_data['Close'].pct_change()
 main_data['Cumulative'] = (1 + main_data['Returns']).cumprod()
 
-# Strategy Logic
+# --- STRATEGY LOGIC ---
 if strategy == "Put Options":
     if not has_scipy:
         st.error("scipy is required for Black-Scholes option pricing. Please add 'scipy' to your requirements.txt.")
@@ -67,17 +69,24 @@ if strategy == "Put Options":
     annual_volatility = main_data['Returns'].std() * np.sqrt(252)
     risk_free_rate = 0.03
 
-    # Calculate put option price for each day (row-wise, robust)
-    def safe_black_scholes(row):
+    # Row-wise calculation with captured parameters (robust to scoping issues)
+    def safe_black_scholes(
+        row,
+        strike_offset=strike_offset,
+        expiration_days=expiration_days,
+        risk_free_rate=risk_free_rate,
+        annual_volatility=annual_volatility
+    ):
         S = row['Close']
-        K = S * (1 - strike_offset / 100) if pd.notnull(S) else np.nan
+        if pd.isnull(S) or S <= 0:
+            return np.nan
+        K = S * (1 - strike_offset / 100)
         T = expiration_days / 365
         r = risk_free_rate
         sigma = annual_volatility
-        if pd.notnull(S) and S > 0 and K > 0 and T > 0 and sigma > 0:
-            return black_scholes_put(S, K, T, r, sigma)
-        else:
+        if K <= 0 or T <= 0 or sigma <= 0 or np.isnan(K) or np.isnan(T) or np.isnan(sigma):
             return np.nan
+        return black_scholes_put(S, K, T, r, sigma)
 
     main_data['Put_Price'] = main_data.apply(safe_black_scholes, axis=1)
 
@@ -106,8 +115,16 @@ else:
 main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
 
 # Advanced Metrics
-sharpe_ratio = np.sqrt(252) * main_data['Strategy_Returns'].mean() / main_data['Strategy_Returns'].std() if main_data['Strategy_Returns'].std() > 0 else np.nan
-sortino_ratio = np.sqrt(252) * main_data['Strategy_Returns'].mean() / main_data[main_data['Strategy_Returns'] < 0]['Strategy_Returns'].std() if main_data[main_data['Strategy_Returns'] < 0]['Strategy_Returns'].std() > 0 else np.nan
+if main_data['Strategy_Returns'].std() > 0:
+    sharpe_ratio = np.sqrt(252) * main_data['Strategy_Returns'].mean() / main_data['Strategy_Returns'].std()
+else:
+    sharpe_ratio = np.nan
+
+sortino_denom = main_data[main_data['Strategy_Returns'] < 0]['Strategy_Returns'].std()
+if pd.notnull(sortino_denom) and sortino_denom > 0:
+    sortino_ratio = np.sqrt(252) * main_data['Strategy_Returns'].mean() / sortino_denom
+else:
+    sortino_ratio = np.nan
 
 # Visualization
 fig = px.line(
