@@ -197,6 +197,44 @@ if strategy == "Inverse ETFs":
             combined["Strategy_Cumulative"] = (1 + combined["Strategy_Returns"]).cumprod()
             main_data = combined
 
+# --- DYNAMIC ALLOCATION STRATEGY ---
+if strategy == "Dynamic Allocation":
+    st.sidebar.markdown("Hedge shifts when price is below moving average (SMA).")
+    safe_asset = st.sidebar.selectbox("Hedge Asset", ["GLD (Gold)", "SH (Inverse SPY)", "Cash"], index=0)
+    sma_length = st.sidebar.slider("SMA Window (days)", 10, 120, 50)
+    hedge_weight = st.sidebar.slider("Hedge allocation (%)", 10, 100, 50, step=5) / 100
+
+    main_data['SMA'] = main_data['Close'].rolling(window=sma_length).mean()
+    main_data['Below_SMA'] = main_data['Close'] < main_data['SMA']
+
+    # Load hedge asset or use 0 returns for cash
+    if safe_asset.startswith("GLD"):
+        hedge_ticker = "GLD"
+    elif safe_asset.startswith("SH"):
+        hedge_ticker = "SH"
+    else:
+        hedge_ticker = None
+
+    if hedge_ticker:
+        hedge_data = yf.download(hedge_ticker, start=start_date, end=end_date, auto_adjust=True)
+        if hedge_data.empty:
+            st.error(f"Could not download {hedge_ticker} data for the selected range.")
+            hedge_returns = pd.Series(0, index=main_data.index)
+        else:
+            if isinstance(hedge_data.columns, pd.MultiIndex):
+                hedge_data.columns = ['_'.join([str(c) for c in col if c]) for col in hedge_data.columns.values]
+            hedge_close_candidates = [c for c in hedge_data.columns if "close" in str(c).lower()]
+            hedge_col = hedge_close_candidates[0]
+            hedge_returns = hedge_data[hedge_col].pct_change().reindex(main_data.index).fillna(0)
+    else:
+        hedge_returns = pd.Series(0, index=main_data.index)
+
+    # Construct strategy returns
+    main_returns = main_data['Returns'].fillna(0)
+    weights = np.where(main_data['Below_SMA'], 1 - hedge_weight, 1)
+    hedge_alloc = np.where(main_data['Below_SMA'], hedge_weight, 0)
+    main_data['Strategy_Returns'] = weights * main_returns + hedge_alloc * hedge_returns
+
 # --- METRICS, CHARTS, AND DOWNLOAD: Only run if Strategy_Returns exists! ---
 if 'Strategy_Returns' in main_data.columns:
     main_data['Strategy_Cumulative'] = (1 + main_data['Strategy_Returns'].fillna(0)).cumprod()
@@ -236,7 +274,7 @@ if 'Strategy_Returns' in main_data.columns:
     csv = main_data.to_csv().encode('utf-8')
     st.download_button("📥 Download Results CSV", csv, "results.csv")
 else:
-    st.info("This demo version implements Put Options, Gold Allocation, and Inverse ETF strategies in detail. Contact support for full multi-strategy version.")
+    st.info("This demo version implements Put Options, Gold Allocation, Inverse ETF, and Dynamic Allocation strategies in detail. Contact support for full multi-strategy version.")
     st.write(main_data.head())
 
 # --- STRATEGY FOOTER ---
@@ -246,6 +284,7 @@ st.info("""
 - **Put Options:** Protect your portfolio from sharp declines by using options as insurance.
 - **Gold Allocation:** Add gold to reduce drawdowns and diversify risk. Adjust allocation to balance risk and return.
 - **Inverse ETF:** Allocate to inverse ETFs to profit from market downturns and hedge long exposure.
+- **Dynamic Allocation:** Automatically shifts to hedges when a risk signal (e.g., price below SMA) is triggered.
 - **Sharpe & Sortino Ratios:** Evaluate risk-adjusted returns. Sharpe measures overall volatility, while Sortino focuses specifically on downside risk.
 
 *Note: This simulation provides enhanced realism but remains illustrative. Always consider transaction costs, ETF decay, and market conditions for practical applications.*
