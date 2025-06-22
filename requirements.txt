@@ -19,3 +19,4 @@ lxml
 vaderSentiment
 seaborn
 scipy
+fredapi
