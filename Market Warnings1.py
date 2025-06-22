@@ -164,36 +164,36 @@ with tab5:
 
     if uploaded_file:
         try:
-            # Auto-detect correct header row (for World Gold Council/IMF files)
-            df = pd.read_excel(uploaded_file, header=4)
+            # Set correct header row (Excel row 6 → pandas header=5)
+            df = pd.read_excel(uploaded_file, header=5)
             df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
+
+            # Split into left and right halves, rename columns
+            left_cols = df.columns[:5]
+            right_cols = df.columns[5:]
+            df_left = df[left_cols].copy()
+            df_right = df[right_cols].copy()
+
+            df_left.columns = ["Rank", "Country", "Tonnes", "% of reserves", "Holdings as of"]
+            df_right.columns = ["Rank", "Country", "Tonnes", "% of reserves", "Holdings as of"]
+
+            # Drop rows with missing country names
+            df_left = df_left.dropna(subset=["Country"])
+            df_right = df_right.dropna(subset=["Country"])
+
+            # Combine both sides into one
+            df_all = pd.concat([df_left, df_right], ignore_index=True)
+            df_all = df_all.dropna(subset=["Tonnes"]).sort_values("Tonnes", ascending=False)
+
             st.success("File uploaded and parsed successfully!")
+            st.dataframe(df_all, use_container_width=True)
 
-            st.dataframe(df, use_container_width=True)
+            st.subheader("Top 10 Countries by Gold Holdings")
+            st.dataframe(df_all[["Country", "Tonnes"]].head(10), use_container_width=True)
+            st.bar_chart(df_all.set_index("Country")["Tonnes"].head(10))
 
-            # Try to find 'Country' and 'Holdings as of' columns dynamically
-            country_col = [col for col in df.columns if "Country" in str(col) or "Area" in str(col)]
-            holdings_col = [col for col in df.columns if "Holdings as of" in str(col)]
-            percent_reserves_col = [col for col in df.columns if "% of reserves" in str(col)]
-
-            # Display Top 10 Gold Holders
-            if country_col and holdings_col:
-                st.subheader("Top 10 Countries by Gold Holdings")
-                df_holdings = df[[country_col[0], holdings_col[0]]].copy()
-                df_holdings = df_holdings.dropna().sort_values(holdings_col[0], ascending=False)
-                st.dataframe(df_holdings.head(10), use_container_width=True)
-                st.bar_chart(df_holdings.set_index(country_col[0]).head(10))
-
-            # Display latest changes (if such columns exist)
-            purchase_columns = [c for c in df.columns if "change" in str(c).lower() or "purchases" in str(c).lower()]
-            if country_col and purchase_columns:
-                st.subheader("Gold Purchases / Changes")
-                st.dataframe(df[[country_col[0]] + purchase_columns], use_container_width=True)
-
-            # Display percent of reserves if available
-            if country_col and percent_reserves_col:
-                st.subheader("Gold as % of Reserves")
-                st.dataframe(df[[country_col[0]] + percent_reserves_col], use_container_width=True)
+            st.subheader("Gold as % of Reserves")
+            st.dataframe(df_all[["Country", "% of reserves"]].head(10), use_container_width=True)
 
         except Exception as e:
             st.error(f"Error reading or parsing file: {e}")
