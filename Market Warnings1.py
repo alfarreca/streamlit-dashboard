@@ -3,7 +3,6 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import yfinance as yf
-# from fredapi import Fred  # Remove if not installed
 
 # -- Optional: Real-time Data Functions
 def fetch_yahoo_price(ticker, fallback=None):
@@ -159,41 +158,51 @@ with tab5:
     st.header("📤 Central Bank Gold Holdings & Purchases Upload")
 
     uploaded_file = st.file_uploader(
-        "Upload XLSX file from World Gold Council or other source",
+        "Upload XLSX file from World Gold Council or IMF (IFS)",
         type=["xlsx"]
     )
 
     if uploaded_file:
         try:
-            df = pd.read_excel(uploaded_file)
-            st.success("File uploaded successfully!")
+            # Auto-detect correct header row (for World Gold Council/IMF files)
+            df = pd.read_excel(uploaded_file, header=4)
+            df = df.dropna(axis=0, how='all').dropna(axis=1, how='all')
+            st.success("File uploaded and parsed successfully!")
+
             st.dataframe(df, use_container_width=True)
 
-            # Example: Extract top 10 countries by latest gold holdings if columns match
-            if "Latest Holdings (tonnes)" in df.columns:
-                st.subheader("Top 10 Countries by Latest Holdings")
-                st.dataframe(df[["Country", "Latest Holdings (tonnes)"]].sort_values(
-                    "Latest Holdings (tonnes)", ascending=False).head(10),
-                    use_container_width=True
-                )
+            # Try to find 'Country' and 'Holdings as of' columns dynamically
+            country_col = [col for col in df.columns if "Country" in str(col) or "Area" in str(col)]
+            holdings_col = [col for col in df.columns if "Holdings as of" in str(col)]
+            percent_reserves_col = [col for col in df.columns if "% of reserves" in str(col)]
 
-            # Purchases/Changes if available
-            purchase_columns = [c for c in df.columns if "change" in c.lower() or "purchase" in c.lower()]
-            if purchase_columns:
-                st.subheader("Gold Purchases/Changes")
-                st.dataframe(df[["Country"] + purchase_columns], use_container_width=True)
+            # Display Top 10 Gold Holders
+            if country_col and holdings_col:
+                st.subheader("Top 10 Countries by Gold Holdings")
+                df_holdings = df[[country_col[0], holdings_col[0]]].copy()
+                df_holdings = df_holdings.dropna().sort_values(holdings_col[0], ascending=False)
+                st.dataframe(df_holdings.head(10), use_container_width=True)
+                st.bar_chart(df_holdings.set_index(country_col[0]).head(10))
 
-            # Example: Bar chart for latest holdings
-            if "Latest Holdings (tonnes)" in df.columns:
-                st.bar_chart(df.set_index("Country")["Latest Holdings (tonnes)"].sort_values(ascending=False).head(10))
+            # Display latest changes (if such columns exist)
+            purchase_columns = [c for c in df.columns if "change" in str(c).lower() or "purchases" in str(c).lower()]
+            if country_col and purchase_columns:
+                st.subheader("Gold Purchases / Changes")
+                st.dataframe(df[[country_col[0]] + purchase_columns], use_container_width=True)
+
+            # Display percent of reserves if available
+            if country_col and percent_reserves_col:
+                st.subheader("Gold as % of Reserves")
+                st.dataframe(df[[country_col[0]] + percent_reserves_col], use_container_width=True)
+
         except Exception as e:
-            st.error(f"Error reading file: {e}")
+            st.error(f"Error reading or parsing file: {e}")
     else:
         st.info("Please upload a gold statistics XLSX file to see central bank holdings and purchases.")
 
 # ---- Footer ----
 st.markdown("---")
 st.caption("""
-**Data Sources:** DoubleLine Capital, Bloomberg, Yahoo Finance, World Gold Council  
+**Data Sources:** DoubleLine Capital, Bloomberg, Yahoo Finance, World Gold Council, IMF  
 **Disclaimer:** Not investment advice. For informational purposes only.
 """)
