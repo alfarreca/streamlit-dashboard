@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 import yfinance as yf
+import re
 
 # --- Real-time Data Functions
 def fetch_yahoo_price(ticker, fallback=None):
@@ -202,12 +203,25 @@ with tab5:
     else:
         st.info("Please upload a gold statistics XLSX file to see central bank holdings and purchases.")
 
-# --- GOLD HOLDINGS HISTORY TAB (auto-header detection) ---
+# --- GOLD HOLDINGS HISTORY TAB (robust date detection) ---
 def read_with_auto_header(file):
     preview = pd.read_excel(file, header=None, nrows=15)
     header_row = preview.notna().sum(axis=1).idxmax()  # row with most non-NA
     df = pd.read_excel(file, header=header_row)
     return df
+
+def is_date_string(s):
+    # Accepts YYYY-MM, YYYY-MM-DD, 'Sep 2023', etc.
+    if isinstance(s, str):
+        # ISO, dash, or slash
+        if re.match(r"\d{4}[-/]\d{2}([-/]\d{2})?", s):
+            return True
+        # Month name + year
+        if re.match(r"[A-Za-z]{3,9}\s?\d{4}", s):
+            return True
+    if isinstance(s, pd.Timestamp):
+        return True
+    return False
 
 with tab6:
     st.header("📈 Gold Holdings History (Historical)")
@@ -223,8 +237,8 @@ with tab6:
             st.success("Historical file uploaded and parsed!")
             st.dataframe(df_hist)
 
-            # Detect if "wide" format: first column is country, rest are dates
-            date_cols = [col for col in df_hist.columns if isinstance(col, str) and ("/" in col or "-" in col)]
+            # Robust date detection (for wide format)
+            date_cols = [col for col in df_hist.columns if is_date_string(col)]
             country_col = df_hist.columns[0]
 
             if date_cols:
