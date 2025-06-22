@@ -203,7 +203,7 @@ with tab5:
     else:
         st.info("Please upload a gold statistics XLSX file to see central bank holdings and purchases.")
 
-# --- GOLD HOLDINGS HISTORY TAB (robust date detection) ---
+# --- GOLD HOLDINGS HISTORY TAB (robust date detection + global sum chart) ---
 def read_with_auto_header(file):
     preview = pd.read_excel(file, header=None, nrows=15)
     header_row = preview.notna().sum(axis=1).idxmax()  # row with most non-NA
@@ -237,12 +237,23 @@ with tab6:
             st.success("Historical file uploaded and parsed!")
             st.dataframe(df_hist)
 
-            # Robust date detection (for wide format)
             date_cols = [col for col in df_hist.columns if is_date_string(col)]
             country_col = df_hist.columns[0]
 
             if date_cols:
-                st.info("Detected wide format. Select a country to chart historical gold holdings.")
+                # --- GLOBAL TOTAL CHART ---
+                st.subheader("🌍 Total Global Gold Holdings Over Time")
+                global_totals = df_hist[date_cols].apply(pd.to_numeric, errors="coerce").sum(axis=0)
+                total_chart = pd.DataFrame({
+                    "Date": pd.to_datetime(date_cols, errors="coerce"),
+                    "Global Tonnes": global_totals.values
+                }).sort_values("Date")
+                st.line_chart(total_chart.set_index("Date")["Global Tonnes"])
+                st.dataframe(total_chart)
+
+                # --- Optional: Country Picker & Single Country Chart ---
+                st.markdown("---")
+                st.subheader("By Country (optional)")
                 countries = df_hist[country_col].dropna().unique().tolist()
                 selected_country = st.selectbox("Select country", countries)
                 country_row = df_hist[df_hist[country_col] == selected_country].iloc[0]
