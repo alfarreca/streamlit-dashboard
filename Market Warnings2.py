@@ -202,7 +202,13 @@ with tab5:
     else:
         st.info("Please upload a gold statistics XLSX file to see central bank holdings and purchases.")
 
-# --- GOLD HOLDINGS HISTORY TAB (Historical XLSX) ---
+# --- GOLD HOLDINGS HISTORY TAB (auto-header detection) ---
+def read_with_auto_header(file):
+    preview = pd.read_excel(file, header=None, nrows=15)
+    header_row = preview.notna().sum(axis=1).idxmax()  # row with most non-NA
+    df = pd.read_excel(file, header=header_row)
+    return df
+
 with tab6:
     st.header("📈 Gold Holdings History (Historical)")
 
@@ -213,8 +219,9 @@ with tab6:
 
     if historical_file:
         try:
-            df_hist = pd.read_excel(historical_file)
-            st.success("Historical file uploaded!")
+            df_hist = read_with_auto_header(historical_file)
+            st.success("Historical file uploaded and parsed!")
+            st.dataframe(df_hist)
 
             # Detect if "wide" format: first column is country, rest are dates
             date_cols = [col for col in df_hist.columns if isinstance(col, str) and ("/" in col or "-" in col)]
@@ -229,7 +236,6 @@ with tab6:
                     "Date": date_cols,
                     "Tonnes": [country_row[col] for col in date_cols]
                 })
-                # Convert dates to datetime, tonnes to float
                 chart_data["Date"] = pd.to_datetime(chart_data["Date"], errors="coerce")
                 chart_data["Tonnes"] = pd.to_numeric(chart_data["Tonnes"], errors="coerce")
                 chart_data = chart_data.dropna(subset=["Tonnes"])
