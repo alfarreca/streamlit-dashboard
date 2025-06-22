@@ -203,7 +203,7 @@ with tab5:
     else:
         st.info("Please upload a gold statistics XLSX file to see central bank holdings and purchases.")
 
-# --- GOLD HOLDINGS HISTORY TAB (robust date detection + global sum chart) ---
+# --- GOLD HOLDINGS HISTORY TAB (now with cumulative stock chart!) ---
 def read_with_auto_header(file):
     preview = pd.read_excel(file, header=None, nrows=15)
     header_row = preview.notna().sum(axis=1).idxmax()  # row with most non-NA
@@ -236,12 +236,16 @@ with tab6:
 
             if date_cols:
                 st.subheader("🌍 Total Global Gold Holdings Over Time")
-                global_totals = df_hist[date_cols].apply(pd.to_numeric, errors="coerce").sum(axis=0)
+
+                # Cumulative sum: global central bank gold stock
+                global_flows = df_hist[date_cols].apply(pd.to_numeric, errors="coerce").sum(axis=0)
                 total_chart = pd.DataFrame({
                     "Date": pd.to_datetime(date_cols, errors="coerce"),
-                    "Global Tonnes": global_totals.values
+                    "Global Tonnes": global_flows.values
                 }).sort_values("Date")
-                st.line_chart(total_chart.set_index("Date")["Global Tonnes"])
+                initial_holdings = 32000  # <-- Set this to actual world total at your first date
+                total_chart["Cumulative Tonnes"] = total_chart["Global Tonnes"].cumsum() + initial_holdings
+                st.line_chart(total_chart.set_index("Date")["Cumulative Tonnes"])
                 st.dataframe(total_chart)
 
                 st.markdown("---")
