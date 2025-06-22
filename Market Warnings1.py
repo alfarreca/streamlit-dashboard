@@ -181,8 +181,9 @@ with tab5:
             df_left = df_left.dropna(subset=["Country"])
             df_right = df_right.dropna(subset=["Country"])
 
-            # Combine both sides into one
+            # Combine both sides into one, convert Tonnes to numeric for sorting
             df_all = pd.concat([df_left, df_right], ignore_index=True)
+            df_all["Tonnes"] = pd.to_numeric(df_all["Tonnes"], errors='coerce')
             df_all = df_all.dropna(subset=["Tonnes"]).sort_values("Tonnes", ascending=False)
 
             st.success("File uploaded and parsed successfully!")
