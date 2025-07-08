@@ -259,7 +259,6 @@ def main():
                 st.metric("Intrinsic Value", "N/A")
             
             if 'Margin of Safety' in latest_result:
-                safety_color = 'green' if latest_result['Margin of Safety'] > 0 else 'red'
                 st.metric(
                     "Margin of Safety", 
                     f"{latest_result['Margin of Safety']:.1%}",
@@ -290,12 +289,13 @@ def main():
             st.subheader("📈 Price History (1 Year)")
             st.line_chart(hist['Close'])
         
-        # Download button for current analysis
+        # Download button for current analysis (ValueError-proof)
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Valuation')
             if hist is not None:
-                hist.to_excel(writer, sheet_name='Price_History')
+                hist_reset = hist.reset_index()
+                hist_reset.to_excel(writer, index=False, sheet_name='Price_History')
         st.download_button(
             "💾 Download Current Analysis",
             data=output.getvalue(),
