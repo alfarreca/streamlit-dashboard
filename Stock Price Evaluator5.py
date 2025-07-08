@@ -289,13 +289,17 @@ def main():
             st.subheader("📈 Price History (1 Year)")
             st.line_chart(hist['Close'])
         
-        # Download button for current analysis (ValueError-proof)
+        # Download button for current analysis (bulletproof block)
         output = BytesIO()
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Valuation')
             if hist is not None:
                 hist_reset = hist.reset_index()
-                hist_reset.to_excel(writer, index=False, sheet_name='Price_History')
+                # Bulletproof: stringify all datatypes that Excel can't handle
+                hist_export = hist_reset.applymap(
+                    lambda x: str(x) if pd.isna(x) or isinstance(x, (pd.Timestamp, pd.Timedelta)) else x
+                )
+                hist_export.to_excel(writer, index=False, sheet_name='Price_History')
         st.download_button(
             "💾 Download Current Analysis",
             data=output.getvalue(),
