@@ -244,8 +244,19 @@ def main():
         col1, col2 = st.columns([1, 2])
         
         with col1:
-            st.metric("Current Price", f"€{latest_result['Current Price']:.2f}")
-            st.metric("Intrinsic Value", f"€{latest_result.get('Intrinsic Value', 'N/A'):.2f}")
+            # --- Current Price robust handling
+            cp = latest_result.get('Current Price')
+            if cp is not None and isinstance(cp, (int, float)) and not np.isnan(cp):
+                st.metric("Current Price", f"€{cp:.2f}")
+            else:
+                st.metric("Current Price", "N/A")
+
+            # --- Intrinsic Value robust handling
+            iv = latest_result.get('Intrinsic Value')
+            if iv is not None and isinstance(iv, (int, float)) and not np.isnan(iv):
+                st.metric("Intrinsic Value", f"€{iv:.2f}")
+            else:
+                st.metric("Intrinsic Value", "N/A")
             
             if 'Margin of Safety' in latest_result:
                 safety_color = 'green' if latest_result['Margin of Safety'] > 0 else 'red'
