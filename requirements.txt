@@ -20,3 +20,6 @@ vaderSentiment
 seaborn
 scipy
 fredapi
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
