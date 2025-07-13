@@ -1,8 +1,6 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-
-# Google Sheets integration
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -10,10 +8,9 @@ st.set_page_config(page_title="Stock Technical Analysis Dashboard", layout="wide
 
 st.title("📈 Stock Technical Analysis Dashboard")
 
-# ---------- Google Sheets Integration (Enhanced) ----------
+# ---------- Enhanced Google Sheets Integration ----------
 def get_gsheet_dataframe(sheet_name, worksheet_name=None):
     try:
-        # Use Streamlit secrets if available, else local credentials
         if "google_service_account" in st.secrets:
             creds_dict = dict(st.secrets["google_service_account"])
             creds = Credentials.from_service_account_info(creds_dict, scopes=[
@@ -47,8 +44,7 @@ def get_gsheet_dataframe(sheet_name, worksheet_name=None):
             st.error("Worksheet is empty or contains no valid rows.")
             return pd.DataFrame()
 
-        df = pd.DataFrame(data)
-        return df
+        return pd.DataFrame(data)
 
     except Exception as e:
         st.error(f"Error accessing Google Sheet: {str(e)}")
@@ -81,6 +77,13 @@ if SOURCE == "Google Sheet":
 
     if st.sidebar.button("Load from Google Sheets"):
         df = get_gsheet_dataframe(sheet_name, worksheet_name)
+
+        if df is not None and not df.empty:
+            if "Symbol" in df.columns:
+                df.rename(columns={"Symbol": "YFinance_Symbol"}, inplace=True)
+            else:
+                st.error("Your Google Sheet must contain a column named 'Symbol'.")
+                df = pd.DataFrame()
 
 elif SOURCE == "Upload Excel":
     uploaded_file = st.sidebar.file_uploader("Upload an Excel file", type=["xlsx"])
@@ -116,7 +119,6 @@ if df is not None and not df.empty:
 
         selected_ticker = st.selectbox("Select a valid ticker for analysis", valid_df["YFinance_Symbol"])
 
-        # Download and plot data for selected ticker
         data = yf.download(selected_ticker, period="6mo")
         if not data.empty:
             st.subheader(f"{selected_ticker} Closing Prices (6 Months)")
