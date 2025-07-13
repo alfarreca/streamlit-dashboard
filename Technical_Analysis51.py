@@ -109,8 +109,8 @@ def calculate_indicators(df):
     if df is None or df.empty:
         return df
     df = df.copy()
-    # Find Close column
     close_col = [c for c in df.columns if c.startswith('Close')][0]
+    vol_col = [c for c in df.columns if c.startswith('Volume')][0]
     close_prices = df[close_col].squeeze()
     try:
         if show_sma:
@@ -129,13 +129,14 @@ def calculate_indicators(df):
             bb = ta.volatility.BollingerBands(close=close_prices)
             df['BB_Upper'] = bb.bollinger_hband()
             df['BB_Lower'] = bb.bollinger_lband()
+        # --- Volume SMA 20 ---
+        df['Volume_SMA_20'] = df[vol_col].rolling(window=20).mean()
         return df
     except Exception as e:
         st.error(f"Error calculating indicators: {str(e)}")
         return df
 
 def plot_single_price_chart(stock_data, selected_display):
-    # Find columns
     close_col = [c for c in stock_data.columns if c.startswith('Close')][0]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data[close_col], mode='lines', name='Close Price'))
@@ -157,6 +158,26 @@ def plot_single_price_chart(stock_data, selected_display):
         title=f"{selected_display} Price Chart",
         xaxis_title="Date", yaxis_title="Price", legend_title="Legend",
         template="plotly_white", hovermode="x unified"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+def plot_volume_chart(stock_data, selected_display):
+    vol_col = [c for c in stock_data.columns if c.startswith('Volume')][0]
+    vol_sma_col = 'Volume_SMA_20'
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=stock_data.index, y=stock_data[vol_col],
+        name='Volume', marker_color='rgba(31, 119, 180, 0.3)'
+    ))
+    if vol_sma_col in stock_data.columns:
+        fig.add_trace(go.Scatter(
+            x=stock_data.index, y=stock_data[vol_sma_col],
+            name='Volume SMA 20', line=dict(color='orange', width=2)
+        ))
+    fig.update_layout(
+        title=f"{selected_display} Volume (w/ 20-day SMA)",
+        xaxis_title="Date", yaxis_title="Volume",
+        legend_title="Legend", template="plotly_white"
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -275,6 +296,7 @@ def main():
                 display_single_metrics(stock_data, selected_display, base_symbol)
                 if not stock_data.empty and stock_data[[c for c in stock_data.columns if c.startswith('Close')][0]].notna().any():
                     plot_single_price_chart(stock_data, selected_display)
+                    plot_volume_chart(stock_data, selected_display)
                 else:
                     st.warning("No valid price data found for this period and ticker.")
                 # --- Technical Indicator Charts ---
