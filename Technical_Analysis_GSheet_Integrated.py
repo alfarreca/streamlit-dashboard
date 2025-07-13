@@ -1,38 +1,70 @@
 import streamlit as st
 import pandas as pd
-import gspread
+import yfinance as yf
 from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+import plotly.graph_objects as go
+from datetime import datetime, timedelta
 
-st.set_page_config(layout="wide")
+# ────────────────────────────────
+# Setup Constants
+# ────────────────────────────────
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+SERVICE_ACCOUNT_FILE = "credentials/credentials.json"  # relative path to service account file
+GOOGLE_SHEET_ID = "1M9Vb7SnSwAGw3Uaqrje8m7mnQHjdqKXQoLkpZiDPt8"
+SHEET_NAME = "Master_Watchlist"
 
-# ---- Load from Google Sheets ----
+# ────────────────────────────────
+# Load Watchlist from Google Sheets
+# ────────────────────────────────
 @st.cache_data(show_spinner=True)
-def load_watchlist_from_gsheet(sheet_id: str, worksheet_name: str = None):
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds = Credentials.from_service_account_file(
-        "streamlit-dashboard/credentials/credentials.json",
-        scopes=scope
+def load_watchlist_from_gsheet(sheet_id, sheet_name):
+    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    service = build("sheets", "v4", credentials=creds)
+    sheet = service.spreadsheets()
+    result = sheet.values().get(spreadsheetId=sheet_id, range=sheet_name).execute()
+    values = result.get("values", [])
+    if not values:
+        return pd.DataFrame()
+    headers = values[0]
+    rows = values[1:]
+    return pd.DataFrame(rows, columns=headers)
+
+# ────────────────────────────────
+# Plot Price Chart for Ticker
+# ────────────────────────────────
+def plot_price_chart(ticker):
+    df = yf.download(ticker, period="6mo", interval="1d", auto_adjust=True)
+    if df.empty:
+        st.warning(f"No data found for {ticker}")
+        return
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df.index, y=df["Close"], mode="lines", name=ticker))
+    fig.update_layout(
+        title=f"{ticker} – Daily Close (6mo)",
+        xaxis_title="Date",
+        yaxis_title="Price (USD)",
+        height=400
     )
-    client = gspread.authorize(creds)
-    sheet = client.open_by_key(sheet_id)
-    worksheet = sheet.worksheet(worksheet_name) if worksheet_name else sheet.sheet1
-    data = worksheet.get_all_records()
-    return pd.DataFrame(data)
+    st.plotly_chart(fig, use_container_width=True)
 
-# ---- Set your Sheet ID ----
-GOOGLE_SHEET_ID = "1M9Vb7SnSwAGw3Uaqrje8m7nmQHjdqKX0qLkpZiDPt8"
+# ────────────────────────────────
+# Streamlit App
+# ────────────────────────────────
+st.set_page_config(page_title="GSheet Technical Dashboard", layout="wide")
+st.title("📈 Stock Technical Analysis Dashboard (Google Sheets)")
 
-# ---- Load the Watchlist ----
-st.title("📊 Master Watchlist Dashboard (Google Sheet Powered)")
-with st.spinner("Loading your Google Sheet..."):
-    df = load_watchlist_from_gsheet(GOOGLE_SHEET_ID)
-    st.success("Loaded watchlist successfully!")
+with st.spinner("🔄 Loading watchlist from Google Sheets..."):
+    df_watchlist = load_watchlist_from_gsheet(GOOGLE_SHEET_ID, SHEET_NAME)
 
-# ---- Preview Table ----
-st.subheader("📄 Watchlist Preview")
-st.dataframe(df, use_container_width=True)
+if df_watchlist.empty or "Symbol" not in df_watchlist.columns:
+    st.error("❌ Failed to load watchlist or missing 'Symbol' column.")
+    st.stop()
+
+tickers = df_watchlist["Symbol"].dropna().unique().tolist()
+
+selected = st.multiselect("Select Tickers", options=tickers, default=tickers[:5])
+
+for ticker in selected:
+    st.subheader(f"📊 {ticker}")
+    plot_price_chart(ticker)
