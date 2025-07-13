@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "wallstreet-465817",
+  "private_key_id": "755c77169fbba81d2d953b3a5ae186acc9435a94",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQCIj6aLVki2fKRJ\nugpbslDaeqbZEDSE1iPHA8Lz1TW9tyihnhuHPi9uAZk6Xen7ggQrgDmakfpgy5Lq\nlgeL02lUj81rZGc9l5ST/8Ysl0RlM/aZF90N21EWf4zcT69S6H9UBbkPQRJ64wZj\nV3K+qpj8p02jO/bSMTMBHb/Wq79fCXPKIAKhAWm8fUEyMBdA4H8fMkJ+Ixy/Swqn\nhOu534MCco56Zql2cYwLukF45RmunPc1D+3F/+FMJ8Wsz26QbhiwiFc0c70TVp0q\nA7atZnx13Zz3CXFYyrfGaA9TL9ceApQ1u0QElQEx+wpfApRPdzony68ilDNtjbmi\nfqRZ8aSbAgMBAAECggEAM/H4lu3mUMwOriC/SewFR2X6S30XjSPrjgtHP/rtK1Id\neYSr0gD8h6rB/2qz00C8l1N6FerLQ8CMDQGusyhi25Crwdr6Tnp3QOi9GD8d/CUM\n+2URZ/Dx4k34ZeFFvpLDxFE8+Kl2/xmWV3lvI0m/UfPN23a2x3OBhD4tt9myvNJM\nYxHvUXDwMWQT0IngtqXVUiS7lTYKCWklGoAHqznVIvnQSuwJRoDtzu61bNkLYyrU\nd7Lje1QBw87BqmEPw9T7oJ2vsMmzPi4M8PgzBOggzMyybJWG/xGA0DLPVDrG8BiA\nPRdJFyDWH2eiiZZZFBMqvvzyoekqvxA3I4iZpiu9WQKBgQC7qxaJ62NNH08NFXPX\nCx1WZBCGks6rCNTamTey1y4aspfAf7f8jzUfj51oXboLNeeplNnEbK2/XQDva4Y3\ngyoanDNOsPvmtQSiKS3fjGaM5vhWrPIc8wwPtKYT5ZyRoM6Oo6tZNaT9h7e6r2cj\nX36JeE7ysZEdje/ozNoh0YUz9QKBgQC6SMR/9KMI0mm9+C4nX6+Lmkz69lT/BafV\ndwZ0pkD6GE8uqocy3oaS/t/6o7Zi2d9w/MYvSEI8JJuNKGA0yy+lAkFVdz5pcdQh\ncMctFKo7epae6M/UbWE/2cYtQ42CO4Rigrw2Hj8/pRG42aZ74+cUlRP+mMv+sZHm\nxaVcQHasTwKBgC/+9Je3XMEnpbcJ6oNv80PZ+aQBPdveOVni36zcfY0Uad0wjOSJ\n16NHvpEnj2I4mhPz3rHuvYz4gzm4PS5LXGRL2I9ikjoRx6qVb4cByGR22cKJHq6q\ntkX6BJOIIL/Z6ZnvX+5D2vuAT0vueilAzgLogwBsy1lMqLPYWF1X0YJVAoGALetg\nHNaWFcegb0atQeFxaW1IyphMTWz8eT9U5Q5SeBPj+PHqT9zQuY2Acs1GWUmxra1x\nwRgD08WGXp50UK9BeGB88G9rgByiGPgu8OrmJ7FJTbS//nJUBaROGLxNNqwrLwlh\nEcoU90BehP2J74I3ZTh2bE0IBCmLeKKB56KwXjsCgYEAtHec/Dm09ivHS0Em7PRW\nMiWOoE+ZmQcqzEVN6Pith6jlzwejaifgjZsevKsWkodAhNxoi7ojXdBMoiu8pCGy\n5YLjOLUQ6tzGp5r4mHNQlk/u1p+Qft3vBvQVYHJeSklQ93tfRrZceJHIPGgxhcu6\ng16vc9lEh7ylWjXBuxLpsHY=\n-----END PRIVATE KEY-----\n",
+  "client_email": "report-bot@wallstreet-465817.iam.gserviceaccount.com",
+  "client_id": "109434791226386237110",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/report-bot%40wallstreet-465817.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
